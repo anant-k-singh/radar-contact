@@ -1,0 +1,74 @@
+/** Canvas plumbing: sizing, DPR, layer order, and hit testing. */
+import type { Aircraft } from '../sim/aircraft.js';
+import type { World } from '../sim/world.js';
+import { mapLayer } from './mapLayer.js';
+import { drawMessages, drawStatusLine } from './messageLog.js';
+import { createProjection, screenX, screenY, type Projection } from './project.js';
+import { drawTraffic, type Rect } from './trafficLayer.js';
+
+const HIT_RADIUS_PX = 15;
+
+export interface Scope {
+  render(world: World): void;
+  /** Aircraft under a click, or null. Blips and data blocks are both clickable. */
+  pick(world: World, clientX: number, clientY: number): Aircraft | null;
+}
+
+export function createScope(canvas: HTMLCanvasElement): Scope {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('2D canvas context unavailable');
+
+  let projection: Projection = createProjection(1, 1);
+  let blocks = new Map<number, Rect>();
+
+  const resize = (): void => {
+    const dpr = window.devicePixelRatio || 1;
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    const pixelWidth = Math.max(1, Math.round(width * dpr));
+    const pixelHeight = Math.max(1, Math.round(height * dpr));
+    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+    }
+    projection = createProjection(width, height);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  };
+
+  return {
+    render(world: World): void {
+      resize();
+      const dpr = window.devicePixelRatio || 1;
+      ctx.drawImage(mapLayer(projection, dpr), 0, 0, projection.width, projection.height);
+      blocks = drawTraffic(ctx, world, projection);
+      drawStatusLine(ctx, world, projection);
+      drawMessages(ctx, world, projection);
+    },
+
+    pick(world: World, clientX: number, clientY: number): Aircraft | null {
+      const rect = canvas.getBoundingClientRect();
+      const px = clientX - rect.left;
+      const py = clientY - rect.top;
+
+      let best: Aircraft | null = null;
+      let bestDistance = HIT_RADIUS_PX;
+      for (const ac of world.aircraft) {
+        const distance = Math.hypot(screenX(projection, ac.x) - px, screenY(projection, ac.y) - py);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          best = ac;
+        }
+      }
+      if (best) return best;
+
+      for (const ac of world.aircraft) {
+        const block = blocks.get(ac.id);
+        if (!block) continue;
+        if (px >= block.x && px <= block.x + block.w && py >= block.y && py <= block.y + block.h) {
+          return ac;
+        }
+      }
+      return null;
+    },
+  };
+}

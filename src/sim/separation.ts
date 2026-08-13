@@ -1,0 +1,168 @@
+/**
+ * Separation monitoring (docs §9). IF ATC manual 6.2.2: no closer than 3 NM
+ * laterally *or* 1000 ft vertically — so a violation needs both to be breached.
+ */
+import type { Aircraft, AlertLevel } from './aircraft.js';
+import { groundSpeed } from './dynamics.js';
+import { finalGeometry } from './ils.js';
+import {
+  ALERT_RED_HORIZ_NM,
+  ALERT_RED_VERT_FT,
+  CONFLICT_PREDICT_S,
+  IN_TRAIL_MIN_NM,
+  SEP_HORIZ_NM,
+  SEP_VERT_FT,
+} from './constants.js';
+import { headingVector, type Nm } from './units.js';
+
+export interface ConflictPair {
+  a: Aircraft;
+  b: Aircraft;
+  horizNm: Nm;
+  vertFt: number;
+  level: Exclude<AlertLevel, 'none'>;
+  /** <1.5 NM and <500 ft — the audible tier of IF 6.2.4. */
+  red: boolean;
+  key: string;
+}
+
+export interface SeparationReport {
+  pairs: ConflictPair[];
+  alerts: Map<number, AlertLevel>;
+  /** Distance to the aircraft ahead on final, per aircraft id. */
+  inTrail: Map<number, Nm>;
+  /** The aircraft ahead on final, per aircraft id. */
+  inTrailLeader: Map<number, Aircraft>;
+}
+
+const pairKey = (a: Aircraft, b: Aircraft): string =>
+  a.id < b.id ? `${a.id}-${b.id}` : `${b.id}-${a.id}`;
+
+/** True while the aircraft is tracking the final approach course. */
+function onFinal(ac: Aircraft): boolean {
+  return ac.phase === 'loc' || ac.phase === 'gs';
+}
+
+/**
+ * In-trail spacing on final. Aircraft on the same localizer are not laterally
+ * separated in the usual sense, so they are measured nose-to-tail instead.
+ */
+export function inTrailSpacing(aircraft: readonly Aircraft[]): {
+  spacing: Map<number, Nm>;
+  leader: Map<number, Aircraft>;
+} {
+  const spacing = new Map<number, Nm>();
+  const leader = new Map<number, Aircraft>();
+  const queue = aircraft
+    .filter((ac) => onFinal(ac))
+    .map((ac) => ({ ac, along: finalGeometry(ac).alongNm }))
+    .filter((entry) => entry.along > 0)
+    .sort((p, q) => p.along - q.along);
+
+  for (let i = 1; i < queue.length; i += 1) {
+    spacing.set(queue[i]!.ac.id, queue[i]!.along - queue[i - 1]!.along);
+    leader.set(queue[i]!.ac.id, queue[i - 1]!.ac);
+  }
+  return { spacing, leader };
+}
+
+function horizontalDistance(a: Aircraft, b: Aircraft): Nm {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+/** Closest approach within the prediction window, by straight-line extrapolation. */
+function predictedMinima(a: Aircraft, b: Aircraft): { horizNm: Nm; vertFt: number } {
+  const va = headingVector(a.headingDeg);
+  const vb = headingVector(b.headingDeg);
+  const sa = groundSpeed(a) / 3600;
+  const sb = groundSpeed(b) / 3600;
+
+  let bestHoriz = Number.POSITIVE_INFINITY;
+  let bestVert = Number.POSITIVE_INFINITY;
+  for (let t = 5; t <= CONFLICT_PREDICT_S; t += 5) {
+    const ax = a.x + va.x * sa * t;
+    const ay = a.y + va.y * sa * t;
+    const bx = b.x + vb.x * sb * t;
+    const by = b.y + vb.y * sb * t;
+    const horiz = Math.hypot(ax - bx, ay - by);
+    const vert = Math.abs(
+      a.altitudeFt + (a.vsFpm * t) / 60 - (b.altitudeFt + (b.vsFpm * t) / 60),
+    );
+    if (horiz < bestHoriz) bestHoriz = horiz;
+    if (vert < bestVert) bestVert = vert;
+  }
+  return { horizNm: bestHoriz, vertFt: bestVert };
+}
+
+export function analyzeSeparation(aircraft: readonly Aircraft[]): SeparationReport {
+  const alerts = new Map<number, AlertLevel>();
+  const pairs: ConflictPair[] = [];
+  const { spacing: inTrail, leader: inTrailLeader } = inTrailSpacing(aircraft);
+
+  const raise = (ac: Aircraft, level: AlertLevel): void => {
+    const current = alerts.get(ac.id);
+    if (level === 'violation' || current === undefined || current === 'none') {
+      if (current !== 'violation') alerts.set(ac.id, level);
+    }
+  };
+
+  for (let i = 0; i < aircraft.length; i += 1) {
+    for (let j = i + 1; j < aircraft.length; j += 1) {
+      const a = aircraft[i]!;
+      const b = aircraft[j]!;
+
+      // Both on the localizer: in-trail spacing applies instead (IF 6.11.7).
+      if (onFinal(a) && onFinal(b)) continue;
+
+      const horizNm = horizontalDistance(a, b);
+      const vertFt = Math.abs(a.altitudeFt - b.altitudeFt);
+
+      if (horizNm < SEP_HORIZ_NM && vertFt < SEP_VERT_FT) {
+        const red = horizNm < ALERT_RED_HORIZ_NM && vertFt < ALERT_RED_VERT_FT;
+        pairs.push({ a, b, horizNm, vertFt, level: 'violation', red, key: pairKey(a, b) });
+        raise(a, 'violation');
+        raise(b, 'violation');
+        continue;
+      }
+
+      // Nothing 20 NM or 6000 ft apart can breach the minima inside the
+      // prediction window — skip the extrapolation for the vast majority of pairs.
+      if (horizNm > 20 || vertFt > 6000) continue;
+
+      const predicted = predictedMinima(a, b);
+      if (predicted.horizNm < SEP_HORIZ_NM && predicted.vertFt < SEP_VERT_FT) {
+        pairs.push({
+          a,
+          b,
+          horizNm,
+          vertFt,
+          level: 'warning',
+          red: false,
+          key: pairKey(a, b),
+        });
+        raise(a, 'warning');
+        raise(b, 'warning');
+      }
+    }
+  }
+
+  // In-trail busts on final.
+  for (const ac of aircraft) {
+    const spacing = inTrail.get(ac.id);
+    const leader = inTrailLeader.get(ac.id);
+    if (spacing === undefined || leader === undefined || spacing >= IN_TRAIL_MIN_NM) continue;
+    raise(ac, 'violation');
+    raise(leader, 'violation');
+    pairs.push({
+      a: leader,
+      b: ac,
+      horizNm: spacing,
+      vertFt: Math.abs(leader.altitudeFt - ac.altitudeFt),
+      level: 'violation',
+      red: spacing < ALERT_RED_HORIZ_NM,
+      key: pairKey(leader, ac),
+    });
+  }
+
+  return { pairs, alerts, inTrail, inTrailLeader };
+}

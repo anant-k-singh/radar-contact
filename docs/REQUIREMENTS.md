@@ -1,6 +1,6 @@
 # Approach Radar Simulator — Requirements & Design Plan
 
-**Status:** draft v0.1 · **Date:** 2026-08-14 · **Owner:** Anant
+**Status:** v1 built and playable · **Date:** 2026-08-14 · **Owner:** Anant
 
 A browser-based, single-airport **approach radar** simulator. The player is the Approach
 controller: accept arrivals handed over from Center at fixed entry gates, sequence and vector
@@ -104,7 +104,7 @@ Derived rules → §9.
 | TAS | ω at 25° bank | Turn radius |
 | --- | --- | --- |
 | 290 kt (250 IAS @ 8000 ft) | 1.75 °/s | 2.6 NM |
-| 250 kt | 2.04 °/s | 1.9 NM |
+| 250 kt | 2.03 °/s | 1.95 NM |
 | 210 kt | 2.42 °/s | 1.4 NM |
 | 180 kt | 2.83 °/s | 1.0 NM |
 | 160 kt | 3.0 °/s (capped) | 0.8 NM |
@@ -202,27 +202,45 @@ adding in v2.
 
 ### 4.1 State
 
+As built, in [`src/sim/aircraft.ts`](../src/sim/aircraft.ts):
+
 ```ts
-type Aircraft = {
-  id: string;                    // internal
+type Phase = 'inbound' | 'cleared' | 'loc' | 'gs' | 'goAround';
+
+interface Aircraft {
+  id: number;
   callsign: string;              // e.g. "KLM133"
   type: AircraftType;            // performance + wake category
-  // kinematic state (continuous)
-  x: number; y: number;          // NM, local frame
-  altitude: number;              // ft MSL
-  heading: number;               // deg, 0.1 resolution internally
-  ias: number;                   // kt indicated
-  // controller targets
-  targetHeading: number;         // deg, multiples of 10
-  targetAltitude: number;        // ft, multiples of 1000
-  targetIas: number;             // kt, multiples of 10
-  // phase
-  phase: 'inbound' | 'cleared' | 'loc' | 'gs' | 'handedOff' | 'goAround';
-  clearedIls: boolean;
-  handedOffAt: number | null;    // sim time
-  trail: Array<{x: number; y: number}>;  // last N radar returns
-};
+
+  // Live kinematic state
+  x: Nm; y: Nm;                  // local flat frame, x east / y north
+  altitudeFt: Ft;
+  headingDeg: Deg;
+  iasKts: Kts;
+  vsFpm: Fpm;
+
+  // Controller targets
+  targetHeadingDeg: Deg;         // multiples of 10
+  targetAltitudeFt: Ft;          // multiples of 1000
+  targetIasKts: Kts;             // multiples of 10
+
+  // Approach state
+  phase: Phase;
+  handedOff: boolean;
+  speedAssignedAfterClearance: boolean;   // IF 6.14.4
+
+  // Bookkeeping and display
+  entryGate: string;
+  trackMilesFlown: Nm;
+  directDistanceNm: Nm;
+  trail: Point[];                // history dots, one per 5 s
+  radar: RadarReturn;            // the 1 Hz snapshot the data block shows
+  alert: 'none' | 'warning' | 'violation';
+}
 ```
+
+`handedOff` is deliberately *not* a phase: an aircraft handed to Tower keeps
+flying its approach, it just stops accepting instructions.
 
 ### 4.2 Types and performance
 
@@ -302,7 +320,8 @@ Three distinct rates, which is the whole design of the loop:
 | --- | --- |
 | **20 Hz** (dt = 0.05 s), fixed timestep | Physics: turn, vertical, speed integration, LOC/GS capture, separation checks |
 | **20 fps** | Scope redraw — glyph position, leader line. Motion reads as smooth |
-| **1 Hz** | "Radar return": data-block values (altitude, speed, heading), history trail dot, conflict-alert re-evaluation for display |
+| **1 Hz** | "Radar return": data-block values (altitude, speed, heading) and conflict-alert level for display |
+| **0.2 Hz** | History dots. At 250 kt a 1 Hz dot moves ~0.6 px on a 50 NM scope — invisible. One dot every 5 s, six retained, gives 30 s of visible history, which is also how a real scope's slower sweep looks |
 
 - Physics and rendering share the 20 Hz tick, so **no interpolation layer is needed** — the glyph
   simply draws wherever the sim currently is. That removes an entire class of "render state drifted
@@ -314,8 +333,6 @@ Three distinct rates, which is the whole design of the loop:
 - **Time acceleration:** 1× / 2× / 4× by stepping physics more times per frame; the 1 Hz radar
   sample scales with *sim* time, so at 4× the data blocks refresh 4× per real second.
 - **Pause** stops the accumulator; input remains live.
-- **History trail:** last 6 radar returns (fading dots) — 6 seconds of sim time, matching the
-  screenshot.
 
 Cost sanity check: 25 aircraft × 20 physics steps/s = 500 updates/s, and a redraw is ~25 glyphs,
 ~150 trail dots, ~75 text lines and a blitted static layer, 20 times a second. Sub-millisecond
@@ -492,8 +509,8 @@ to maintain**, **testability of the flight model**, and **absence of dependency 
 
 | Concern | Choice |
 | --- | --- |
-| Language | **TypeScript**, `strict: true`. Branded unit types (`type Knots = number & {__k}`) to stop feet/NM/kt mixups — the single most likely bug class in this project. |
-| Build | **Vite** |
+| Language | **TypeScript**, `strict: true`. Unit-suffixed type aliases (`Nm`, `Ft`, `Kts`, `Deg`, `Fpm`) plus a single conversion module. True branding (`number & {__k}`) was considered and rejected: it makes ordinary arithmetic require a cast at every step. The discipline lives in the naming — every variable carries its unit (`altFt`, `distNm`, `iasKts`). |
+| Build | **Vite 8** on **Node 24 LTS** (pinned by `.nvmrc`) |
 | Rendering | **Canvas 2D**, two layers: static map (offscreen, redrawn only on resize/zoom) + dynamic traffic |
 | UI chrome | Plain HTML + CSS sidebar, driven by a small `render(state)` function |
 | State | One `World` object; `step(world, dt)` mutates in place. No Redux/Zustand/signals. |
@@ -501,9 +518,8 @@ to maintain**, **testability of the flight model**, and **absence of dependency 
 | Lint/format | ESLint + Prettier |
 | Deploy | Static build → GitHub Pages. No backend, ever. |
 
-⚠️ **Toolchain note:** this machine has **Node 18.20.8**, which is past end-of-life (April 2025).
-Vite 7 requires Node ≥20.19. Recommend `nvm install 22 && nvm use 22` before scaffolding; otherwise
-pin Vite 5. Decision needed before M0.
+**Toolchain:** Node 18.20.8 (the machine default) is past end of life, so the project pins
+**Node 24 LTS** via `.nvmrc`. Run `nvm use` in the project directory before `npm` commands.
 
 ### 11.4 Project structure
 
@@ -514,33 +530,35 @@ testable and what will let the same engine drive a replay viewer or a second fro
 ```
 src/
   sim/                 # pure, headless, no DOM
-    units.ts           # branded types + conversions
+    units.ts           # unit aliases, geometry, TAS
     constants.ts       # every tunable number, in one place
     rng.ts             # seeded mulberry32
-    aircraft.ts        # spawn, state helpers
+    aircraft.ts        # Aircraft type, radar snapshot
     dynamics.ts        # turn / vertical / speed integration, energy coupling
-    radar.ts           # 1 Hz sampling of sim state into RadarReturn snapshots
     ils.ts             # clearance gate, LOC/GS capture, landing, go-around
-    separation.ts      # pair checks, prediction, alert tiers
+    separation.ts      # pair checks, prediction, alert tiers, in-trail
     traffic.ts         # Poisson spawner, callsigns, gate assignment
-    world.ts           # World type + step(world, dt)
+    commands.ts        # player instructions + readbacks + speed floor
+    world.ts           # World type, step(world, dt), stats, handoff, radar sampling
   scenario/
-    airport.ts         # runway, gates, MVA, rings  ← swap this for a new airport
+    airport.ts         # runway, gates, elevation  ← swap this for a new airport
     aircraftTypes.ts
     airlines.ts
   render/
     project.ts         # NM ↔ pixels
-    mapLayer.ts        # static: rings, centerline ticks, gates, runway
+    mapLayer.ts        # static layer: rings, compass, centerline ticks, gates, runway
     trafficLayer.ts    # blips, leader lines, trails, data blocks, de-clutter
-    sidebar.ts
-    messageLog.ts
+    scope.ts           # canvas sizing, DPR, layer order, hit testing
+    sidebar.ts         # selected-aircraft readout, live clearance preview, stats
+    messageLog.ts      # readback log + status line
     theme.ts           # all colours
   input/
     keyboard.ts
     pointer.ts
   app/
     main.ts            # loop, wiring, time accel, pause
-tests/
+  style.css
+tests/                 # 52 tests, sim only — no DOM needed
 docs/
   REQUIREMENTS.md      # this file
 ```
@@ -551,15 +569,15 @@ docs/
 
 Each milestone ends with something visible, so progress is never theoretical.
 
-| # | Deliverable | Done when |
+| # | Deliverable | Status |
 | --- | --- | --- |
-| **M0** | Scaffold + static scope | Vite + TS build; 50 NM rings, runway, centerline with 2 NM ticks, four gates drawn and correctly scaled |
-| **M1** | Flight model | One hardcoded aircraft flies from a gate; 20 Hz fixed-timestep loop with 1 Hz radar sampling + trail; unit tests for turn rate, TAS, and energy coupling |
-| **M2** | Control | Click/Tab selection, `A/D/W/S/Q/E`, sidebar, data blocks, readback log, target rate-limiting visibly correct |
-| **M3** | Traffic | Poisson spawner at the gates, callsigns, flow-rate setting, spawn veto, despawn on leaving airspace |
-| **M4** | ILS | `C` clearance gate with per-condition rejection messages, LOC capture, G/S capture, deceleration to Vapp, touchdown + despawn |
-| **M5** | Rules | Separation violations, predicted-conflict halos, alert tiers, in-trail rule, auto go-around, auto handoff to Tower |
-| **M6** | Polish | Session stats panel, pause + time accel, alert sound, settings (flow rate, seed), label de-clutter tuning |
+| **M0** | Scaffold + static scope: Vite + TS build, 50 NM rings, compass, runway, centerline with 2 NM ticks, four gates | ✅ done |
+| **M1** | Flight model: 20 Hz fixed-timestep loop, 1 Hz radar sample, turn/energy dynamics, unit tests | ✅ done |
+| **M2** | Control: click/Tab selection, `A/D/W/S/Q/E`, sidebar, data blocks, readback log | ✅ done |
+| **M3** | Traffic: Poisson spawner at the gates, callsigns, flow-rate setting, spawn veto, airspace-exit despawn | ✅ done |
+| **M4** | ILS: `C` clearance gate with per-condition refusals, LOC + G/S capture, deceleration schedule, touchdown | ✅ done |
+| **M5** | Rules: separation violations, predicted-conflict halos, alert tiers, in-trail rule, auto go-around, auto handoff | ✅ done |
+| **M6** | Polish: session stats, pause + time accel, flow control, restart, live clearance preview, label de-clutter | ✅ done — **except the conflict alert sound**, which is not implemented (see §15) |
 
 ---
 
@@ -594,14 +612,29 @@ for the architecture.
 
 ## 15. Still open
 
-Low-stakes; none blocks M0–M2.
+None of these blocks play; each is a small, contained change.
 
-1. **Runway identity** — `18` with a 180° final approach course, as assumed? Or match the
-   screenshot's `18C` (which in reality implies parallels we're not modelling)?
-2. **Speed floor policy** — hard-block below 180 kt outside 20 track miles (as specified in §3.3),
-   or allow it with a scored warning?
-3. **Toolchain** — upgrade to Node 22 LTS (Node 18 is EOL and blocks Vite 7), or pin Vite 5 and stay
-   on 18? Needed before M0.
-4. **Time acceleration** — worth building in M6, or is 1× the only honest way to train?
-5. **Wake categories** — display only (as assumed), or should heavies require 4–5 NM in-trail?
-6. **Sound** — one conflict alert beep, or none?
+1. **Runway identity** — built as `18` with a 180° final approach course. Match the screenshot's
+   `18C` instead? (In reality that implies parallels we are not modelling.)
+2. **Speed floor policy** — currently a hard block below 180 kt (190 for heavies) outside 20 track
+   miles, refused with an explanation. Softer alternative: allow it and score it.
+3. **Wake categories** — displayed on the data block, but not used for spacing. Should heavies
+   require 4–5 NM in trail?
+4. **Sound** — no audio at all yet. IF 6.2.4 describes an audible alarm inside 1.5 NM / 500 ft;
+   one Web Audio beep would cover it.
+5. **Aircraft glyph** — a simple cross-and-nose symbol. Worth drawing a proper airliner shape?
+
+---
+
+## 16. Running it
+
+```bash
+nvm use          # Node 24 LTS, pinned in .nvmrc — the system default is 18 (EOL)
+npm install
+npm run dev      # http://localhost:5173
+npm test         # 52 sim tests, headless, ~0.5 s
+npm run build    # typecheck + static bundle into dist/
+```
+
+`?seed=1234` in the URL makes a session reproducible. In a dev build, `window.atc` exposes the live
+world for console poking.
