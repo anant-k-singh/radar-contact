@@ -7,7 +7,6 @@ import { AIRLINES } from '../scenario/airlines.js';
 import { AIRPORT, type EntryGate } from '../scenario/airport.js';
 import type { Aircraft } from './aircraft.js';
 import {
-  ENTRY_ALTITUDE_FT,
   ENTRY_SPEED_KTS,
   GATE_COOLDOWN_S,
   MIN_SPAWN_INTERVAL_S,
@@ -63,7 +62,7 @@ function vetoed(gate: EntryGate, existing: readonly Aircraft[]): boolean {
   return existing.some(
     (ac) =>
       distance({ x: ac.x, y: ac.y }, gate.position) < SPAWN_VETO_NM &&
-      Math.abs(ac.altitudeFt - ENTRY_ALTITUDE_FT) < SPAWN_VETO_FT,
+      Math.abs(ac.altitudeFt - gate.entryAltitudeFt) < SPAWN_VETO_FT,
   );
 }
 
@@ -78,6 +77,7 @@ export function createArrival(
   const { airline, text } = callsign(rng, existing);
   const id = state.nextId;
   state.nextId += 1;
+  const altitudeFt = gate.entryAltitudeFt;
 
   return {
     id,
@@ -86,12 +86,12 @@ export function createArrival(
     type,
     x: gate.position.x,
     y: gate.position.y,
-    altitudeFt: ENTRY_ALTITUDE_FT,
+    altitudeFt,
     headingDeg: gate.inboundHeadingDeg,
     iasKts: ENTRY_SPEED_KTS,
     vsFpm: 0,
     targetHeadingDeg: gate.inboundHeadingDeg,
-    targetAltitudeFt: ENTRY_ALTITUDE_FT,
+    targetAltitudeFt: altitudeFt,
     targetIasKts: ENTRY_SPEED_KTS,
     phase: 'inbound',
     handedOff: false,
@@ -102,10 +102,11 @@ export function createArrival(
     directDistanceNm: distance(gate.position, AIRPORT.runway.threshold),
     goArounds: 0,
     exitWarned: false,
+    headingHintUntilS: 0,
     // Starts empty: a freshly handed-over target has no history behind it.
     trail: [],
     radar: {
-      altitudeFt: ENTRY_ALTITUDE_FT,
+      altitudeFt,
       iasKts: ENTRY_SPEED_KTS,
       headingDeg: gate.inboundHeadingDeg,
       groundSpeedKts: ENTRY_SPEED_KTS * 1.16,

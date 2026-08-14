@@ -9,6 +9,7 @@ import {
   ALTITUDE_STEP_FT,
   CEILING_FT,
   CONFIG_RANGE_NM,
+  HEADING_HINT_S,
   HEADING_STEP_DEG,
   MVA_FT,
   SPEED_FLOOR_CLEAN_KTS,
@@ -61,6 +62,9 @@ export function adjustHeading(world: World, ac: Aircraft, direction: Direction):
   const base = quantize(ac.targetHeadingDeg, HEADING_STEP_DEG);
   const next = normalizeHeading(base + direction * HEADING_STEP_DEG);
   ac.targetHeadingDeg = next;
+  // Show the assigned vector on the scope for a few seconds. Restarted on every
+  // press, so holding D down keeps the hint alive through the whole turn.
+  ac.headingHintUntilS = world.timeS + HEADING_HINT_S;
 
   const turn = headingDelta(ac.headingDeg, next);
   const sense = Math.abs(turn) < 0.5 ? 'maintaining' : turn < 0 ? 'turning left' : 'turning right';

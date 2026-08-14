@@ -170,6 +170,9 @@ function drawGates(ctx: CanvasRenderingContext2D, p: Projection): void {
     ctx.fillStyle = THEME.gateLabel;
     const onLeft = inward.x < 0;
     ctx.textAlign = onLeft ? 'right' : 'left';
-    ctx.fillText(gate.name, sx + (onLeft ? -10 : 10), sy);
+    const dx = onLeft ? -10 : 10;
+    // Handover altitude in hundreds, the way a flight level reads.
+    ctx.fillText(gate.name, sx + dx, sy - 6);
+    ctx.fillText(String(Math.round(gate.entryAltitudeFt / 100)), sx + dx, sy + 7);
   }
 }

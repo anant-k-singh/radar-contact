@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import { AIRPORT } from '../src/scenario/airport.js';
 import {
   AIRSPACE_RADIUS_NM,
   ENTRY_ALTITUDE_FT,
+  ENTRY_ALTITUDE_NEAR_FT,
   ENTRY_SPEED_KTS,
   MIN_SPAWN_INTERVAL_S,
   PHYSICS_DT,
   SEP_HORIZ_NM,
 } from '../src/sim/constants.js';
 import { createRng } from '../src/sim/rng.js';
-import { createTrafficState, scheduleNextSpawn } from '../src/sim/traffic.js';
+import { createArrival, createTrafficState, scheduleNextSpawn } from '../src/sim/traffic.js';
 import { bearing } from '../src/sim/units.js';
 import { createWorld, projectedSpacingNm, step } from '../src/sim/world.js';
 import { makeAircraft, onFinalApproach, quietWorld } from './helpers.js';
@@ -65,12 +67,29 @@ describe('traffic generation', () => {
     while (world.aircraft.length === 0) step(world, PHYSICS_DT);
 
     const ac = world.aircraft[0]!;
-    expect(ac.altitudeFt).toBe(ENTRY_ALTITUDE_FT);
+    const gate = AIRPORT.gates.find((g) => g.name === ac.entryGate)!;
+    expect(ac.altitudeFt).toBe(gate.entryAltitudeFt);
     expect(ac.iasKts).toBe(ENTRY_SPEED_KTS);
     // One physics step of flying has already happened since the handover.
     expect(Math.hypot(ac.x, ac.y)).toBeCloseTo(AIRSPACE_RADIUS_NM, 1);
     // Pointed at the airport reference point.
     expect(bearing({ x: ac.x, y: ac.y }, { x: 0, y: 0 })).toBeCloseTo(ac.headingDeg, 4);
+  });
+
+  it('hands the two northern gates over 1000 ft lower', () => {
+    const byName = new Map(AIRPORT.gates.map((g) => [g.name, g.entryAltitudeFt]));
+    expect(byName.get('KOVAL')).toBe(ENTRY_ALTITUDE_NEAR_FT);
+    expect(byName.get('VANDA')).toBe(ENTRY_ALTITUDE_NEAR_FT);
+    expect(byName.get('TEMBA')).toBe(ENTRY_ALTITUDE_FT);
+    expect(byName.get('RIMOL')).toBe(ENTRY_ALTITUDE_FT);
+
+    // And an arrival actually spawns at its gate's altitude, level.
+    for (const gate of AIRPORT.gates) {
+      const ac = createArrival(createRng(7), createTrafficState(), gate, [], 0);
+      expect(ac.altitudeFt).toBe(gate.entryAltitudeFt);
+      expect(ac.targetAltitudeFt).toBe(gate.entryAltitudeFt);
+      expect(ac.radar.altitudeFt).toBe(gate.entryAltitudeFt);
+    }
   });
 
   it('never hands over traffic that is already in conflict', () => {

@@ -25,7 +25,12 @@ npm run dev      # http://localhost:5173
 | `Space` | Pause · `1` `2` `4` time rate · `Esc` deselect |
 
 Click a blip or its data block to select it. Instructions are *targets* — the aircraft takes time
-to get there, and descending while slowing takes about twice as long as either alone.
+to get there, and descending while slowing takes about twice as long as either alone. After a turn
+is assigned, a dashed yellow vector shows the target heading for five seconds alongside the green
+leader line; the gap between them is the turn still to come.
+
+Center hands arrivals over at the altitude printed under each gate marker — 7000 ft at KOVAL and
+VANDA, which sit on the final approach side of the field, 8000 ft at TEMBA and RIMOL.
 
 `C` is refused unless the aircraft is set up correctly, and the refusal says exactly what is wrong
 ("900 ft above the glideslope at 12.0 NM"). The sidebar previews that check live.
@@ -39,6 +44,6 @@ to get there, and descending while slowing takes about twice as long as either a
 - `src/scenario/` — airport, gates, aircraft types. Swap `airport.ts` to fly a different field.
 
 ```bash
-npm test         # 52 tests over the flight model, ILS logic and separation rules
+npm test         # 54 tests over the flight model, ILS logic and separation rules
 npm run build    # typecheck + static bundle (no backend, no runtime dependencies)
 ```

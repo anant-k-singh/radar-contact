@@ -1,6 +1,6 @@
 import type { AircraftType } from '../scenario/aircraftTypes.js';
 import type { Airline } from '../scenario/airlines.js';
-import type { Deg, Fpm, Ft, Kts, Nm, Point } from './units.js';
+import type { Deg, Fpm, Ft, Kts, Nm, Point, Sec } from './units.js';
 
 /**
  * Flight state. `handedOff` is deliberately separate from `phase`: an aircraft
@@ -53,6 +53,11 @@ export interface Aircraft {
   exitWarned: boolean;
 
   // Display
+  /**
+   * Sim time until which the scope draws the assigned-heading vector. Set by
+   * `adjustHeading` so the player sees where the turn is going; purely visual.
+   */
+  headingHintUntilS: Sec;
   trail: Point[];
   radar: RadarReturn;
   alert: AlertLevel;

@@ -138,15 +138,21 @@ not a code change.
 Four gates on the 50 NM boundary, spaced 90° apart and deliberately offset from the final approach
 course so nothing arrives already lined up on the LOC:
 
-| Gate | Bearing from ARP | Inbound heading at entry |
-| --- | --- | --- |
-| KOVAL | 040° | 220° |
-| TEMBA | 130° | 310° |
-| RIMOL | 230° | 050° |
-| VANDA | 320° | 140° |
+| Gate | Bearing from ARP | Inbound heading at entry | Handover altitude |
+| --- | --- | --- | --- |
+| KOVAL | 040° | 220° | **7000 ft** |
+| TEMBA | 130° | 310° | 8000 ft |
+| RIMOL | 230° | 050° | 8000 ft |
+| VANDA | 320° | 140° | **7000 ft** |
 
-**Center's handover contract (fixed, per your spec):** every aircraft appears exactly at its gate
-at **8000 ft**, **250 kt IAS**, **heading direct to the ARP**, level and steady.
+**Center's handover contract:** every aircraft appears exactly at its gate at its gate altitude,
+**250 kt IAS**, **heading direct to the ARP**, level and steady.
+
+KOVAL and VANDA lie north of the field — the same side as the final approach course for runway 18 —
+so their arrivals reach the localizer with far fewer track miles in which to lose the height. Center
+hands those two over 1000 ft lower, which puts them at the 7000 ft G/S intercept range (22.0 NM)
+instead of 8000 ft (25.1 NM). The gate marker on the scope carries its altitude in hundreds
+(`KOVAL 70`).
 
 ### 3.3 Player authority limits
 
@@ -156,7 +162,7 @@ at **8000 ft**, **250 kt IAS**, **heading direct to the ARP**, level and steady.
 | Altitude | 2000–10,000 ft | 1000 ft |
 | Speed (IAS) | 180–250 kt outside 20 track miles; **160**–250 kt within | 10 kt |
 
-Aircraft enter at 8000 ft, but the assignable ceiling is **10,000 ft** so climbs are available as a
+Aircraft enter at 7000–8000 ft, but the assignable ceiling is **10,000 ft** so climbs are available as a
 de-confliction tool and a queue can be stacked vertically above the entry altitude. Nine usable
 levels between MVA and ceiling.
 
@@ -418,6 +424,11 @@ Mirroring the reference screenshots:
   ```
   with the **assigned heading** shown alongside in a contrasting colour when it differs from the
   current heading (the yellow `040` in the screenshot).
+- **Assigned-heading vector:** for 5 s after a turn instruction, a dashed pale-yellow line is drawn
+  from the blip along the *target* heading, half again the length of the green leader line, capped
+  with a tick and labelled with the heading. The green leader shows where the aircraft is pointing
+  now, the yellow one where it is going; the gap between them *is* the outstanding turn. It fades
+  out over its last second, and a further press restarts the window rather than extending it.
 - **Altitude convention:** hundreds of feet, two digits (`80` = 8000 ft). `=70` = level at 7000,
   `↓60` = descending to 6000, `↑` for climbing.
 - **Colour coding:** unselected traffic green; selected white/bright; conflict amber; violation red;
@@ -594,7 +605,7 @@ for the architecture.
 | A4 | Single landing direction, never changes |
 | A5 | Flat MVA of 2000 ft; no terrain model |
 | A6 | Aircraft always comply; no "unable", no pilot deviations, no emergencies, no fuel state |
-| A7 | Center's handover is always conflict-free and always 8000 ft / 250 kt / direct ARP |
+| A7 | Center's handover is always conflict-free, at the gate's altitude (7000 or 8000 ft) / 250 kt / direct ARP |
 | A8 | Aircraft turn the short way to an assigned heading; long-way-round vectors aren't expressible |
 | A9 | 4 gates, 90° apart, offset 40° from the cardinals |
 | A10 | Endless session, no win/lose state; quality is reported, not enforced |

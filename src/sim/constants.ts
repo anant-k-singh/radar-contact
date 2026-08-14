@@ -99,6 +99,8 @@ export const GATE_COOLDOWN_S = 90;
 export const SPAWN_VETO_NM = 5;
 export const SPAWN_VETO_FT = 1000;
 export const ENTRY_ALTITUDE_FT = 8000;
+/** Gates whose geometry gives a short run to the localizer arrive lower. */
+export const ENTRY_ALTITUDE_NEAR_FT = 7000;
 export const ENTRY_SPEED_KTS = 250;
 
 // ── Handoff (§10) ───────────────────────────────────────────────────────────
@@ -107,6 +109,8 @@ export const TOWER_FREQUENCY = '119.1';
 // ── Misc ────────────────────────────────────────────────────────────────────
 export const MESSAGE_LOG_MAX = 60;
 export const MESSAGE_LOG_VISIBLE = 5;
+/** How long the scope shows the assigned-heading vector after a turn is given. */
+export const HEADING_HINT_S = 5;
 
 /**
  * Feet of energy-equivalent altitude per knot of speed change at a given TAS.

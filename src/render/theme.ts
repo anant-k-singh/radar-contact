@@ -16,6 +16,7 @@ export const THEME = {
   selected: '#ffffff',
   handedOff: '#5d6f63',
   assigned: '#ffe14d',
+  hint: '#f6eba6',
   warning: '#ffb020',
   violation: '#ff4a4a',
 

@@ -7,7 +7,7 @@ import {
   displayHeading,
   speedFloorKts,
 } from '../src/sim/commands.js';
-import { CEILING_FT, MVA_FT } from '../src/sim/constants.js';
+import { CEILING_FT, HEADING_HINT_S, MVA_FT } from '../src/sim/constants.js';
 import { HEAVY_TYPE, makeAircraft, onFinalApproach, quietWorld } from './helpers.js';
 
 describe('heading assignment', () => {
@@ -31,6 +31,21 @@ describe('heading assignment', () => {
     expect(displayHeading(0)).toBe('360');
     expect(displayHeading(360)).toBe('360');
     expect(displayHeading(40)).toBe('040');
+  });
+
+  it('arms the assigned-heading hint for a few seconds', () => {
+    const ac = makeAircraft({ headingDeg: 90 });
+    const world = quietWorld(ac);
+    world.timeS = 120;
+
+    expect(ac.headingHintUntilS).toBe(0);
+    adjustHeading(world, ac, 1);
+    expect(ac.headingHintUntilS).toBe(120 + HEADING_HINT_S);
+
+    // A later press restarts the window rather than extending the first one.
+    world.timeS = 123;
+    adjustHeading(world, ac, 1);
+    expect(ac.headingHintUntilS).toBe(123 + HEADING_HINT_S);
   });
 
   it('reports the direction of turn', () => {

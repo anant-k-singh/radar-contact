@@ -163,13 +163,50 @@ export function drawTraffic(
 
     // Leader line: one minute of flight at the current ground speed.
     const minuteNm = ac.radar.groundSpeedKts / 60;
+    const leaderPx = minuteNm * p.pxPerNm;
+
+    // Assigned-heading vector, for a few seconds after the instruction: where
+    // the nose is going, alongside the green leader line showing where it is.
+    const hintLeftS = ac.headingHintUntilS - world.timeS;
+    if (hintLeftS > 0 && !ac.handedOff) {
+      const want = headingVector(ac.targetHeadingDeg);
+      // Half again the leader line, and never so short that it hides under the
+      // selection ring — this has to read at a glance from across the scope.
+      const hintPx = Math.max(leaderPx * 1.5, 60);
+      const ex = sx + want.x * hintPx;
+      const ey = sy - want.y * hintPx;
+      ctx.strokeStyle = THEME.hint;
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.85 * Math.min(1, hintLeftS); // fades out over the last second
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Cap tick across the end, so the target is readable even at a small angle.
+      const cross = headingVector(ac.targetHeadingDeg + 90);
+      ctx.beginPath();
+      ctx.moveTo(ex + cross.x * 4, ey - cross.y * 4);
+      ctx.lineTo(ex - cross.x * 4, ey + cross.y * 4);
+      ctx.stroke();
+
+      ctx.font = THEME.fontLabel;
+      ctx.fillStyle = THEME.hint;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(displayHeading(ac.targetHeadingDeg), ex + want.x * 12, ey - want.y * 12);
+      ctx.globalAlpha = 1;
+    }
+
     const dir = headingVector(ac.headingDeg);
     ctx.strokeStyle = color;
     ctx.lineWidth = 1;
     ctx.globalAlpha = 0.55;
     ctx.beginPath();
     ctx.moveTo(sx, sy);
-    ctx.lineTo(sx + dir.x * minuteNm * p.pxPerNm, sy - dir.y * minuteNm * p.pxPerNm);
+    ctx.lineTo(sx + dir.x * leaderPx, sy - dir.y * leaderPx);
     ctx.stroke();
     ctx.globalAlpha = 1;
 
