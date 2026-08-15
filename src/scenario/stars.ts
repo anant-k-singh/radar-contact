@@ -8,6 +8,11 @@
  *
  * Geometry, all four routes:
  *
+ * Every route publishes 250 kt as far as its first fix (OKPUR, NIVEL, SUDIX,
+ * TAVIR) and only then reduces towards 230 kt, so the speed comes off over the
+ * middle leg rather than from the moment of handover — IF 6.15.8's "keep the
+ * speed up until close in", expressed as a published constraint.
+ *
  * - **North gates** (KOVAL, VANDA) run straight in to a corner fix abeam the
  *   field, then a level leg at 5000 ft along 090/270 that stops 2 NM short of
  *   the extended centerline at 16 NM final — right at the 5000 ft glideslope
@@ -23,7 +28,8 @@
 import {
   ENTRY_SPEED_KTS,
   STAR_ARRIVAL_SPEED_KTS,
-  STAR_INTERMEDIATE_ALT_FT,
+  STAR_INTERMEDIATE_ALT_NORTH_FT,
+  STAR_INTERMEDIATE_ALT_SOUTH_FT,
   STAR_PLATFORM_ALT_FT,
 } from '../sim/constants.js';
 import { distance, headingVector, type Ft, type Kts, type Nm, type Point } from '../sim/units.js';
@@ -134,7 +140,14 @@ function northStar(name: string, gateName: string, side: -1 | 1, fixes: [string,
   const gate = gateFor(gateName);
   const corner: Point = { x: side * NORTH_CORNER_NM, y: PLATFORM_NM };
   return build(name, gate, [
-    { name: fixes[0], position: midpoint(gate.position, corner), altitudeFt: STAR_INTERMEDIATE_ALT_FT },
+    {
+      name: fixes[0],
+      position: midpoint(gate.position, corner),
+      altitudeFt: STAR_INTERMEDIATE_ALT_NORTH_FT,
+      // Republishing 250 here holds the entry speed all the way to this fix
+      // instead of bleeding it off from the gate (IF 6.15.8).
+      speedKts: ENTRY_SPEED_KTS,
+    },
     {
       name: fixes[1],
       position: corner,
@@ -156,7 +169,12 @@ function southStar(name: string, gateName: string, side: -1 | 1, fixes: [string,
   // offset keeps the first leg dead straight from the handover.
   const corner = inboundTrackAtX(gate, side * DOWNWIND_OFFSET_NM);
   return build(name, gate, [
-    { name: fixes[0], position: midpoint(gate.position, corner), altitudeFt: STAR_INTERMEDIATE_ALT_FT },
+    {
+      name: fixes[0],
+      position: midpoint(gate.position, corner),
+      altitudeFt: STAR_INTERMEDIATE_ALT_SOUTH_FT,
+      speedKts: ENTRY_SPEED_KTS,
+    },
     {
       name: fixes[1],
       position: corner,

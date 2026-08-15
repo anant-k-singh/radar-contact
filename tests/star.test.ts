@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { AIRPORT } from '../src/scenario/airport.js';
-import { STARS, starForGate, type Star } from '../src/scenario/stars.js';
+import { STARS, starForGate, starProfileAt, type Star } from '../src/scenario/stars.js';
 import type { Aircraft } from '../src/sim/aircraft.js';
 import { adjustAltitude, adjustHeading, adjustSpeed } from '../src/sim/commands.js';
 import {
   ENTRY_SPEED_KTS,
   SEP_HORIZ_NM,
   STAR_ARRIVAL_SPEED_KTS,
+  STAR_INTERMEDIATE_ALT_NORTH_FT,
+  STAR_INTERMEDIATE_ALT_SOUTH_FT,
   STAR_PLATFORM_ALT_FT,
 } from '../src/sim/constants.js';
 import { createRng } from '../src/sim/rng.js';
@@ -61,6 +63,37 @@ describe('the published routes', () => {
       const altitudes = star.altitudes.map((constraint) => constraint.value);
       expect([...altitudes].sort((a, b) => b - a)).toEqual(altitudes);
     }
+  });
+
+  it('publishes 250 kt as far as the first fix, and reduces only after it', () => {
+    for (const star of STARS) {
+      const first = star.waypoints[1]!;
+      expect(first.speedKts).toBe(ENTRY_SPEED_KTS);
+
+      // Anywhere on the leg from the gate to that fix the profile is still 250.
+      const gateDtg = star.waypoints[0]!.dtgNm;
+      for (const fraction of [0, 0.25, 0.5, 0.75, 1]) {
+        const dtgNm = first.dtgNm + (gateDtg - first.dtgNm) * fraction;
+        expect(starProfileAt(star, dtgNm).speedKts).toBe(ENTRY_SPEED_KTS);
+      }
+      // And it is coming off by the time the next fix is reached.
+      expect(starProfileAt(star, first.dtgNm - 0.5).speedKts).toBeLessThan(ENTRY_SPEED_KTS);
+      expect(starProfileAt(star, star.waypoints[2]!.dtgNm).speedKts).toBe(STAR_ARRIVAL_SPEED_KTS);
+    }
+  });
+
+  it('crosses SUDIX and TAVIR at 8000 ft, OKPUR and NIVEL at 7000', () => {
+    const crossing = (fixName: string): number => {
+      for (const star of STARS) {
+        const wpt = star.waypoints.find((candidate) => candidate.name === fixName);
+        if (wpt?.altitudeFt !== undefined) return wpt.altitudeFt;
+      }
+      throw new Error(`no fix named ${fixName}`);
+    };
+    expect(crossing('SUDIX')).toBe(STAR_INTERMEDIATE_ALT_SOUTH_FT);
+    expect(crossing('TAVIR')).toBe(STAR_INTERMEDIATE_ALT_SOUTH_FT);
+    expect(crossing('OKPUR')).toBe(STAR_INTERMEDIATE_ALT_NORTH_FT);
+    expect(crossing('NIVEL')).toBe(STAR_INTERMEDIATE_ALT_NORTH_FT);
   });
 
   it('keeps the four routes clear of each other', () => {
@@ -147,10 +180,11 @@ describe('taking an aircraft off its STAR', () => {
     pilotActs(world);
 
     expect(ac.star).toBeNull();
-    // Nothing was said about height or speed, so the published descent to the
-    // next level and the published reduction both stand.
+    // Nothing was said about height or speed, so what the chart publishes next
+    // stands: the descent to 7000, and 250 kt — the reduction to 230 belongs to
+    // the leg after OKPUR, which this aircraft has not reached.
     expect(ac.targetAltitudeFt).toBe(7000);
-    expect(ac.targetIasKts).toBe(STAR_ARRIVAL_SPEED_KTS);
+    expect(ac.targetIasKts).toBe(ENTRY_SPEED_KTS);
 
     const headingAfter = ac.targetHeadingDeg;
     run(world, 60);

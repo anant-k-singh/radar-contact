@@ -11,6 +11,8 @@ import {
   FLOW_DEFAULT_PER_HOUR,
   HISTORY_PERIOD_S,
   IN_TRAIL_MIN_NM,
+  LANDING_RATE_MIN_ELAPSED_S,
+  LANDING_RATE_WINDOW_S,
   MESSAGE_LOG_MAX,
   RADAR_PERIOD_S,
   TOWER_FREQUENCY,
@@ -35,6 +37,8 @@ export interface Message {
 
 export interface Stats {
   landings: number;
+  /** Sim time of each landing inside the rate window; older ones are dropped. */
+  landingTimesS: Sec[];
   handoffs: number;
   violations: number;
   violationSeconds: number;
@@ -77,6 +81,7 @@ export function createWorld(seed: number, flowPerHour = FLOW_DEFAULT_PER_HOUR): 
     messages: [],
     stats: {
       landings: 0,
+      landingTimesS: [],
       handoffs: 0,
       violations: 0,
       violationSeconds: 0,
@@ -90,7 +95,13 @@ export function createWorld(seed: number, flowPerHour = FLOW_DEFAULT_PER_HOUR): 
     rng: createRng(seed),
     pilotRng: createRng(seed ^ 0x5f356495),
     traffic,
-    separation: { pairs: [], alerts: new Map(), inTrail: new Map(), inTrailLeader: new Map() },
+    separation: {
+      pairs: [],
+      alerts: new Map(),
+      inTrail: new Map(),
+      inTrailLeader: new Map(),
+      inTrailMinimum: new Map(),
+    },
     selectedId: null,
     paused: false,
     timeScale: 1,
@@ -122,6 +133,19 @@ function remove(world: World, ac: Aircraft): void {
   if (world.selectedId === ac.id) world.selectedId = null;
 }
 
+/**
+ * Landings per hour over the trailing window (§8.2), or null while the session
+ * is too young for the sample to mean anything. Extrapolated from however much
+ * of the window has actually elapsed, so it settles rather than ramping up.
+ */
+export function landingRatePerHour(world: World): number | null {
+  const elapsedS = Math.min(LANDING_RATE_WINDOW_S, world.timeS);
+  if (elapsedS < LANDING_RATE_MIN_ELAPSED_S) return null;
+  const since = world.timeS - LANDING_RATE_WINDOW_S;
+  const landings = world.stats.landingTimesS.filter((timeS) => timeS >= since).length;
+  return (landings / elapsedS) * 3600;
+}
+
 /** Projected in-trail spacing when the aircraft ahead reaches the threshold (IF 6.14.3). */
 export function projectedSpacingNm(follower: Aircraft, leader: Aircraft): Nm {
   const followerAlong = finalGeometry(follower).alongNm;
@@ -138,10 +162,10 @@ function tryHandoff(world: World, ac: Aircraft): void {
   if (!isEstablished(ac, geo)) return;
 
   const leader = world.separation.inTrailLeader.get(ac.id);
-  if (leader && projectedSpacingNm(ac, leader) < IN_TRAIL_MIN_NM) {
-    // IF 6.14.3 — keep it on frequency until the closure rate is acceptable.
-    return;
-  }
+  // IF 6.14.3 — keep it on frequency until the closure rate is acceptable,
+  // against whichever in-trail minimum applies at its current range (§9.3).
+  const minimumNm = world.separation.inTrailMinimum.get(ac.id) ?? IN_TRAIL_MIN_NM;
+  if (leader && projectedSpacingNm(ac, leader) < minimumNm) return;
 
   ac.handedOff = true;
   world.stats.handoffs += 1;
@@ -268,6 +292,13 @@ export function step(world: World, dt: Sec): void {
           break;
         case 'landed':
           world.stats.landings += 1;
+          world.stats.landingTimesS.push(world.timeS);
+          // Only the window is ever read, so the list never grows past it.
+          {
+            const since = world.timeS - LANDING_RATE_WINDOW_S;
+            const stale = world.stats.landingTimesS.findIndex((timeS) => timeS >= since);
+            if (stale > 0) world.stats.landingTimesS.splice(0, stale);
+          }
           if (ac.directDistanceNm > 0) {
             world.stats.trackMileRatioSum += ac.trackMilesFlown / ac.directDistanceNm;
             world.stats.trackMileSamples += 1;

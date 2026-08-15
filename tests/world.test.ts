@@ -5,6 +5,9 @@ import {
   ENTRY_ALTITUDE_FT,
   ENTRY_ALTITUDE_NEAR_FT,
   ENTRY_SPEED_KTS,
+  IN_TRAIL_SEQUENCING_MIN_NM,
+  LANDING_RATE_MIN_ELAPSED_S,
+  LANDING_RATE_WINDOW_S,
   MIN_SPAWN_INTERVAL_S,
   PHYSICS_DT,
   SEP_HORIZ_NM,
@@ -12,7 +15,7 @@ import {
 import { createRng } from '../src/sim/rng.js';
 import { createArrival, createTrafficState, scheduleNextSpawn } from '../src/sim/traffic.js';
 import { bearing } from '../src/sim/units.js';
-import { createWorld, projectedSpacingNm, step } from '../src/sim/world.js';
+import { createWorld, landingRatePerHour, projectedSpacingNm, step } from '../src/sim/world.js';
 import { makeAircraft, onFinalApproach, quietWorld } from './helpers.js';
 
 /** Run the world forward by `seconds` of sim time. */
@@ -195,5 +198,106 @@ describe('handover to Tower', () => {
     const world = quietWorld(lead, follower);
     step(world, PHYSICS_DT);
     expect(follower.handedOff).toBe(false);
+  });
+
+  it('holds the transfer at 10 NM and beyond until the 4 NM gap is there', () => {
+    // Matched speeds, so the spacing at the threshold is what it is now: 3.5 NM
+    // clears radar separation but not the sequencing gap owed out here (§9.3).
+    const lead = makeAircraft({
+      ...onFinalApproach(8),
+      altitudeFt: 2547,
+      headingDeg: 180,
+      iasKts: 150,
+      phase: 'gs',
+    });
+    const follower = makeAircraft({
+      ...onFinalApproach(11.5),
+      altitudeFt: 3662,
+      headingDeg: 180,
+      iasKts: 150,
+      phase: 'gs',
+    });
+    follower.id = 2;
+
+    const spacing = projectedSpacingNm(follower, lead);
+    expect(spacing).toBeGreaterThan(SEP_HORIZ_NM);
+    expect(spacing).toBeLessThan(IN_TRAIL_SEQUENCING_MIN_NM);
+
+    const world = quietWorld(lead, follower);
+    step(world, PHYSICS_DT);
+    expect(follower.handedOff).toBe(false);
+    expect(lead.handedOff).toBe(true);
+  });
+
+  it('transfers the same pair once it is inside 10 NM', () => {
+    // Identical 3.5 NM gap, 3 NM closer in: the sequencing requirement is
+    // behind them, so 3 NM radar separation is the test and it passes.
+    const lead = makeAircraft({
+      ...onFinalApproach(5),
+      altitudeFt: 1592,
+      headingDeg: 180,
+      iasKts: 150,
+      phase: 'gs',
+    });
+    const follower = makeAircraft({
+      ...onFinalApproach(8.5),
+      altitudeFt: 2706,
+      headingDeg: 180,
+      iasKts: 150,
+      phase: 'gs',
+    });
+    follower.id = 2;
+
+    const world = quietWorld(lead, follower);
+    step(world, PHYSICS_DT);
+    expect(follower.handedOff).toBe(true);
+  });
+});
+
+describe('landing rate', () => {
+  it('is withheld until the sample is long enough to mean anything', () => {
+    const world = quietWorld();
+    expect(landingRatePerHour(world)).toBeNull();
+    run(world, LANDING_RATE_MIN_ELAPSED_S - 5);
+    expect(landingRatePerHour(world)).toBeNull();
+  });
+
+  it('extrapolates the trailing window to an hourly rate', () => {
+    const world = quietWorld();
+    world.timeS = 300; // 5 minutes in, so the window is 300 s of elapsed time
+    world.stats.landingTimesS = [60, 120, 180];
+
+    // 3 landings in 5 minutes → 36/h.
+    expect(landingRatePerHour(world)).toBeCloseTo(36, 6);
+  });
+
+  it('counts only the last 10 minutes, so an earlier rush stops flattering it', () => {
+    const world = quietWorld();
+    world.timeS = 1800;
+    // Six landings in the first ten minutes, two in the last ten.
+    world.stats.landingTimesS = [60, 120, 180, 240, 300, 360, 1300, 1500];
+
+    // 2 in 600 s → 12/h, not the 16/h the whole session would suggest.
+    expect(landingRatePerHour(world)).toBeCloseTo(12, 6);
+  });
+
+  it('drops landings out of the window as the session runs on', () => {
+    const world = quietWorld(
+      makeAircraft({
+        ...onFinalApproach(0.4),
+        altitudeFt: 127,
+        headingDeg: 180,
+        iasKts: 140, // on speed, so the stability gate lets it land
+        phase: 'gs',
+      }),
+    );
+    run(world, LANDING_RATE_MIN_ELAPSED_S + 10);
+    expect(world.stats.landings).toBe(1);
+    expect(landingRatePerHour(world)).toBeGreaterThan(0);
+
+    // Ten more minutes with nothing landing: the rate decays to zero.
+    run(world, LANDING_RATE_WINDOW_S);
+    expect(world.stats.landings).toBe(1); // the total is untouched
+    expect(landingRatePerHour(world)).toBe(0);
   });
 });

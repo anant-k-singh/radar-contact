@@ -35,7 +35,8 @@ turn still to come.
 Center hands each arrival over at its gate, established on that gate's **STAR**, at the altitude
 printed under the gate marker — 8000 ft at KOVAL and VANDA, which sit on the final approach side of
 the field, 9000 ft at TEMBA and RIMOL. Aircraft fly the published route on autopilot: descending
-continuously to make each crossing altitude exactly, and slowing to 230 kt by the 5000 ft fix.
+continuously to make each crossing altitude exactly, holding 250 kt to the first fix (OKPUR, NIVEL,
+SUDIX, TAVIR) and only then slowing to 230 kt by the 5000 ft fix.
 
 The north routes (VANDA1A, KOVAL1A) end level at 5000 ft just short of the extended centerline at
 16 NM — the 5000 ft glideslope intercept range, pointing at each other. The south ones (RIMOL1A,
@@ -50,6 +51,17 @@ without also costing you the lateral picture.
 `C` is refused unless the aircraft is set up correctly, and the refusal says exactly what is wrong
 ("900 ft above the glideslope at 12.0 NM"). The sidebar previews that check live.
 
+## Spacing on final
+
+Radar separation is 3 NM, but the runway has to be vacated before the next one lands, so the gap
+between two aircraft on final has to be **4 NM — and it is enforced at 10 NM and beyond**, where
+you can still build it. Inside 10 NM the ordinary 3 NM minimum applies: by then the sequence is
+what it is. An aircraft that is not properly spaced stays on your frequency instead of being
+transferred to Tower.
+
+The sidebar's **In trail** row shows the gap to the aircraft ahead and the minimum in force, and
+**Landing rate** reports what you are actually achieving over the last 10 minutes of sim time.
+
 ## What is where
 
 - [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) — the full spec: rules, sources, numbers, decisions,
@@ -59,6 +71,6 @@ without also costing you the lateral picture.
 - `src/scenario/` — airport, gates, aircraft types. Swap `airport.ts` to fly a different field.
 
 ```bash
-npm test         # 66 tests over the flight model, STARs, ILS logic and separation rules
+npm test         # 77 tests over the flight model, STARs, ILS logic and separation rules
 npm run build    # typecheck + static bundle (no backend, no runtime dependencies)
 ```

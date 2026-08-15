@@ -42,6 +42,9 @@ export function bindKeyboard(host: KeyboardHost): void {
       case '4':
         host.setTimeScale(4);
         return;
+      case '8':
+        host.setTimeScale(8);
+        return;
       case 'escape':
         world.selectedId = null;
         return;

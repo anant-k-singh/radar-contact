@@ -11,7 +11,7 @@ import { assignedAltitudeFt, assignedHeadingDeg, assignedIasKts, isPending } fro
 import { activeFix, starTargetSpeedKts } from '../sim/star.js';
 import { displayHeading, distance } from '../sim/units.js';
 import type { World } from '../sim/world.js';
-import { selectedAircraft } from '../sim/world.js';
+import { landingRatePerHour, selectedAircraft } from '../sim/world.js';
 import { clockText } from './messageLog.js';
 
 export interface SidebarHandlers {
@@ -47,6 +47,7 @@ const TEMPLATE = `
       <dt>Cross-track</dt><dd data-field="xtk"></dd>
       <dt>G/S here</dt><dd data-field="gs"></dd>
       <dt>Intercept</dt><dd data-field="intercept"></dd>
+      <dt>In trail</dt><dd data-field="intrail"></dd>
       <dt>Min speed</dt><dd data-field="minspd"></dd>
     </dl>
     <div class="ils" data-field="ils"></div>
@@ -55,6 +56,7 @@ const TEMPLATE = `
   <h2>Session</h2>
   <dl class="detail stats">
     <dt>Landings</dt><dd data-field="landings"></dd>
+    <dt>Landing rate</dt><dd data-field="landingrate"></dd>
     <dt>Handed off</dt><dd data-field="handoffs"></dd>
     <dt>Violations</dt><dd data-field="violations"></dd>
     <dt>Go-arounds</dt><dd data-field="goarounds"></dd>
@@ -67,7 +69,7 @@ const TEMPLATE = `
   <div class="keys">
     <kbd>A</kbd><kbd>D</kbd> heading &nbsp; <kbd>W</kbd><kbd>S</kbd> altitude<br />
     <kbd>Q</kbd><kbd>E</kbd> speed &nbsp; <kbd>C</kbd> clear ILS<br />
-    <kbd>Tab</kbd> cycle &nbsp; <kbd>Space</kbd> pause &nbsp; <kbd>1</kbd><kbd>2</kbd><kbd>4</kbd> rate
+    <kbd>Tab</kbd> cycle &nbsp; <kbd>Space</kbd> pause &nbsp; <kbd>1</kbd><kbd>2</kbd><kbd>4</kbd><kbd>8</kbd> rate
   </div>
 
   <h2>Session controls</h2>
@@ -76,6 +78,7 @@ const TEMPLATE = `
     <button data-action="rate1">1x</button>
     <button data-action="rate2">2x</button>
     <button data-action="rate4">4x</button>
+    <button data-action="rate8">8x</button>
   </div>
   <div class="buttons">
     <button data-action="flow-down">Flow −</button>
@@ -119,6 +122,9 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
       case 'rate4':
         handlers.setTimeScale(4);
         break;
+      case 'rate8':
+        handlers.setTimeScale(8);
+        break;
       case 'flow-down':
         handlers.adjustFlow(-5);
         break;
@@ -146,7 +152,16 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
         for (const name of ['alt', 'spd', 'hdg', 'altTarget', 'spdTarget', 'hdgTarget']) {
           set(name, '');
         }
-        for (const name of ['star', 'nextfix', 'range', 'xtk', 'gs', 'intercept', 'minspd']) {
+        for (const name of [
+          'star',
+          'nextfix',
+          'range',
+          'xtk',
+          'gs',
+          'intercept',
+          'intrail',
+          'minspd',
+        ]) {
           set(name, '—');
         }
         set('ils', 'Click an aircraft or press Tab.', 'ils idle');
@@ -186,6 +201,20 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
         );
         set('gs', geo.alongNm > 0 ? `${Math.round(geo.gsAltitudeFt)} ft` : '—');
         set('intercept', `${Math.round(geo.interceptAngleDeg)}°`);
+
+        // Spacing to the aircraft ahead on final, against the minimum in force
+        // — 4 NM once the runway has to be vacated in time (§9.3).
+        const spacingNm = world.separation.inTrail.get(ac.id);
+        const minimumNm = world.separation.inTrailMinimum.get(ac.id);
+        if (spacingNm === undefined || minimumNm === undefined) {
+          set('intrail', '—');
+        } else {
+          set(
+            'intrail',
+            `${spacingNm.toFixed(1)} NM  (min ${minimumNm.toFixed(0)})`,
+            spacingNm < minimumNm ? 'bad' : '',
+          );
+        }
         set('minspd', `${speedFloorKts(ac)} kt`);
 
         if (ac.handedOff) {
@@ -210,6 +239,8 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
 
       const stats = world.stats;
       set('landings', String(stats.landings));
+      const rate = landingRatePerHour(world);
+      set('landingrate', rate === null ? '—' : `${rate.toFixed(1)}/h`);
       set('handoffs', String(stats.handoffs));
       set(
         'violations',

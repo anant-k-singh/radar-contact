@@ -190,4 +190,55 @@ describe('a complete approach', () => {
     expect(world.stats.goArounds).toBe(1);
     expect(world.messages.some((m) => m.text.includes('high on the glideslope'))).toBe(true);
   });
+
+  it('lets 3.5 NM land inside 5 NM rather than sending it around', () => {
+    // The 4 NM gap is a sequencing requirement out at 10 NM (§9.3). This close
+    // in, squeezing the aircraft achieves nothing, so it is left alone.
+    const lead = makeAircraft({
+      ...onFinalApproach(1),
+      altitudeFt: 318,
+      headingDeg: 180,
+      iasKts: 140,
+      phase: 'gs',
+    });
+    const follower = makeAircraft({
+      ...onFinalApproach(4.5),
+      altitudeFt: 1433,
+      headingDeg: 180,
+      iasKts: 150,
+      phase: 'gs',
+    });
+    follower.id = 2;
+
+    const world = quietWorld(lead, follower);
+    step(world, PHYSICS_DT);
+
+    expect(follower.phase).toBe('gs');
+    expect(world.stats.goArounds).toBe(0);
+  });
+
+  it('still goes around as a backstop below 2.5 NM', () => {
+    const lead = makeAircraft({
+      ...onFinalApproach(2),
+      altitudeFt: 637,
+      headingDeg: 180,
+      iasKts: 140,
+      phase: 'gs',
+    });
+    const follower = makeAircraft({
+      ...onFinalApproach(4),
+      altitudeFt: 1274,
+      headingDeg: 180,
+      iasKts: 150,
+      phase: 'gs',
+    });
+    follower.id = 2;
+
+    const world = quietWorld(lead, follower);
+    step(world, PHYSICS_DT);
+
+    expect(follower.phase).toBe('goAround');
+    expect(lead.phase).toBe('gs'); // the one ahead is unaffected
+    expect(world.messages.some((m) => m.text.includes('insufficient spacing'))).toBe(true);
+  });
 });

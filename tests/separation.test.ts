@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { analyzeSeparation, inTrailSpacing } from '../src/sim/separation.js';
+import { IN_TRAIL_MIN_NM, IN_TRAIL_SEQUENCING_MIN_NM } from '../src/sim/constants.js';
+import { finalGeometry } from '../src/sim/ils.js';
+import { analyzeSeparation, inTrailMinimumNm, inTrailSpacing } from '../src/sim/separation.js';
 import { makeAircraft, onFinalApproach } from './helpers.js';
 
 describe('separation minima', () => {
@@ -67,6 +69,59 @@ describe('in-trail spacing on final', () => {
     const report = analyzeSeparation([lead, follower]);
     expect(report.pairs).toHaveLength(0);
     expect(report.alerts.get(follower.id)).toBeUndefined();
+  });
+
+  it('requires the 4 NM sequencing gap at 10 NM and beyond', () => {
+    // 3.5 NM at 15 NM: legal radar separation, but the gap has to be built out
+    // here or it never will be, so it is a bust (§9.3).
+    const farLead = makeAircraft({
+      ...onFinalApproach(11.5),
+      altitudeFt: 3700,
+      headingDeg: 180,
+      phase: 'loc',
+    });
+    farLead.id = 4;
+    const farFollower = makeAircraft({
+      ...onFinalApproach(15),
+      altitudeFt: 4800,
+      headingDeg: 180,
+      phase: 'loc',
+    });
+    farFollower.id = 5;
+
+    const report = analyzeSeparation([farLead, farFollower]);
+    expect(report.inTrailMinimum.get(farFollower.id)).toBe(IN_TRAIL_SEQUENCING_MIN_NM);
+    expect(report.inTrail.get(farFollower.id)).toBeCloseTo(3.5, 6);
+    expect(report.alerts.get(farFollower.id)).toBe('violation');
+  });
+
+  it('relaxes to 3 NM inside 10 NM, where the sequence is already set', () => {
+    const nearLead = makeAircraft({
+      ...onFinalApproach(5),
+      altitudeFt: 1600,
+      headingDeg: 180,
+      phase: 'gs',
+    });
+    nearLead.id = 6;
+    const nearFollower = makeAircraft({
+      ...onFinalApproach(8.5),
+      altitudeFt: 2700,
+      headingDeg: 180,
+      phase: 'gs',
+    });
+    nearFollower.id = 7;
+
+    const report = analyzeSeparation([nearLead, nearFollower]);
+    expect(report.inTrailMinimum.get(nearFollower.id)).toBe(IN_TRAIL_MIN_NM);
+    expect(report.inTrail.get(nearFollower.id)).toBeCloseTo(3.5, 6);
+    expect(report.pairs).toHaveLength(0);
+  });
+
+  it('switches minimum exactly at 10 NM', () => {
+    const at10 = makeAircraft({ ...onFinalApproach(10), headingDeg: 180, phase: 'loc' });
+    const justInside = makeAircraft({ ...onFinalApproach(9.9), headingDeg: 180, phase: 'loc' });
+    expect(inTrailMinimumNm(finalGeometry(at10).alongNm)).toBe(IN_TRAIL_SEQUENCING_MIN_NM);
+    expect(inTrailMinimumNm(finalGeometry(justInside).alongNm)).toBe(IN_TRAIL_MIN_NM);
   });
 
   it('flags an in-trail bust below 3 NM', () => {

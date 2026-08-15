@@ -10,6 +10,8 @@ import {
   ALERT_RED_VERT_FT,
   CONFLICT_PREDICT_S,
   IN_TRAIL_MIN_NM,
+  IN_TRAIL_SEQUENCING_MIN_NM,
+  IN_TRAIL_SEQUENCING_RANGE_NM,
   SEP_HORIZ_NM,
   SEP_VERT_FT,
 } from './constants.js';
@@ -33,6 +35,8 @@ export interface SeparationReport {
   inTrail: Map<number, Nm>;
   /** The aircraft ahead on final, per aircraft id. */
   inTrailLeader: Map<number, Aircraft>;
+  /** The in-trail minimum that applies to this aircraft right now, per id. */
+  inTrailMinimum: Map<number, Nm>;
 }
 
 const pairKey = (a: Aircraft, b: Aircraft): string =>
@@ -44,26 +48,45 @@ function onFinal(ac: Aircraft): boolean {
 }
 
 /**
+ * The in-trail minimum in force for an aircraft this far down the final.
+ *
+ * The landing interval is set by the runway rather than the radar — the one
+ * ahead has to land, roll out and vacate first — but that gap is only buildable
+ * out where there is still room to vector and slow. So the requirement bites at
+ * **10 NM and beyond**, at 4 NM, and inside 10 NM the ordinary 3 NM radar
+ * minimum applies: by then the sequence is what it is, and squeezing an
+ * aircraft on short final achieves nothing (§9.3).
+ */
+export function inTrailMinimumNm(alongNm: Nm): Nm {
+  return alongNm >= IN_TRAIL_SEQUENCING_RANGE_NM ? IN_TRAIL_SEQUENCING_MIN_NM : IN_TRAIL_MIN_NM;
+}
+
+/**
  * In-trail spacing on final. Aircraft on the same localizer are not laterally
  * separated in the usual sense, so they are measured nose-to-tail instead.
  */
 export function inTrailSpacing(aircraft: readonly Aircraft[]): {
   spacing: Map<number, Nm>;
   leader: Map<number, Aircraft>;
+  minimum: Map<number, Nm>;
 } {
   const spacing = new Map<number, Nm>();
   const leader = new Map<number, Aircraft>();
+  const minimum = new Map<number, Nm>();
   const queue = aircraft
     .filter((ac) => onFinal(ac))
     .map((ac) => ({ ac, along: finalGeometry(ac).alongNm }))
     .filter((entry) => entry.along > 0)
     .sort((p, q) => p.along - q.along);
 
+  for (const entry of queue) {
+    minimum.set(entry.ac.id, inTrailMinimumNm(entry.along));
+  }
   for (let i = 1; i < queue.length; i += 1) {
     spacing.set(queue[i]!.ac.id, queue[i]!.along - queue[i - 1]!.along);
     leader.set(queue[i]!.ac.id, queue[i - 1]!.ac);
   }
-  return { spacing, leader };
+  return { spacing, leader, minimum };
 }
 
 function horizontalDistance(a: Aircraft, b: Aircraft): Nm {
@@ -97,7 +120,11 @@ function predictedMinima(a: Aircraft, b: Aircraft): { horizNm: Nm; vertFt: numbe
 export function analyzeSeparation(aircraft: readonly Aircraft[]): SeparationReport {
   const alerts = new Map<number, AlertLevel>();
   const pairs: ConflictPair[] = [];
-  const { spacing: inTrail, leader: inTrailLeader } = inTrailSpacing(aircraft);
+  const {
+    spacing: inTrail,
+    leader: inTrailLeader,
+    minimum: inTrailMinimum,
+  } = inTrailSpacing(aircraft);
 
   const raise = (ac: Aircraft, level: AlertLevel): void => {
     const current = alerts.get(ac.id);
@@ -150,7 +177,8 @@ export function analyzeSeparation(aircraft: readonly Aircraft[]): SeparationRepo
   for (const ac of aircraft) {
     const spacing = inTrail.get(ac.id);
     const leader = inTrailLeader.get(ac.id);
-    if (spacing === undefined || leader === undefined || spacing >= IN_TRAIL_MIN_NM) continue;
+    const minimum = inTrailMinimum.get(ac.id) ?? IN_TRAIL_MIN_NM;
+    if (spacing === undefined || leader === undefined || spacing >= minimum) continue;
     raise(ac, 'violation');
     raise(leader, 'violation');
     pairs.push({
@@ -164,5 +192,5 @@ export function analyzeSeparation(aircraft: readonly Aircraft[]): SeparationRepo
     });
   }
 
-  return { pairs, alerts, inTrail, inTrailLeader };
+  return { pairs, alerts, inTrail, inTrailLeader, inTrailMinimum };
 }

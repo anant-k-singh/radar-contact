@@ -316,6 +316,9 @@ function unstableReason(ac: Aircraft, geo: FinalGeometry, ctx: ApproachContext):
   if (!isEstablished(ac, geo)) return 'not established on the localizer';
   if (ac.altitudeFt > geo.gsAltitudeFt + GO_AROUND_ABOVE_GS_FT) return 'high on the glideslope';
   if (ac.iasKts > ac.type.vappKts + GO_AROUND_OVERSPEED_KTS) return 'excessive speed on final';
+  // Last-resort backstop only. The 4 NM sequencing gap is enforced out at
+  // 10 NM (§9.3); this close in the runway genuinely will not be clear, and
+  // nothing the controller does now can change that.
   if (ctx.inTrailNm !== null && ctx.inTrailNm < GO_AROUND_IN_TRAIL_NM) {
     return `insufficient spacing (${ctx.inTrailNm.toFixed(1)} NM to the aircraft ahead)`;
   }

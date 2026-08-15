@@ -82,6 +82,15 @@ export const ALERT_RED_HORIZ_NM = 1.5;
 export const ALERT_RED_VERT_FT = 500;
 export const CONFLICT_PREDICT_S = 90;
 export const IN_TRAIL_MIN_NM = 3.0;
+/**
+ * Sequencing gap (§9.3). The runway, not the radar, sets the landing interval:
+ * the aircraft ahead has to land, roll out and vacate first. That gap has to be
+ * built while there is still room to build it, and it erodes on the way in as
+ * the pair slows, so **at 10 NM and beyond** the minimum is 4 NM. Inside 10 NM
+ * the geometry is set and the ordinary 3 NM radar minimum applies again.
+ */
+export const IN_TRAIL_SEQUENCING_MIN_NM = 4.0;
+export const IN_TRAIL_SEQUENCING_RANGE_NM = 10.0;
 
 // ── Go-around (§6.2) ────────────────────────────────────────────────────────
 export const GO_AROUND_GATE_NM = 5.0; // stability is enforced inside this
@@ -104,8 +113,10 @@ export const ENTRY_ALTITUDE_NEAR_FT = 8000;
 export const ENTRY_SPEED_KTS = 250;
 
 // ── STARs (§4.5) ────────────────────────────────────────────────────────────
-/** Published altitude on the outer leg of every STAR. */
-export const STAR_INTERMEDIATE_ALT_FT = 7000;
+/** Published altitude on the outer leg of the north routes. */
+export const STAR_INTERMEDIATE_ALT_NORTH_FT = 7000;
+/** The south routes are longer and start 1000 ft higher, so their outer leg is too. */
+export const STAR_INTERMEDIATE_ALT_SOUTH_FT = 8000;
 /** Published altitude on the last leg — the platform the vectors start from. */
 export const STAR_PLATFORM_ALT_FT = 5000;
 /** Published speed from the platform fix onwards. */
@@ -122,6 +133,16 @@ export const PILOT_DELAY_MAX_S = 3.0;
 
 // ── Handoff (§10) ───────────────────────────────────────────────────────────
 export const TOWER_FREQUENCY = '119.1';
+
+// ── Session stats (§8) ──────────────────────────────────────────────────────
+/**
+ * Landing rate is quoted over a trailing 10 minutes of sim time rather than the
+ * whole session, so it reads as "how the last few minutes are going" — the
+ * number a controller would compare against the arrival flow.
+ */
+export const LANDING_RATE_WINDOW_S = 600;
+/** Below this much elapsed time the sample is too short to extrapolate. */
+export const LANDING_RATE_MIN_ELAPSED_S = 120;
 
 // ── Misc ────────────────────────────────────────────────────────────────────
 export const MESSAGE_LOG_MAX = 60;

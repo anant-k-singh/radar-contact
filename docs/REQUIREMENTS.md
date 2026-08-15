@@ -34,7 +34,7 @@ Manual* for the procedural rules.
 | Terrain / MVA map | Single flat MVA constant instead |
 | Parallel runways & reduced parallel separation | Only meaningful with ≥2 runways |
 | Multiple airports, sector handoffs between radar positions | v2+ |
-| Wake-turbulence spacing categories as a *rule* | Category is displayed, but 3 NM in-trail is the only spacing rule in v1 |
+| Wake-turbulence spacing categories as a *rule* | Category is displayed, but the range-dependent in-trail minimum of §9.3 is the only spacing rule in v1 |
 | Voice / phraseology audio, pilot "unable" negotiation | Text readback log only |
 | Touch / mobile controls | Desktop keyboard + mouse only |
 | Multiplayer, accounts, backend | Static site, no server |
@@ -331,9 +331,9 @@ published crossing altitude or speed.
 
 | STAR | Fixes | Profile |
 | --- | --- | --- |
-| VANDA1A | VANDA → OKPUR → ALVOR → ARDIS | 8000 → 7000 → 5000/230 kt, level to 2 NM west of the centerline at 16 NM |
+| VANDA1A | VANDA → OKPUR → ALVOR → ARDIS | 8000/250 kt → 7000/250 kt → 5000/230 kt, level to 2 NM west of the centerline at 16 NM |
 | KOVAL1A | KOVAL → NIVEL → BELGA → BOXAR | mirror image, 2 NM east |
-| RIMOL1A | RIMOL → SUDIX → LOMSA → PIKON | 9000 → 7000 → 5000/230 kt, north up a downwind 8 NM west of the centerline, ending 11 NM north |
+| RIMOL1A | RIMOL → SUDIX → LOMSA → PIKON | 9000/250 kt → 8000/250 kt → 5000/230 kt, north up a downwind 8 NM west of the centerline, ending 11 NM north |
 | TEMBA1A | TEMBA → TAVIR → DEMUX → KETAN | mirror image, 8 NM east |
 
 Geometry, all four:
@@ -354,8 +354,15 @@ exactly rather than dived at and levelled off. The resulting rate is 350–700 f
 descent — and its energy is still charged against the speed budget of §4.3, so an aircraft on the
 profile decelerates more slowly than a level one.
 
-**Speed.** 250 kt at the gate, interpolated down to **230 kt by the 5000 ft fix**: a slow, steady
-reduction across the whole descent rather than a step.
+**Speed.** **250 kt is published as far as the first fix** (OKPUR, NIVEL, SUDIX, TAVIR) and only
+then interpolated down to **230 kt by the 5000 ft fix**. The speed comes off over the middle leg,
+not from the moment of handover — IF 6.15.8's "keep the speed up until close in" expressed as a
+published constraint, and it keeps the outer leg of every route at a single predictable speed. An
+aircraft vectored off before its first fix therefore keeps 250 kt, not 230.
+
+The two southern first fixes cross at **8000 ft** rather than 7000: those routes start 1000 ft
+higher and are the longer pair, so the descent stays even instead of front-loading into the first
+leg and then running level.
 
 **Who owns which axis.** The route is an autopilot, and the controller takes axes back from it:
 
@@ -437,7 +444,9 @@ Soft warnings that do **not** block the clearance but are logged and scored: int
    is honoured until 4 NM (the "maintain 170 kt to 5 mile final" technique of IF 6.14.4).
 4. **Touchdown** — at the threshold: log the landing, add to stats, **despawn**.
 5. **Go-around** (automatic) — if inside 5 NM any of: not established on LOC, >1000 ft above G/S,
-   >20 kt above Vapp+30, or in-trail spacing < 2.5 NM. The aircraft climbs to 3000 ft on runway
+   >20 kt above Vapp+30, or in-trail spacing < 2.5 NM. That last one is a backstop, not the spacing
+   rule: the 4 NM gap is enforced out at 10 NM (§9.3), and by 5 NM only a genuinely unusable gap is
+   worth a go-around. The aircraft climbs to 3000 ft on runway
    heading and returns to `inbound` as the player's problem, and the event is scored.
 
 ---
@@ -520,12 +529,23 @@ The session is endless; the score is a running quality report, not a life counte
 | Metric | Definition |
 | --- | --- |
 | Landings | Aircraft that touched down |
-| Arrival rate achieved | Landings per hour of sim time |
+| Landing rate | Landings per hour over the **trailing 10 minutes** of sim time (§8.2) |
 | Separation violations | Count, plus total seconds in violation |
 | Go-arounds | Automatic go-arounds triggered |
 | Airspace exits | Aircraft that left the 50 NM circle laterally (handed back to Center — penalty) |
 | Track-mile efficiency | Actual track miles flown ÷ straight-line distance from gate to threshold, averaged |
 | Clearance rejections | Failed `C` attempts, by reason — the learning signal |
+
+### 8.2 Landing rate
+
+Quoted over a **trailing 10 minutes** rather than the whole session, because the useful question is
+"how is it going *now*" — the number to compare against the arrival flow you are being fed. A
+session average only ever converges, and hides the ten minutes where the sequence fell apart.
+
+Landings inside the window are counted and extrapolated over however much of it has elapsed, so at
+minute 5 three landings read as 36/h rather than 18/h. Below **2 minutes** elapsed the sample is too
+short to extrapolate honestly and the field reads `—`. A quiet ten minutes decays the rate to 0/h
+while the `Landings` total stands, which is the point of having both.
 
 ---
 
@@ -539,10 +559,35 @@ The session is endless; the score is a running quality report, not a life counte
   punitive — you see it coming.
 - **Exemption:** aircraft both `established` on the same LOC are not laterally separated in the
   usual sense (they are in-trail), so the pair is exempt from the 3 NM/1000 ft test and instead
-  subject to the **in-trail rule: ≥ 3.0 NM** to the aircraft ahead until touchdown. Below 2.5 NM
-  the trailing aircraft goes around (§6.2).
+  subject to the in-trail rule below.
 - Checks run on every physics step over all pairs. At 25 aircraft that is 300 pairs × 2 Hz —
   no spatial index needed.
+
+### 9.3 In-trail spacing and the sequencing gap
+
+Radar separation is 3 NM, but the *landing* interval is limited by the runway rather than the radar:
+the aircraft ahead has to touch down, roll out and vacate before the next one crosses the threshold.
+At 140 kt, 3 NM is only 77 seconds — not enough. The gap therefore has to be **4 NM**.
+
+Where that is enforced matters more than the number. A gap can only be built while there is still
+room to vector and slow, and it erodes on the way in as the pair decelerates; by short final the
+sequence is simply what it is, and squeezing an aircraft there fixes nothing while costing a
+go-around. So the minimum is range-dependent, and the requirement bites *early*:
+
+| Where | Minimum to the aircraft ahead |
+| --- | --- |
+| On final, **10 NM and beyond** | **4.0 NM** — the sequencing gap, built where it can still be built |
+| On final, inside 10 NM | **3.0 NM** — ordinary radar separation; the sequence is set |
+
+Enforced at two points: the handoff is withheld until the projected spacing at the threshold meets
+whichever minimum applies at the aircraft's current range (§10 step 3), so an aircraft that is not
+yet properly sequenced stays on your frequency; and a bust raises the red halo and scores a
+separation violation. Inside 5 NM the go-around backstop stays at **2.5 NM** (§6.2) — that is the
+point at which the runway genuinely will not be clear and nobody can do anything about it.
+
+Practically this makes speed control on final the core skill: 4 NM at a common 160 kt is a 90 s
+landing interval, i.e. a ceiling of about 40 movements an hour, which is what the flow-rate slider
+is being measured against.
 
 ## 10. Handoff to Tower
 
@@ -550,7 +595,8 @@ Automatic, when **all** hold (IF 6.14.1 / 6.14.2 / 6.14.3):
 
 1. `established` on the LOC (per §6.2 step 1 — aligned with the centerline, not merely "in the cone").
 2. G/S captured (`phase = gs`) or at/below the G/S and descending.
-3. **Acceptable closure rate:** projected in-trail spacing at the threshold ≥ 3 NM given both
+3. **Acceptable closure rate:** projected in-trail spacing at the threshold ≥ the minimum in force
+   at the aircraft's current range — 4 NM at 10 NM and beyond, 3 NM inside it (§9.3) — given both
    aircraft's current ground speeds. If the follower is catching the leader, the aircraft is *kept*
    on frequency (explicitly per 6.14.3, "this may mean leaving the frequency change until very
    late") and the player still owns the speed problem.
