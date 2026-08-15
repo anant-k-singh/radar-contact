@@ -519,7 +519,13 @@ fixes it, and the sidebar says so continuously for the whole `loc` leg rather th
 - Left-click an aircraft blip or its data block to select. Click empty space to deselect.
 - `Tab` cycles selection by distance to the threshold (nearest first) — keyboard-only play.
 - The selected aircraft is highlighted and its data block expands; the sidebar shows its
-  Altitude / Speed / Heading exactly like the reference screenshot.
+  Altitude / Speed / Heading exactly like the reference screenshot — each as *current → assigned*.
+- The sidebar speed pair is **IAS**, because IAS is what an instruction sets. Ground speed is a
+  detail row below it, with the altitude bonus printed alongside (`287 kt (IAS +37)`), so the two
+  numbers on screen can be reconciled without arithmetic.
+- The altitude row carries the **current vertical rate in brackets** — `7001 (−1200) → 5000` —
+  dim rather than yellow, since it is a trend the aircraft is producing, not a value assigned to
+  it. Rounded to 50 fpm and blank in level flight, so it reads as a trend rather than jitter.
 
 ### 7.2 Keys
 
@@ -570,7 +576,7 @@ Mirroring the reference screenshots:
 - **Data block**, two lines, offset from the blip:
   ```
   KLM133 ARDIS    ← callsign + state tag (next fix, ILS/LOC/G/S, G/A or TWR)
-  80 ↓60  250M    ← altitude / target in hundreds of feet, then IAS + wake category
+  80 ↓60  287M    ← altitude / target in hundreds of feet, then ground speed + wake category
   ```
   Altitude and speed share a line because "how low and how fast" is one question, and the shorter
   block collides with fewer of its neighbours.
@@ -581,6 +587,12 @@ Mirroring the reference screenshots:
   with a tick and labelled with the heading. The green leader shows where the aircraft is pointing
   now, the yellow one where it is going; the gap between them *is* the outstanding turn. It fades
   out over its last second, and a further press restarts the window rather than extending it.
+
+  The speed on the block is **ground speed, not the assigned IAS** (§4.4). Radar measures motion
+  over the ground, and ground speed is also what the in-trail spacing closes at — so it is the
+  number to read when judging a sequence. It is *not* the number an instruction sets: a descending
+  aircraft's block speed falls as it loses the altitude bonus even with the IAS held constant. The
+  IAS, current and assigned, is in the sidebar for the selected aircraft.
 - **Altitude convention:** hundreds of feet, two digits (`80` = 8000 ft). `=70` = level at 7000,
   `↓60` = descending to 6000, `↑` for climbing.
 - **Colour coding:** data blocks and leader lines are a cool near-white; the blip is a shade bluer
@@ -840,6 +852,13 @@ None of these blocks play; each is a small, contained change.
 1. **Runway identity** — built as `18` with a 180° final approach course. Match the screenshot's
    `18C` instead? (In reality that implies parallels we are not modelling.)
 2. **Speed floor policy** — currently a hard block below 180 kt (190 for heavies) outside 20 track
+| Question | Decision (2026-08-15, display) |
+| --- | --- |
+| Airspace shape | **The circle's caps are cut at \|y\| = 42 NM** and the scope zooms to the chords (§3.1). The cut cannot go tighter than the entry gates at \|y\| = 38.3 NM without handing arrivals over from outside the airspace; 42 leaves them 3.7 NM and buys ~20 % more scale |
+| Which speed the data block shows | **Ground speed.** Radar measures motion over the ground, and closure on final is a ground-speed problem. The consequence is deliberate: a descending aircraft's block speed drops without anyone touching its IAS (§7.3) |
+| Which speed an instruction sets | **IAS, unchanged** — that is what a crew flies. The sidebar shows the IAS pair for the selected aircraft and prints the altitude bonus next to the ground speed, so the two are reconcilable on sight rather than mysterious (§7.1) |
+| Vertical rate on the readout | **In brackets beside the altitude, dim, rounded to 50 fpm, blank when level.** The assigned figures are yellow; a rate is something the aircraft is doing, not something it was told (§7.1) |
+
    miles, refused with an explanation. Softer alternative: allow it and score it.
 3. **Wake categories** — displayed on the data block, but not used for spacing. Should heavies
    require 4–5 NM in trail?

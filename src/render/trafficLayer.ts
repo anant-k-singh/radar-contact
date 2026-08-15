@@ -87,9 +87,14 @@ function blockLines(ac: Aircraft): string[] {
   const tag = stateTag(ac);
   // Two lines, not three: altitude and speed are read together — "how low and
   // how fast" is one question — and a shorter block collides with fewer others.
+  //
+  // The speed here is *ground* speed, not the assigned IAS (§7.3): radar
+  // measures the target's motion over the ground, and that is also the number
+  // the spacing on final actually runs on. The IAS the instruction sets is in
+  // the sidebar for the selected aircraft.
   return [
     tag ? `${ac.callsign} ${tag}` : ac.callsign,
-    `${vertical}  ${Math.round(ac.radar.iasKts)}${ac.type.wake}`,
+    `${vertical}  ${Math.round(ac.radar.groundSpeedKts)}${ac.type.wake}`,
   ];
 }
 

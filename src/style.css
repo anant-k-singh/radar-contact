@@ -142,6 +142,19 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* The vertical rate: a trend, not an assignment, so it stays dim rather than
+   taking the yellow that means "what you told it to do". */
+.digits u:empty {
+  display: none; /* level flight: no bracket, and no gap where one would be */
+}
+
+.digits u {
+  text-decoration: none;
+  font-size: 12px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
 dl.detail {
   display: grid;
   grid-template-columns: auto 1fr;

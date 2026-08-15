@@ -6,7 +6,7 @@
  */
 import { AIRPORT } from '../scenario/airport.js';
 import { speedFloorKts } from '../sim/commands.js';
-import { GS_CAPTURE_WINDOW_FT } from '../sim/constants.js';
+import { GS_CAPTURE_WINDOW_FT, VS_DISPLAY_STEP_FPM } from '../sim/constants.js';
 import {
   evaluateClearance,
   evaluateIntercept,
@@ -15,7 +15,7 @@ import {
 } from '../sim/ils.js';
 import { assignedAltitudeFt, assignedHeadingDeg, assignedIasKts, isPending } from '../sim/pilot.js';
 import { activeFix, starTargetSpeedKts } from '../sim/star.js';
-import { displayHeading, distance } from '../sim/units.js';
+import { displayHeading, distance, quantize } from '../sim/units.js';
 import type { World } from '../sim/world.js';
 import { landingRatePerHour, selectedAircraft } from '../sim/world.js';
 import { clockText } from './messageLog.js';
@@ -40,13 +40,14 @@ const TEMPLATE = `
     <div class="callsign"><span data-field="callsign">— none —</span><em data-field="actype"></em></div>
     <div class="readout">
       <label>Altitude</label>
-      <div class="digits"><span data-field="alt"></span><i data-field="altTarget"></i></div>
-      <label>Speed</label>
+      <div class="digits"><span data-field="alt"></span><u data-field="altRate"></u><i data-field="altTarget"></i></div>
+      <label>Speed (IAS)</label>
       <div class="digits"><span data-field="spd"></span><i data-field="spdTarget"></i></div>
       <label>Heading</label>
       <div class="digits"><span data-field="hdg"></span><i data-field="hdgTarget"></i></div>
     </div>
     <dl class="detail">
+      <dt>Ground speed</dt><dd data-field="gspd"></dd>
       <dt>Arrival</dt><dd data-field="star"></dd>
       <dt>Next fix</dt><dd data-field="nextfix"></dd>
       <dt>Range</dt><dd data-field="range"></dd>
@@ -94,6 +95,13 @@ const TEMPLATE = `
     <button data-action="restart">Restart</button>
   </div>
 `;
+
+/** `(−700)` / `(+1200)`, blank when the aircraft is holding its level. */
+function verticalRateText(vsFpm: number): string {
+  const rounded = quantize(vsFpm, VS_DISPLAY_STEP_FPM);
+  if (rounded === 0) return '';
+  return `(${rounded > 0 ? '+' : '−'}${Math.abs(rounded)})`;
+}
 
 export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sidebar {
   root.innerHTML = TEMPLATE;
@@ -156,10 +164,19 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
       if (!ac) {
         set('callsign', '— none —');
         set('actype', '');
-        for (const name of ['alt', 'spd', 'hdg', 'altTarget', 'spdTarget', 'hdgTarget']) {
+        for (const name of [
+          'alt',
+          'spd',
+          'hdg',
+          'altRate',
+          'altTarget',
+          'spdTarget',
+          'hdgTarget',
+        ]) {
           set(name, '');
         }
         for (const name of [
+          'gspd',
           'star',
           'nextfix',
           'range',
@@ -178,12 +195,19 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
         set('actype', `${ac.type.code} ${ac.type.wake}`);
 
         set('alt', String(Math.round(ac.radar.altitudeFt)));
+        set('altRate', verticalRateText(ac.radar.vsFpm));
         set('altTarget', ac.phase === 'gs' ? '→ G/S' : `→ ${Math.round(assignedAltitudeFt(ac))}`);
         set('spd', String(Math.round(ac.radar.iasKts)));
         set('spdTarget', `→ ${Math.round(starTargetSpeedKts(ac) ?? assignedIasKts(ac))}`);
         set('hdg', displayHeading(ac.radar.headingDeg));
         const onRoute = ac.star !== null && !isPending(ac, 'heading');
         set('hdgTarget', onRoute ? '→ route' : `→ ${displayHeading(assignedHeadingDeg(ac))}`);
+
+        // Ground speed is what the block and the spacing run on; the gap to the
+        // IAS above is the altitude effect (§4.4), and printing it is the only
+        // place the two numbers can be compared side by side.
+        const gainKts = Math.round(ac.radar.groundSpeedKts - ac.radar.iasKts);
+        set('gspd', `${Math.round(ac.radar.groundSpeedKts)} kt  (IAS +${gainKts})`);
 
         // Which published arrival it came in on, and how it is being flown now.
         if (ac.star) {

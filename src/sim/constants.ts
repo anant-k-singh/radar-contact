@@ -174,6 +174,12 @@ export const MESSAGE_LOG_VISIBLE = 5;
 export const HEADING_HINT_S = 5;
 
 /**
+/**
+ * Vertical rate is displayed rounded to this step, and suppressed below it —
+ * the readout answers "is it going up, down, or holding", and an unrounded
+ * figure jittering by tens of feet a minute reads as noise rather than trend.
+ */
+export const VS_DISPLAY_STEP_FPM = 50;
  * Feet of energy-equivalent altitude per knot of speed change at a given TAS.
  * Δh = (V/g)·ΔV with V in ft/s — at 250 kt this is 22.1 ft per knot,
  * so a 20 kt reduction "costs" 443 ft of altitude.
