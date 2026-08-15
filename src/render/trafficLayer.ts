@@ -11,7 +11,7 @@ import type { World } from '../sim/world.js';
 import { screenX, screenY, type Projection } from './project.js';
 import { THEME } from './theme.js';
 
-const LINE_HEIGHT = 13;
+const LINE_HEIGHT = 12;
 
 export interface Rect {
   x: number;
@@ -57,6 +57,12 @@ function primaryColor(ac: Aircraft, selected: boolean): string {
   return THEME.traffic;
 }
 
+/** The blip's own shade, except when something more urgent has claimed the colour. */
+function glyphColor(ac: Aircraft, selected: boolean): string {
+  const primary = primaryColor(ac, selected);
+  return primary === THEME.traffic ? THEME.glyph : primary;
+}
+
 function blockLines(ac: Aircraft): string[] {
   const hundreds = Math.round(ac.radar.altitudeFt / 100);
   const assignedFt = assignedAltitudeFt(ac);
@@ -71,10 +77,11 @@ function blockLines(ac: Aircraft): string[] {
   }
 
   const tag = stateTag(ac);
+  // Two lines, not three: altitude and speed are read together — "how low and
+  // how fast" is one question — and a shorter block collides with fewer others.
   return [
     tag ? `${ac.callsign} ${tag}` : ac.callsign,
-    vertical,
-    `${Math.round(ac.radar.iasKts)}${ac.type.wake}`,
+    `${vertical}  ${Math.round(ac.radar.iasKts)}${ac.type.wake}`,
   ];
 }
 
@@ -104,23 +111,45 @@ function placeBlock(
   return { x: bx + 14, y: by - 18, w: width, h: height };
 }
 
+/**
+ * Half of a top-down airliner silhouette, nose at −y, in glyph units; the other
+ * half is mirrored in x. Swept wings and a tailplane are all it takes to read
+ * as an aircraft at 13 px, and the asymmetry front-to-back is what makes the
+ * heading legible without a leader line.
+ */
+const GLYPH_HALF: ReadonlyArray<readonly [number, number]> = [
+  [0, -8.0], // nose
+  [1.15, -5.6],
+  [1.35, -1.3], // wing root, leading edge
+  [7.8, 1.7], // wing tip, swept back
+  [7.8, 2.5],
+  [1.35, 2.1], // wing root, trailing edge
+  [1.15, 4.7],
+  [3.3, 6.7], // tailplane tip
+  [3.3, 7.4],
+  [0.85, 7.6], // tail
+];
+const GLYPH_SCALE = 0.8;
+
 function drawGlyph(ctx: CanvasRenderingContext2D, sx: number, sy: number, headingDeg: number): void {
-  const dir = headingVector(headingDeg);
-  const perp = headingVector(headingDeg + 90);
-  // Screen y is inverted.
-  const fx = dir.x;
-  const fy = -dir.y;
-  const px = perp.x;
-  const py = -perp.y;
+  ctx.save();
+  ctx.translate(sx, sy);
+  // The silhouette is drawn nose-up, so rotating by the heading points it the
+  // right way: screen y is inverted, which is exactly the sense canvas rotates.
+  ctx.rotate((headingDeg * Math.PI) / 180);
+  ctx.scale(GLYPH_SCALE, GLYPH_SCALE);
 
   ctx.beginPath();
-  ctx.moveTo(sx - fx * 5, sy - fy * 5);
-  ctx.lineTo(sx + fx * 6, sy + fy * 6);
-  ctx.moveTo(sx - px * 5, sy - py * 5);
-  ctx.lineTo(sx + px * 5, sy + py * 5);
-  ctx.moveTo(sx - fx * 5 - px * 2.5, sy - fy * 5 - py * 2.5);
-  ctx.lineTo(sx - fx * 5 + px * 2.5, sy - fy * 5 + py * 2.5);
-  ctx.stroke();
+  ctx.moveTo(GLYPH_HALF[0]![0], GLYPH_HALF[0]![1]);
+  for (const [x, y] of GLYPH_HALF.slice(1)) ctx.lineTo(x, y);
+  for (let i = GLYPH_HALF.length - 1; i >= 0; i -= 1) {
+    const [x, y] = GLYPH_HALF[i]!;
+    ctx.lineTo(-x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
 }
 
 /** Returns where each data block ended up, so clicks can hit the label as well as the blip. */
@@ -216,11 +245,11 @@ export function drawTraffic(
     ctx.globalAlpha = 1;
 
     // Blip.
-    ctx.strokeStyle = color;
-    ctx.lineWidth = selected ? 2 : 1.4;
+    ctx.fillStyle = glyphColor(ac, selected);
     drawGlyph(ctx, sx, sy, ac.headingDeg);
 
     if (selected) {
+      ctx.strokeStyle = color;
       ctx.lineWidth = 1;
       ctx.globalAlpha = 0.8;
       ctx.beginPath();
