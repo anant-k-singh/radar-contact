@@ -11,7 +11,7 @@
  */
 import { AIRPORT } from '../scenario/airport.js';
 import type { Aircraft } from './aircraft.js';
-import { PILOT_DELAY_MAX_S, PILOT_DELAY_MIN_S } from './constants.js';
+import { PILOT_DELAY_MAX_S, PILOT_DELAY_MIN_S, PILOT_ORDER_GAP_S } from './constants.js';
 import { leaveStar } from './star.js';
 import { displayHeading, headingDelta, type Deg, type Ft, type Kts, type Sec } from './units.js';
 import type { MessageKind, World } from './world.js';
@@ -70,6 +70,16 @@ export function issue(world: World, ac: Aircraft, instruction: Instruction): voi
     atS: world.timeS + PILOT_DELAY_MIN_S + world.pilotRng.next() * spread,
     instruction,
   };
+  // "Turn left 210, cleared ILS approach" is one transmission, but each half
+  // draws its own reaction time, so the clearance can otherwise be flown first
+  // and the turn then arrive behind it looking like a vector off the approach —
+  // cancelling the clearance that was just given. The crew never acts out of
+  // order: a clearance waits for whatever is already being read back.
+  if (instruction.kind === 'approach') {
+    for (const item of ac.pending) {
+      entry.atS = Math.max(entry.atS, item.atS + PILOT_ORDER_GAP_S);
+    }
+  }
   const index = ac.pending.findIndex((item) => item.instruction.kind === instruction.kind);
   if (index >= 0) ac.pending[index] = entry;
   else ac.pending.push(entry);

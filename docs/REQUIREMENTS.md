@@ -415,36 +415,81 @@ optimises for maintainability instead.
 
 ### 6.1 The clearance gate (`C` key)
 
-The clearance is **accepted only if every condition holds**, and when rejected the log states
-*which* condition failed. This is the single most valuable teaching surface in the app — it turns a
-vague "it didn't work" into "you were 800 ft above the glideslope".
+A clearance is a statement about what the aircraft will do **when it reaches the localizer**, not
+about where it is when the clearance is given. So the gate only refuses the cases where the
+clearance could never mean anything — the geometry is nonsense, or the localizer is not receivable.
+Everything about the aircraft's instantaneous state is a prediction at this point, and is settled
+for real by §6.1a.
 
 | # | Condition | Value | Source |
 | --- | --- | --- | --- |
-| 1 | Not already cleared, and inside the 50 NM circle | — | — |
-| 2 | Intercept angle to the 180° final approach course | **≤ 45°** | your spec (IF 6.11.3 prefers ~30°) |
-| 3 | At or below the G/S at the projected intercept point | `alt ≤ 318.4 × d_NM` | IF 6.11.4 |
-| 4 | At or above MVA | ≥ 2000 ft | — |
-| 5 | Within LOC coverage and closing on it | ≤ 25 NM from threshold, cross-track ≤ 10 NM, closing | LOC service volume |
-| 6 | Level (not still descending through the intercept altitude) | `|vs| < 200 fpm` | IF 6.11.8 |
+| 1 | Not already cleared, not going around, not with Tower | — | — |
+| 2 | Before the threshold | `d > 0` | — |
+| 3 | At or above MVA | ≥ 2000 ft | — |
+| 4 | Within LOC coverage | ≤ 25 NM from threshold | LOC service volume |
+| 5 | Closing on the localizer | cross-track error decreasing | a diverging track never reaches the window |
 
-Soft warnings that do **not** block the clearance but are logged and scored: intercept angle
->30°, speed >210 kt inside 15 NM, intercept inside 6 NM (rushed).
+Soft warnings that do **not** block the clearance but are logged and scored: above the G/S (with
+the height, and a note that it must be at or below by the intercept), speed >210 kt inside 15 NM,
+intercept inside 6 NM (rushed).
+
+This is why the controller may turn an aircraft onto a 30° intercept and clear it in the same
+breath, or clear one that is still descending to the platform because they can see it will level
+off in time. Both are ordinary technique in a busy sequence, and refusing them out of hand cost
+attention the controller did not have to spare.
+
+### 6.1a The intercept window
+
+Tested **at the localizer** — the tick on which the aircraft first arrives inside the 0.5 NM
+capture band, closing:
+
+| # | Condition | Value | Source |
+| --- | --- | --- | --- |
+| 1 | Intercept angle to the 180° final approach course | **≤ 45°** | your spec (IF 6.11.3 prefers ~30°) |
+| 2 | Level, not still descending through the intercept altitude | `|vs| ≤ 200 fpm` | IF 6.11.8 |
+| 3 | Speed | **≤ 230 kt** | the published STAR speed; a faster turn overshoots |
+
+Fail any of them and the aircraft **flies through the localizer**: the clearance is cancelled, the
+phase reverts to `inbound`, the crew reports *"unable to intercept — 80° exceeds 45°. Through the
+localizer, request vectors"*, and the controller has to vector it back round and clear it again.
+It does **not** go around — a missed intercept 15 NM out is a vectoring problem, not a runway one.
+The cost is track miles and the sequence, which is the honest price.
+
+The glideslope is deliberately not checked here. It has its own capture, from below only (§6.2.2),
+which is what "checked individually, at the time of intercept" means on the vertical axis: an
+aircraft that intercepts the LOC above the path simply never captures the G/S and is caught by the
+5 NM stability gate.
+
+Soft warnings at the intercept, logged and scored but not blocking: angle >30°, and **above the
+glideslope**. The second one matters more than it looks. The path *falls away* as the aircraft
+flies inbound, so an aircraft that reaches the localizer above it never captures — it is already a
+go-around at 5 NM, several minutes before anything visibly goes wrong. Since §6.1 no longer refuses
+a high clearance, the intercept is the last moment the controller can be told while a descent still
+fixes it, and the sidebar says so continuously for the whole `loc` leg rather than reporting
+"waiting for the glideslope" to an aircraft that will wait forever.
 
 ### 6.2 Capture and landing
 
-1. **LOC capture** — once cleared, when cross-track error < 0.5 NM the aircraft turns to track the
-   final approach course, holding assigned altitude. Phase → `loc`.
+1. **LOC capture** — once cleared, when cross-track error < 0.5 NM *and the intercept window of
+   §6.1a is satisfied*, the aircraft turns to track the final approach course, holding assigned
+   altitude. Phase → `loc`.
    *Established* (the handoff criterion, IF 6.14.2) = `phase ≥ loc` AND `|cross-track| < 0.3 NM`
    AND `|heading − 180| < 5°` AND tracking inbound.
 2. **G/S capture** — when the 3° path is reached from below, phase → `gs`; the aircraft descends at
    `fpm ≈ 5.31 × GS`, i.e. ~740 fpm at 140 kt.
 3. **Deceleration on final** — per IF 6.15.10, once cleared, speed reverts to the aircraft's
-   discretion: it decelerates to reach Vapp by ~4 NM. A speed the player assigns *after* clearance
-   is honoured until 4 NM (the "maintain 170 kt to 5 mile final" technique of IF 6.14.4).
+   discretion, on a schedule keyed to along-track distance: ≤250 kt beyond 12 NM, ≤210 kt from
+   12 NM, ≤180 kt from 8 NM, and **Vapp from 5 NM regardless**. Each gate only ever slows the
+   aircraft — the schedule never speeds one back up. A speed the player assigns *after* clearance
+   replaces the schedule entirely and is honoured until 5 NM (the "maintain 170 kt to 5 mile final"
+   technique of IF 6.14.4), which is also the trap: assign 210 and forget, and the 5 NM gate drops
+   the target straight to Vapp with the aircraft 70 kt above it, failing the stability check below.
+   The rate itself is the ordinary 1 kt/s of §4.3; on a 3° path the descent only spends ~740 fpm of
+   the 2500 fpm energy budget, so the coupling rarely binds on final — it binds when the controller
+   asks for descent *and* deceleration together before the intercept.
 4. **Touchdown** — at the threshold: log the landing, add to stats, **despawn**.
 5. **Go-around** (automatic) — if inside 5 NM any of: not established on LOC, >1000 ft above G/S,
-   >20 kt above Vapp+30, or in-trail spacing < 2.5 NM. That last one is a backstop, not the spacing
+   more than 45 kt above Vapp, or in-trail spacing < 2.5 NM. That last one is a backstop, not the spacing
    rule: the 4 NM gap is enforced out at 10 NM (§9.3), and by 5 NM only a genuinely unusable gap is
    worth a go-around. The aircraft climbs to 3000 ft on runway
    heading and returns to `inbound` as the player's problem, and the event is scored.
@@ -487,9 +532,16 @@ do is take effect immediately.
   between the two is the reaction, not lag.
 - At 4× time acceleration the delay is 4× more expensive in track miles, which is the honest cost
   of running the session fast.
+- An approach clearance transmitted while something else is still being read back is acted on
+  **after** it. "Turn left 210, cleared ILS" is one transmission, but each half draws its own
+  reaction time, so without this the clearance could be flown first and the turn then arrive
+  behind it looking like a vector *off* the approach — silently cancelling the clearance just
+  given. The crew never acts out of order.
 
 Refusals — below the speed floor, at the ceiling, an ILS clearance that fails §6.1 — are heard
-immediately, because they are the controller's own check, not the crew's.
+immediately, because they are the controller's own check, not the crew's. A **missed intercept**
+(§6.1a) is the opposite: it is heard when it happens, at the localizer, because only the aircraft
+knows whether the controller's prediction came true.
 
 ### 7.3 Radar display
 
@@ -535,6 +587,7 @@ The session is endless; the score is a running quality report, not a life counte
 | Airspace exits | Aircraft that left the 50 NM circle laterally (handed back to Center — penalty) |
 | Track-mile efficiency | Actual track miles flown ÷ straight-line distance from gate to threshold, averaged |
 | Clearance rejections | Failed `C` attempts, by reason — the learning signal |
+| Missed intercepts | Clearances accepted that then failed the §6.1a window at the localizer, by reason |
 
 ### 8.2 Landing rate
 
@@ -746,6 +799,13 @@ for the architecture.
 | Descent profile | **Continuous, interpolated between published altitudes** — crossing altitudes made good exactly, no dive-and-drive (§4.5) |
 | Pilot reaction | **1–3 s**, one outstanding instruction per axis, assigned values shown immediately (§7.2) |
 
+| Question | Decision (2026-08-15, later) |
+| --- | --- |
+| When an ILS clearance is tested | **Twice, for different things.** The clearance gate keeps only what makes a clearance meaningless (§6.1); the intercept window — angle, level, speed — is tested at the localizer (§6.1a). A controller must be able to turn an aircraft onto the intercept and clear it in the same breath, or clear one that will level off before it gets there. Refusing on instantaneous state forced a vector-wait-watch-clear rhythm that cost the most attention exactly when there was least to spare |
+| What a missed intercept costs | **The aircraft flies through the localizer**, the clearance is cancelled, and it must be re-vectored and re-cleared. Not a go-around: at 15 NM this is a vectoring failure, not a runway one, and track miles plus a broken sequence are the honest price |
+| The intercept speed limit | **230 kt**, the published STAR speed. It is the one condition the controller can only fix well in advance, which is the point — an aircraft left at 250 kt off the STAR will not intercept |
+| Whether the G/S is part of the intercept window | **No — it keeps its own capture, from below only.** That already *is* an individual check at the time of intercept, and an aircraft that intercepts the LOC high is caught by the 5 NM stability gate (§6.2.5) |
+
 ## 15. Still open
 
 None of these blocks play; each is a small, contained change.
@@ -761,7 +821,11 @@ None of these blocks play; each is a small, contained change.
 5. **Aircraft glyph** — a simple cross-and-nose symbol. Worth drawing a proper airliner shape?
 6. **Rejoining a STAR** — there is no "resume own navigation"; once vectored, an aircraft is on
    vectors for good. A `direct <fix>` instruction would be the natural way to give the route back.
-7. **The two north routes end pointing at each other** at the same level, 4 NM apart. Deliberate —
+7. **Should "closing on the localizer" also move to the intercept window?** It is the one
+   instantaneous condition left in §6.1. The argument for keeping it there is that a diverging
+   track never reaches the window at all, so there is nothing to defer the check to; the argument
+   against is that the controller may intend to turn it in a moment, exactly as with the angle.
+8. **The two north routes end pointing at each other** at the same level, 4 NM apart. Deliberate —
    it is the sequencing problem — but if it proves unfair rather than hard, staggering ARDIS and
    BOXAR by 1000 ft is a one-line change.
 
@@ -773,7 +837,7 @@ None of these blocks play; each is a small, contained change.
 nvm use          # Node 24 LTS, pinned in .nvmrc — the system default is 18 (EOL)
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 66 sim tests, headless, ~0.7 s
+npm test         # 86 sim tests, headless, ~0.7 s
 npm run build    # typecheck + static bundle into dist/
 ```
 

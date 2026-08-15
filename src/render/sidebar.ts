@@ -6,7 +6,13 @@
  */
 import { AIRPORT } from '../scenario/airport.js';
 import { speedFloorKts } from '../sim/commands.js';
-import { evaluateClearance, finalGeometry, rangeToThresholdNm } from '../sim/ils.js';
+import { GS_CAPTURE_WINDOW_FT } from '../sim/constants.js';
+import {
+  evaluateClearance,
+  evaluateIntercept,
+  finalGeometry,
+  rangeToThresholdNm,
+} from '../sim/ils.js';
 import { assignedAltitudeFt, assignedHeadingDeg, assignedIasKts, isPending } from '../sim/pilot.js';
 import { activeFix, starTargetSpeedKts } from '../sim/star.js';
 import { displayHeading, distance } from '../sim/units.js';
@@ -63,6 +69,7 @@ const TEMPLATE = `
     <dt>Airspace exits</dt><dd data-field="exits"></dd>
     <dt>Track miles</dt><dd data-field="trackmiles"></dd>
     <dt>Refused ILS</dt><dd data-field="rejections"></dd>
+    <dt>Missed intercepts</dt><dd data-field="missed"></dd>
   </dl>
 
   <h2>Controls</h2>
@@ -222,9 +229,27 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
         } else if (ac.phase === 'gs') {
           set('ils', 'Established — on the glideslope.', 'ils ok');
         } else if (ac.phase === 'loc') {
-          set('ils', 'On the localizer, waiting for the glideslope.', 'ils ok');
+          // Waiting for a glideslope that is falling away below is not waiting,
+          // it is a go-around at 5 NM. Say so while it can still be descended.
+          const aboveFt = ac.altitudeFt - geo.gsAltitudeFt;
+          set(
+            'ils',
+            aboveFt > GS_CAPTURE_WINDOW_FT
+              ? `On the localizer — ${Math.round(aboveFt)} ft above the glideslope, will not capture.`
+              : 'On the localizer, waiting for the glideslope.',
+            aboveFt > GS_CAPTURE_WINDOW_FT ? 'ils bad' : 'ils ok',
+          );
         } else if (ac.phase === 'cleared') {
-          set('ils', 'Cleared ILS — flying the intercept.', 'ils ok');
+          // The clearance is a prediction; show whether it is currently coming
+          // true, so a doomed intercept can be fixed before the localizer.
+          const intercept = evaluateIntercept(ac, geo);
+          set(
+            'ils',
+            intercept.ok
+              ? 'Cleared ILS — flying the intercept.'
+              : `Cleared, but will not intercept: ${intercept.reason}.`,
+            intercept.ok ? 'ils ok' : 'ils bad',
+          );
         } else if (ac.phase === 'goAround') {
           set('ils', 'Going around — re-vector for another approach.', 'ils bad');
         } else {
@@ -257,11 +282,14 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
           ? `${(stats.trackMileRatioSum / stats.trackMileSamples).toFixed(2)}×`
           : '—',
       );
-      const rejections = [...stats.rejections.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .map(([code, count]) => `${code} ${count}`)
-        .join(', ');
-      set('rejections', rejections || '0');
+      const tally = (counts: Map<string, number>): string =>
+        [...counts.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .map(([code, count]) => `${code} ${count}`)
+          .join(', ');
+      set('rejections', tally(stats.rejections) || '0');
+      const missed = tally(stats.missedIntercepts);
+      set('missed', missed || '0', missed ? 'warn' : '');
     },
   };
 }

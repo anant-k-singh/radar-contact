@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import type { Aircraft } from '../src/sim/aircraft.js';
+import { adjustHeading, clearForIls } from '../src/sim/commands.js';
 import { PHYSICS_DT } from '../src/sim/constants.js';
 import {
   evaluateClearance,
@@ -9,7 +11,7 @@ import {
 } from '../src/sim/ils.js';
 import { step } from '../src/sim/world.js';
 import { headingDiff } from '../src/sim/units.js';
-import { makeAircraft, onFinalApproach, quietWorld } from './helpers.js';
+import { makeAircraft, onFinalApproach, pilotActs, quietWorld } from './helpers.js';
 
 /**
  * An aircraft correctly set up for a 30° intercept at 12 NM.
@@ -72,22 +74,26 @@ describe('the clearance gate', () => {
     expect(result.warnings).toHaveLength(0);
   });
 
-  it('refuses an aircraft above the glideslope and says by how much', () => {
+  it('clears an aircraft still perpendicular to the localizer', () => {
+    // The whole point of §6.1a: the clearance is a prediction about the
+    // intercept, so it may be given before the turn has even been flown.
+    const ac = goodSetup();
+    ac.headingDeg = 270;
+    expect(evaluateClearance(ac, finalGeometry(ac)).ok).toBe(true);
+  });
+
+  it('clears an aircraft still descending to the intercept altitude', () => {
+    const ac = goodSetup();
+    ac.vsFpm = -1200;
+    expect(evaluateClearance(ac, finalGeometry(ac)).ok).toBe(true);
+  });
+
+  it('clears an aircraft above the glideslope, warning by how much', () => {
     const ac = goodSetup();
     ac.altitudeFt = 5000; // G/S at 12 NM is ~3821 ft
     const result = evaluateClearance(ac, finalGeometry(ac));
-    expect(result.ok).toBe(false);
-    expect(result.code).toBe('aboveGlideslope');
-    expect(result.reason).toContain('above the glideslope');
-    expect(result.reason).toContain('1179 ft');
-  });
-
-  it('refuses an intercept angle beyond 45°', () => {
-    const ac = goodSetup();
-    ac.headingDeg = 250;
-    const result = evaluateClearance(ac, finalGeometry(ac));
-    expect(result.ok).toBe(false);
-    expect(result.code).toBe('interceptAngle');
+    expect(result.ok).toBe(true);
+    expect(result.warnings.join(' ')).toContain('1179 ft above the glideslope');
   });
 
   it('refuses beyond localizer range', () => {
@@ -98,28 +104,138 @@ describe('the clearance gate', () => {
     expect(result.code).toBe('outOfRange');
   });
 
-  it('refuses while still descending to the intercept altitude', () => {
-    const ac = goodSetup();
-    ac.vsFpm = -1200;
-    const result = evaluateClearance(ac, finalGeometry(ac));
-    expect(result.ok).toBe(false);
-    expect(result.code).toBe('notLevel');
-  });
-
   it('refuses an aircraft that is not closing on the localizer', () => {
+    // Not a prediction that has yet to come true — this track never reaches
+    // the window at all.
     const position = onFinalApproach(12, 3);
     const ac = makeAircraft({ ...position, altitudeFt: 3000, headingDeg: 150, vsFpm: 0 });
     const result = evaluateClearance(ac, finalGeometry(ac));
     expect(result.ok).toBe(false);
     expect(result.code).toBe('notClosing');
   });
+});
 
-  it('accepts a shallow intercept but flags it as poor practice', () => {
+describe('the intercept window', () => {
+  /** Fly until the clearance is resolved one way or the other. */
+  function runToIntercept(ac: Aircraft) {
+    const world = quietWorld(ac);
+    for (let i = 0; i < 20_000 && ac.phase === 'cleared'; i += 1) step(world, PHYSICS_DT);
+    return world;
+  }
+
+  it('captures the localizer when the aircraft arrives inside the window', () => {
     const ac = goodSetup();
-    ac.headingDeg = 220; // 40° — legal, but beyond the ideal 30°
-    const result = evaluateClearance(ac, finalGeometry(ac));
-    expect(result.ok).toBe(true);
-    expect(result.warnings.join(' ')).toContain('40°');
+    ac.phase = 'cleared';
+    runToIntercept(ac);
+    expect(ac.phase).toBe('loc');
+  });
+
+  it('warns about a 40° intercept but still captures', () => {
+    const ac = goodSetup();
+    ac.headingDeg = 220;
+    ac.targetHeadingDeg = 220;
+    ac.phase = 'cleared';
+    const world = runToIntercept(ac);
+    expect(ac.phase).toBe('loc');
+    expect(world.messages.some((m) => m.text.includes('intercept angle 40°'))).toBe(true);
+  });
+
+  it('captures the localizer above the glideslope, but says it cannot capture it', () => {
+    // The path falls away inbound, so this one is a 5 NM go-around already.
+    // The intercept is the last moment the controller can still be told.
+    const position = onFinalApproach(16, 2.5);
+    const ac = makeAircraft({
+      ...position,
+      altitudeFt: 5000, // G/S at the ~13.6 NM capture is ~4335 ft
+      headingDeg: 210,
+      iasKts: 200,
+      vsFpm: 0,
+      phase: 'cleared',
+    });
+    const world = runToIntercept(ac);
+
+    expect(ac.phase).toBe('loc');
+    expect(world.messages.some((m) => m.text.includes('above the glideslope'))).toBe(true);
+    expect(world.messages.some((m) => m.text.includes('cannot capture from here'))).toBe(true);
+  });
+
+  it('flies through the localizer when the angle is still beyond 45°', () => {
+    const position = onFinalApproach(12, 3);
+    const ac = makeAircraft({
+      ...position,
+      altitudeFt: 2500,
+      headingDeg: 260, // 80° to the course — never turned onto the intercept
+      iasKts: 180,
+      vsFpm: 0,
+      phase: 'cleared',
+    });
+    const world = runToIntercept(ac);
+
+    expect(ac.phase).toBe('inbound');
+    expect(world.stats.missedIntercepts.get('interceptAngle')).toBe(1);
+    expect(world.messages.some((m) => m.text.includes('unable to intercept'))).toBe(true);
+    expect(world.stats.goArounds).toBe(0); // it flies through, it does not go around
+  });
+
+  it('flies through the localizer when it is still descending', () => {
+    const position = onFinalApproach(10, 1);
+    const ac = makeAircraft({
+      ...position,
+      altitudeFt: 4000,
+      targetAltitudeFt: 2000, // still 1800 fpm down when it reaches the course
+      headingDeg: 210,
+      iasKts: 180,
+      phase: 'cleared',
+    });
+    const world = runToIntercept(ac);
+
+    expect(ac.phase).toBe('inbound');
+    expect(world.stats.missedIntercepts.get('notLevel')).toBe(1);
+  });
+
+  it('flies through the localizer above 230 kt', () => {
+    const position = onFinalApproach(12, 1.5);
+    const ac = makeAircraft({
+      ...position,
+      altitudeFt: 2500,
+      headingDeg: 210,
+      iasKts: 250,
+      vsFpm: 0,
+      phase: 'cleared',
+    });
+    const world = runToIntercept(ac);
+
+    expect(ac.phase).toBe('inbound');
+    expect(world.stats.missedIntercepts.get('tooFast')).toBe(1);
+  });
+
+  it('lands an aircraft cleared while perpendicular, then turned onto the intercept', () => {
+    // The scenario the mechanic exists for: turn onto a 30° intercept and
+    // clear in the same breath, from a downwind heading well off the course.
+    const position = onFinalApproach(22, 6);
+    const ac = makeAircraft({
+      ...position,
+      altitudeFt: 3000,
+      headingDeg: 270,
+      iasKts: 210,
+      vsFpm: 0,
+    });
+    const world = quietWorld(ac);
+
+    for (let i = 0; i < 6; i += 1) adjustHeading(world, ac, -1); // 270 → 210
+    clearForIls(world, ac);
+    pilotActs(world);
+    expect(ac.targetHeadingDeg).toBe(210);
+    expect(ac.phase).toBe('cleared');
+
+    let landed = false;
+    for (let i = 0; i < 40_000 && !landed; i += 1) {
+      step(world, PHYSICS_DT);
+      if (world.aircraft.length === 0) landed = true;
+    }
+    expect(landed).toBe(true);
+    expect(world.stats.landings).toBe(1);
+    expect(world.stats.missedIntercepts.size).toBe(0);
   });
 });
 

@@ -56,10 +56,16 @@ export const GS_ANGLE_DEG = 3;
 /** Feet of glideslope altitude per NM from the threshold: 318.4 ft/NM. */
 export const GS_FT_PER_NM = FT_PER_NM * Math.tan(toRad(GS_ANGLE_DEG));
 export const LOC_RANGE_NM = 25; // localizer service volume
-export const MAX_INTERCEPT_ANGLE_DEG = 45; // hard limit for a clearance
+/**
+ * The intercept window (§6.1a). These are tested at the moment the aircraft
+ * reaches the localizer, not when the clearance is given: a clearance is a
+ * prediction, and the controller is allowed to make one that has not come true
+ * yet. Failing any of them at the localizer means the aircraft flies through it.
+ */
+export const MAX_INTERCEPT_ANGLE_DEG = 45;
+export const MAX_INTERCEPT_SPEED_KTS = 230; // the published STAR speed
+export const LEVEL_VS_LIMIT_FPM = 200; // "level" test at the localizer
 export const IDEAL_INTERCEPT_ANGLE_DEG = 30; // IF 6.11.3 — soft warning beyond
-export const MAX_CLEARANCE_XTK_NM = 10;
-export const LEVEL_VS_LIMIT_FPM = 200; // "level" test for a clearance
 export const LOC_CAPTURE_XTK_NM = 0.5;
 export const ESTABLISHED_XTK_NM = 0.3; // IF 6.14.2 — aligned with the centerline
 export const ESTABLISHED_HDG_DEG = 5;
@@ -130,6 +136,13 @@ export const STAR_MAX_ANTICIPATION_NM = 6;
 /** An instruction is read back and flown 1–3 s after it is transmitted. */
 export const PILOT_DELAY_MIN_S = 1.0;
 export const PILOT_DELAY_MAX_S = 3.0;
+/**
+ * Minimum gap the crew leaves between an instruction and an approach clearance
+ * transmitted on top of it. "Turn left 210, cleared ILS" is one transmission,
+ * so the turn must not be flown *after* the clearance — where it would read as
+ * a vector off the approach and cancel it (§7.2).
+ */
+export const PILOT_ORDER_GAP_S = 0.05;
 
 // ── Handoff (§10) ───────────────────────────────────────────────────────────
 export const TOWER_FREQUENCY = '119.1';

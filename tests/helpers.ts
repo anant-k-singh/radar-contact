@@ -66,8 +66,14 @@ export function run(world: World, seconds: number): void {
  * now, without flying the aircraft anywhere in between (§7.2).
  */
 export function pilotActs(world: World, ...aircraft: Aircraft[]): void {
-  world.timeS += PILOT_DELAY_MAX_S;
-  for (const ac of aircraft.length > 0 ? aircraft : world.aircraft) {
+  const targets = aircraft.length > 0 ? aircraft : world.aircraft;
+  // Past the longest reaction time outstanding, not just the nominal maximum:
+  // a clearance stacked behind another instruction is deliberately later still.
+  world.timeS = Math.max(
+    world.timeS + PILOT_DELAY_MAX_S,
+    ...targets.flatMap((ac) => ac.pending.map((item) => item.atS)),
+  );
+  for (const ac of targets) {
     for (const readback of applyDueInstructions(ac, world.timeS)) {
       log(world, readback.text, readback.kind);
     }

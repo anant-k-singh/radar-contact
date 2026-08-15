@@ -45,6 +45,8 @@ export interface Stats {
   goArounds: number;
   exits: number;
   rejections: Map<string, number>;
+  /** Clearances that were accepted but did not intercept, by reason (§6.1a). */
+  missedIntercepts: Map<string, number>;
   trackMileRatioSum: number;
   trackMileSamples: number;
 }
@@ -88,6 +90,7 @@ export function createWorld(seed: number, flowPerHour = FLOW_DEFAULT_PER_HOUR): 
       goArounds: 0,
       exits: 0,
       rejections: new Map(),
+      missedIntercepts: new Map(),
       trackMileRatioSum: 0,
       trackMileSamples: 0,
     },
@@ -286,6 +289,21 @@ export function step(world: World, dt: Sec): void {
       switch (event.kind) {
         case 'locCaptured':
           log(world, `${ac.callsign} established on the localizer.`, 'pilot');
+          for (const warning of event.warnings) {
+            log(world, `Poor practice: ${ac.callsign} — ${warning}.`, 'system');
+          }
+          break;
+        case 'interceptMissed':
+          world.stats.missedIntercepts.set(
+            event.code,
+            (world.stats.missedIntercepts.get(event.code) ?? 0) + 1,
+          );
+          log(
+            world,
+            `${ac.callsign} unable to intercept — ${event.reason}. Through the localizer, ` +
+              `request vectors.`,
+            'alert',
+          );
           break;
         case 'gsCaptured':
           log(world, `${ac.callsign} glideslope alive, descending on the ILS.`, 'pilot');

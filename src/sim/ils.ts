@@ -1,6 +1,13 @@
 /**
- * ILS approach logic: the clearance gate, localizer and glideslope capture,
- * the deceleration schedule, landing and go-arounds (docs §6).
+ * ILS approach logic: the clearance gate, the intercept window, localizer and
+ * glideslope capture, the deceleration schedule, landing and go-arounds (§6).
+ *
+ * The clearance and the intercept are deliberately two separate gates. A
+ * clearance says *what the aircraft will do when it gets to the localizer*, so
+ * it may legally be given before the aircraft is anywhere near the window —
+ * turned 30° onto the intercept in the same breath, or still descending to the
+ * platform. Whether it actually intercepts is settled later, at the localizer,
+ * by `evaluateIntercept` (§6.1a).
  */
 import { AIRPORT } from '../scenario/airport.js';
 import type { Aircraft } from './aircraft.js';
@@ -20,8 +27,8 @@ import {
   LEVEL_VS_LIMIT_FPM,
   LOC_CAPTURE_XTK_NM,
   LOC_RANGE_NM,
-  MAX_CLEARANCE_XTK_NM,
   MAX_INTERCEPT_ANGLE_DEG,
+  MAX_INTERCEPT_SPEED_KTS,
   MAX_LOC_CORRECTION_DEG,
   MVA_FT,
   PURSUIT_LEAD_NM,
@@ -111,13 +118,9 @@ export function isEstablished(ac: Aircraft, geo: FinalGeometry): boolean {
 /** Refusal categories, for the score panel's breakdown. */
 export type RefusalCode =
   | 'state'
-  | 'interceptAngle'
-  | 'aboveGlideslope'
   | 'belowMva'
   | 'outOfRange'
-  | 'tooFarFromLoc'
   | 'notClosing'
-  | 'notLevel'
   | 'pastThreshold';
 
 export interface ClearanceResult {
@@ -130,8 +133,12 @@ export interface ClearanceResult {
 }
 
 /**
- * The clearance gate (§6.1). Every refusal names the condition that failed:
- * this is the app's main teaching surface.
+ * The clearance gate (§6.1). Only the conditions that make a clearance
+ * *meaningless* refuse it — the geometry is nonsense, or the localizer cannot
+ * be received at all. Everything about the aircraft's instantaneous state
+ * (angle, level, speed) is a prediction at this point and belongs to
+ * `evaluateIntercept` instead. Every refusal still names the condition that
+ * failed: this is the app's main teaching surface.
  */
 export function evaluateClearance(ac: Aircraft, geo: FinalGeometry): ClearanceResult {
   const warnings: string[] = [];
@@ -149,22 +156,6 @@ export function evaluateClearance(ac: Aircraft, geo: FinalGeometry): ClearanceRe
   if (ac.phase === 'goAround') return refuse('state', 'going around — re-vector first');
 
   if (geo.alongNm <= 0) return refuse('pastThreshold', 'past the threshold — vector back around');
-
-  if (geo.interceptAngleDeg > MAX_INTERCEPT_ANGLE_DEG) {
-    return refuse(
-      'interceptAngle',
-      `intercept angle ${Math.round(geo.interceptAngleDeg)}° exceeds ${MAX_INTERCEPT_ANGLE_DEG}°`,
-    );
-  }
-
-  if (ac.altitudeFt > geo.gsAltitudeFt) {
-    return refuse(
-      'aboveGlideslope',
-      `${Math.round(ac.altitudeFt - geo.gsAltitudeFt)} ft above the glideslope at ` +
-        `${geo.alongNm.toFixed(1)} NM — descend to ${Math.floor(geo.gsAltitudeFt / 1000) * 1000} ft`,
-    );
-  }
-
   if (ac.altitudeFt < MVA_FT - 1) return refuse('belowMva', `below the MVA of ${MVA_FT} ft`);
 
   if (geo.alongNm > LOC_RANGE_NM) {
@@ -173,26 +164,86 @@ export function evaluateClearance(ac: Aircraft, geo: FinalGeometry): ClearanceRe
       `${geo.alongNm.toFixed(0)} NM out — beyond ${LOC_RANGE_NM} NM localizer range`,
     );
   }
-  if (Math.abs(geo.xtkNm) > MAX_CLEARANCE_XTK_NM) {
-    return refuse(
-      'tooFarFromLoc',
-      `${Math.abs(geo.xtkNm).toFixed(1)} NM from the localizer — vector closer first`,
-    );
-  }
+  // A track that takes the aircraft away from the localizer is not a prediction
+  // that has yet to come true; it will never reach the window at all.
   if (!geo.closing) return refuse('notClosing', 'not closing on the localizer');
 
-  if (Math.abs(ac.vsFpm) > LEVEL_VS_LIMIT_FPM) {
-    return refuse('notLevel', 'not level yet — wait until the assigned altitude is reached');
-  }
-
-  // Accepted, but flag poor technique.
-  if (geo.interceptAngleDeg > IDEAL_INTERCEPT_ANGLE_DEG) {
-    warnings.push(`intercept angle ${Math.round(geo.interceptAngleDeg)}° (aim for 30°)`);
+  // Accepted, but flag poor technique. Anything the aircraft can still fix on
+  // the way in is advisory here and decided for real at the localizer.
+  if (ac.altitudeFt > geo.gsAltitudeFt) {
+    warnings.push(
+      `${Math.round(ac.altitudeFt - geo.gsAltitudeFt)} ft above the glideslope at ` +
+        `${geo.alongNm.toFixed(1)} NM — must be at or below it by the intercept`,
+    );
   }
   if (ac.iasKts > 210 && geo.alongNm < 15) {
     warnings.push(`${Math.round(ac.iasKts)} kt inside 15 NM is fast`);
   }
   if (geo.alongNm < 6) warnings.push('rushed intercept inside 6 NM');
+
+  return { ok: true, warnings };
+}
+
+/** Why an aircraft failed to intercept, for the score panel's breakdown. */
+export type InterceptFailureCode = 'interceptAngle' | 'notLevel' | 'tooFast';
+
+export interface InterceptResult {
+  ok: boolean;
+  /** Why the localizer was not captured — shown to the player verbatim. */
+  reason?: string;
+  code?: InterceptFailureCode;
+  /** Captured, but poor practice. Logged and scored. */
+  warnings: string[];
+}
+
+/**
+ * The intercept window (§6.1a), tested at the localizer rather than at the
+ * clearance. The three conditions are what a real autopilot needs to arm and
+ * fly a localizer capture: a shallow enough angle to turn onto the course
+ * before overshooting, wings-level cruise flight rather than an active descent,
+ * and a speed the turn can actually be flown at.
+ *
+ * The glideslope is deliberately *not* checked here. It has its own capture,
+ * from below only, further down this file — which is exactly what "checked
+ * individually at the time of intercept" means for the vertical axis.
+ */
+export function evaluateIntercept(ac: Aircraft, geo: FinalGeometry): InterceptResult {
+  const warnings: string[] = [];
+  const miss = (code: InterceptFailureCode, reason: string): InterceptResult => ({
+    ok: false,
+    reason,
+    code,
+    warnings,
+  });
+
+  if (geo.interceptAngleDeg > MAX_INTERCEPT_ANGLE_DEG) {
+    return miss(
+      'interceptAngle',
+      `intercept angle ${Math.round(geo.interceptAngleDeg)}° exceeds ${MAX_INTERCEPT_ANGLE_DEG}°`,
+    );
+  }
+  if (Math.abs(ac.vsFpm) > LEVEL_VS_LIMIT_FPM) {
+    return miss('notLevel', `still ${Math.abs(Math.round(ac.vsFpm))} fpm — not level`);
+  }
+  if (ac.iasKts > MAX_INTERCEPT_SPEED_KTS) {
+    return miss(
+      'tooFast',
+      `${Math.round(ac.iasKts)} kt exceeds ${MAX_INTERCEPT_SPEED_KTS} kt for the intercept`,
+    );
+  }
+
+  if (geo.interceptAngleDeg > IDEAL_INTERCEPT_ANGLE_DEG) {
+    warnings.push(`intercept angle ${Math.round(geo.interceptAngleDeg)}° (aim for 30°)`);
+  }
+  // The path falls away as the aircraft flies inbound, so one that reaches the
+  // localizer above it never captures — it is a go-around at 5 NM already, and
+  // this is the last moment the controller can be told while it is still fixable.
+  if (ac.altitudeFt > geo.gsAltitudeFt + GS_CAPTURE_WINDOW_FT) {
+    warnings.push(
+      `${Math.round(ac.altitudeFt - geo.gsAltitudeFt)} ft above the glideslope — ` +
+        `it cannot capture from here`,
+    );
+  }
 
   return { ok: true, warnings };
 }
@@ -226,7 +277,8 @@ export function approachSpeedTargetKts(ac: Aircraft, alongNm: Nm): number {
 }
 
 export type ApproachEvent =
-  | { kind: 'locCaptured' }
+  | { kind: 'locCaptured'; warnings: readonly string[] }
+  | { kind: 'interceptMissed'; code: InterceptFailureCode; reason: string }
   | { kind: 'gsCaptured' }
   | { kind: 'landed' }
   | { kind: 'goAround'; reason: string };
@@ -260,10 +312,26 @@ export function stepApproach(
   if (ac.phase === 'inbound') return events;
 
   // ── Localizer capture ────────────────────────────────────────────────────
+  // Reaching the localizer is where the clearance is finally tested. An
+  // aircraft that arrives outside the window does not capture and does not go
+  // around: it flies straight through the centerline, the clearance is gone,
+  // and the controller has to vector it back and clear it again (§6.1a).
   if (ac.phase === 'cleared') {
     if (Math.abs(geo.xtkNm) < LOC_CAPTURE_XTK_NM && geo.alongNm > 0 && geo.closing) {
-      ac.phase = 'loc';
-      events.push({ kind: 'locCaptured' });
+      const intercept = evaluateIntercept(ac, geo);
+      if (intercept.ok) {
+        ac.phase = 'loc';
+        events.push({ kind: 'locCaptured', warnings: intercept.warnings });
+      } else {
+        ac.phase = 'inbound';
+        ac.speedAssignedAfterClearance = false;
+        events.push({
+          kind: 'interceptMissed',
+          code: intercept.code!,
+          reason: intercept.reason!,
+        });
+        return events;
+      }
     }
   }
 

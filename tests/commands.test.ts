@@ -154,9 +154,9 @@ describe('the C key', () => {
     expect(world.messages.at(-1)!.text).toContain('cleared ILS approach runway 18');
   });
 
-  it('refuses and records the reason when the aircraft is too high', () => {
+  it('refuses and records the reason when the localizer is out of range', () => {
     const ac = makeAircraft({
-      ...onFinalApproach(12, 2),
+      ...onFinalApproach(30, 2),
       altitudeFt: 6000,
       headingDeg: 210,
       vsFpm: 0,
@@ -166,7 +166,49 @@ describe('the C key', () => {
     clearForIls(world, ac);
     pilotActs(world);
     expect(ac.phase).toBe('inbound');
-    expect(world.stats.rejections.get('aboveGlideslope')).toBe(1);
+    expect(world.stats.rejections.get('outOfRange')).toBe(1);
+  });
+
+  it('does not let a vector given in the same breath cancel the clearance', () => {
+    // Both instructions are outstanding at once and each draws its own reaction
+    // time, so without the ordering rule the turn can land after the clearance
+    // and read as a vector off the approach (§7.2).
+    const ac = makeAircraft({
+      ...onFinalApproach(14, 4),
+      altitudeFt: 3000,
+      headingDeg: 270,
+      iasKts: 200,
+      vsFpm: 0,
+    });
+    const world = quietWorld(ac);
+
+    adjustHeading(world, ac, -1);
+    clearForIls(world, ac);
+    pilotActs(world);
+
+    expect(ac.targetHeadingDeg).toBe(260);
+    expect(ac.phase).toBe('cleared');
+    expect(world.messages.some((m) => m.text.includes('cancelling'))).toBe(false);
+  });
+
+  it('still cancels the clearance for a vector given after it', () => {
+    const ac = makeAircraft({
+      ...onFinalApproach(14, 4),
+      altitudeFt: 3000,
+      headingDeg: 210,
+      iasKts: 200,
+      vsFpm: 0,
+    });
+    const world = quietWorld(ac);
+
+    clearForIls(world, ac);
+    pilotActs(world);
+    expect(ac.phase).toBe('cleared');
+
+    adjustHeading(world, ac, 1);
+    pilotActs(world);
+    expect(ac.phase).toBe('inbound');
+    expect(world.messages.some((m) => m.text.includes('cancelling'))).toBe(true);
   });
 
   it('is ignored once the aircraft is with Tower', () => {
