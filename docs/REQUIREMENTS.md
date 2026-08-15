@@ -480,10 +480,15 @@ fixes it, and the sidebar says so continuously for the whole `loc` leg rather th
 3. **Deceleration on final** — per IF 6.15.10, once cleared, speed reverts to the aircraft's
    discretion, on a schedule keyed to along-track distance: ≤250 kt beyond 12 NM, ≤210 kt from
    12 NM, ≤180 kt from 8 NM, and **Vapp from 5 NM regardless**. Each gate only ever slows the
-   aircraft — the schedule never speeds one back up. A speed the player assigns *after* clearance
-   replaces the schedule entirely and is honoured until 5 NM (the "maintain 170 kt to 5 mile final"
-   technique of IF 6.14.4), which is also the trap: assign 210 and forget, and the 5 NM gate drops
-   the target straight to Vapp with the aircraft 70 kt above it, failing the stability check below.
+   aircraft — the schedule never speeds one back up. A speed the player assigns **once the aircraft
+   is established** (`loc` or `gs`) replaces the schedule entirely and is honoured until 5 NM (the
+   "maintain 170 kt to 5 mile final" technique of IF 6.14.4), which is also the trap: assign 210
+   and forget, and the 5 NM gate drops the target straight to Vapp with the aircraft 70 kt above
+   it, failing the stability check below.
+   A speed assigned while merely *cleared* — before the intercept — is **ordinary speed control**
+   and does not arm 6.14.4. Since §6.1a lets the clearance be given 20 NM out, sequencing speed
+   control lands in that window constantly; treating it as the technique would silently carry the
+   speed to 5 NM and go around a correctly-flown approach.
    The rate itself is the ordinary 1 kt/s of §4.3; on a 3° path the descent only spends ~740 fpm of
    the 2500 fpm energy budget, so the coupling rarely binds on final — it binds when the controller
    asks for descent *and* deceleration together before the intercept.
@@ -815,6 +820,7 @@ for the architecture.
 | What a missed intercept costs | **The aircraft flies through the localizer**, the clearance is cancelled, and it must be re-vectored and re-cleared. Not a go-around: at 15 NM this is a vectoring failure, not a runway one, and track miles plus a broken sequence are the honest price |
 | The intercept speed limit | **230 kt**, the published STAR speed. It is the one condition the controller can only fix well in advance, which is the point — an aircraft left at 250 kt off the STAR will not intercept |
 | Whether the G/S is part of the intercept window | **No — it keeps its own capture, from below only.** That already *is* an individual check at the time of intercept, and an aircraft that intercepts the LOC high is caught by the 5 NM stability gate (§6.2.5) |
+| What arms the 6.14.4 speed technique | **Established, not merely cleared.** Once the clearance can precede the intercept by 20 NM, "speed assigned after the clearance" stops being a reliable proxy for "maintain XXX to X mile final" — it catches every ordinary sequencing reduction as well, switches off the deceleration schedule, and goes an otherwise good approach around for excessive speed (§6.2.3) |
 
 ## 15. Still open
 

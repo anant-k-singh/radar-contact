@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Aircraft } from '../src/sim/aircraft.js';
-import { adjustHeading, clearForIls } from '../src/sim/commands.js';
+import { adjustHeading, adjustSpeed, clearForIls } from '../src/sim/commands.js';
 import { PHYSICS_DT } from '../src/sim/constants.js';
 import {
   evaluateClearance,
@@ -207,6 +207,34 @@ describe('the intercept window', () => {
 
     expect(ac.phase).toBe('inbound');
     expect(world.stats.missedIntercepts.get('tooFast')).toBe(1);
+  });
+
+  it('still slows on schedule after a speed given between clearance and intercept', () => {
+    // The clearance comes first now, so sequencing speed control routinely
+    // follows it. That must not read as "maintain 200 to 5 mile final" and
+    // strand the aircraft 60 kt fast over the threshold.
+    const ac = makeAircraft({
+      ...onFinalApproach(22, 4),
+      altitudeFt: 3000,
+      headingDeg: 210,
+      iasKts: 230,
+      vsFpm: 0,
+    });
+    const world = quietWorld(ac);
+
+    clearForIls(world, ac);
+    pilotActs(world);
+    for (let i = 0; i < 3; i += 1) adjustSpeed(world, ac, -1); // 230 → 200
+    pilotActs(world);
+    expect(ac.speedAssignedAfterClearance).toBe(false);
+
+    let landed = false;
+    for (let i = 0; i < 60_000 && !landed; i += 1) {
+      step(world, PHYSICS_DT);
+      if (world.aircraft.length === 0) landed = true;
+    }
+    expect(landed).toBe(true);
+    expect(world.stats.goArounds).toBe(0);
   });
 
   it('lands an aircraft cleared while perpendicular, then turned onto the intercept', () => {

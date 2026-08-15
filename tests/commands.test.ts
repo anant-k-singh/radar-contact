@@ -123,7 +123,7 @@ describe('speed assignment', () => {
     expect(near.targetIasKts).toBe(160);
   });
 
-  it('marks a speed issued after the clearance so it survives to 5 NM', () => {
+  it('marks a speed issued once established so it survives to 5 NM', () => {
     const ac = makeAircraft({ ...onFinalApproach(12), iasKts: 200, targetIasKts: 200 });
     ac.phase = 'loc';
     const world = quietWorld(ac);
@@ -131,6 +131,22 @@ describe('speed assignment', () => {
     adjustSpeed(world, ac, -1);
     pilotActs(world);
     expect(ac.speedAssignedAfterClearance).toBe(true);
+  });
+
+  it('does not arm 6.14.4 for a speed issued before the intercept', () => {
+    // A clearance may be given 20 NM out now (§6.1a), so ordinary sequencing
+    // speed control lands in the `cleared` window constantly. Treating it as
+    // "maintain XXX until X mile final" would switch off the deceleration
+    // schedule and carry the speed to 5 NM — a go-around for excessive speed
+    // on an approach that was set up correctly.
+    const ac = makeAircraft({ ...onFinalApproach(20), iasKts: 230, targetIasKts: 230 });
+    ac.phase = 'cleared';
+    const world = quietWorld(ac);
+
+    adjustSpeed(world, ac, -1);
+    pilotActs(world);
+    expect(ac.targetIasKts).toBe(220);
+    expect(ac.speedAssignedAfterClearance).toBe(false);
   });
 });
 
