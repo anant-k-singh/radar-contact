@@ -91,7 +91,7 @@ describe('energy budget', () => {
     expect(Math.abs(plan.vsFpm)).toBeLessThan(4000); // the descent gave way
   });
 
-  it('makes descending-and-slowing take about twice as long as slowing alone', () => {
+  it('makes descending-and-slowing take much longer than slowing alone', () => {
     const timeToSlow = (descend: boolean): number => {
       const ac = makeAircraft({ altitudeFt: 8000, iasKts: 250, headingDeg: 180 });
       ac.targetIasKts = 220;
@@ -108,7 +108,12 @@ describe('energy budget', () => {
     const descending = timeToSlow(true);
     expect(level).toBeGreaterThan(25);
     expect(level).toBeLessThan(35);
-    expect(descending / level).toBeGreaterThan(1.8);
-    expect(descending / level).toBeLessThan(3);
+    // ~1.6× at a 1600 fpm descent: of the 2500 fpm dissipation budget the
+    // descent takes 1600 and the deceleration lives on what is left. The band
+    // is what makes the coupling a mechanic rather than a rounding error — if a
+    // change to the descent rate or the budget pushes it near 1.0, descending
+    // has stopped costing anything and §4.3 no longer holds.
+    expect(descending / level).toBeGreaterThan(1.4);
+    expect(descending / level).toBeLessThan(2.6);
   });
 });

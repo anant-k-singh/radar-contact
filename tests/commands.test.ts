@@ -6,9 +6,21 @@ import {
   clearForIls,
   speedFloorKts,
 } from '../src/sim/commands.js';
-import { CEILING_FT, HEADING_HINT_S, MVA_FT } from '../src/sim/constants.js';
+import {
+  CEILING_FT,
+  HEADING_HINT_S,
+  MVA_FT,
+  SPEED_FLOOR_CLEAN_KTS,
+} from '../src/sim/constants.js';
 import { displayHeading } from '../src/sim/units.js';
-import { HEAVY_TYPE, makeAircraft, onFinalApproach, pilotActs, quietWorld } from './helpers.js';
+import {
+  HEAVY_TYPE,
+  MEDIUM_TYPE,
+  makeAircraft,
+  onFinalApproach,
+  pilotActs,
+  quietWorld,
+} from './helpers.js';
 
 describe('heading assignment', () => {
   it('moves in 10° steps and wraps through north', () => {
@@ -95,19 +107,24 @@ describe('altitude assignment', () => {
 
 describe('speed assignment', () => {
   it('holds a clean minimum until 20 track miles (IF 6.15.8)', () => {
-    const far = makeAircraft({ ...onFinalApproach(30), iasKts: 180, targetIasKts: 180 });
-    expect(speedFloorKts(far)).toBe(180);
+    // Against the type's own clean speed, not a literal: the floor is whichever
+    // of that and SPEED_FLOOR_CLEAN_KTS is higher, so retuning either must not
+    // silently retune the rule.
+    const floorKts = Math.max(SPEED_FLOOR_CLEAN_KTS, MEDIUM_TYPE.minCleanKts);
+    const far = makeAircraft({ ...onFinalApproach(30), iasKts: floorKts, targetIasKts: floorKts });
+    expect(speedFloorKts(far)).toBe(floorKts);
 
     const world = quietWorld(far);
     adjustSpeed(world, far, -1);
     pilotActs(world);
-    expect(far.targetIasKts).toBe(180);
+    expect(far.targetIasKts).toBe(floorKts);
     expect(world.messages.some((m) => m.text.includes('track miles'))).toBe(true);
   });
 
   it('gives heavies a higher clean minimum', () => {
     const heavy = makeAircraft({ ...onFinalApproach(30), type: HEAVY_TYPE });
-    expect(speedFloorKts(heavy)).toBe(190);
+    expect(speedFloorKts(heavy)).toBe(HEAVY_TYPE.minCleanKts);
+    expect(HEAVY_TYPE.minCleanKts).toBeGreaterThan(MEDIUM_TYPE.minCleanKts);
   });
 
   it('allows 160 kt once inside 20 track miles', () => {

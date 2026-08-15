@@ -18,18 +18,18 @@ export interface AircraftType {
 const MEDIUM = {
   wake: 'M',
   vappKts: 140,
-  minCleanKts: 180,
-  descentFpm: 1800,
-  climbFpm: 1800,
+  minCleanKts: 190,
+  descentFpm: 1600,
+  climbFpm: 1700,
   budgetScale: 1,
 } satisfies Omit<AircraftType, 'code'>;
 
 const HEAVY = {
   wake: 'H',
   vappKts: 145,
-  minCleanKts: 190,
-  descentFpm: 1600,
-  climbFpm: 1400,
+  minCleanKts: 200,
+  descentFpm: 1400,
+  climbFpm: 1500,
   budgetScale: 0.85,
 } satisfies Omit<AircraftType, 'code'>;
 

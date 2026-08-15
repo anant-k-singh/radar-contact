@@ -268,11 +268,18 @@ flying its approach, it just stops accepting instructions.
 
 | Type | Wake | Vapp | Min clean | Descent | Climb | Accel/Decel budget |
 | --- | --- | --- | --- | --- | --- | --- |
-| A320 / B738 / E190 | M | 140 kt | 180 kt | 1800 fpm | 1800 fpm | baseline |
-| A332 / B77W / B788 | H | 145 kt | 190 kt | 1600 fpm | 1400 fpm | 0.85 × baseline |
+| A320 / B738 / E190 | M | 140 kt | 190 kt | 1600 fpm | 1700 fpm | baseline |
+| A332 / B77W / B788 | H | 145 kt | 200 kt | 1400 fpm | 1500 fpm | 0.85 × baseline |
 
 Kept deliberately thin: two performance classes, several type codes mapping onto them. Enough to
 make heavies feel heavier without a performance database.
+
+Descent rates were pulled back from 1800/1600 fpm: aircraft were arriving at their levels faster
+than the controller could plan around, which made altitude the easy axis and hollowed out the
+sequencing problem. A slower descent also weakens the energy coupling of §4.3 — 1600 fpm leaves
+900 fpm of the budget for deceleration rather than 700 — so descending-and-slowing now costs about
+1.6× the time of slowing level, not 2.2×. Min clean rose with it, to 190/200 kt, keeping the speed
+axis honest now that the vertical one is gentler.
 
 ### 4.3 Dynamics — the "targets take time" mechanic
 
@@ -293,11 +300,11 @@ equivalent: `Δh_equiv = (V / g) · ΔV`.
 
 ```
 Worked example — descend AND slow simultaneously:
-  Aircraft at 250 kt (422 ft/s), asked to descend 1800 fpm and reduce 250 → 230 kt.
+  Aircraft at 250 kt (422 ft/s), asked to descend 1600 fpm and reduce 250 → 230 kt.
   Energy-equivalent of 20 kt at 250 kt:  Δh = (422 / 32.2) × 33.8 ft/s = 443 ft.
   Idle + partial speedbrake budget:      2500 fpm of energy loss.
-  Descent consumes 1800 fpm → 700 fpm left for deceleration.
-  443 ft / 700 fpm ≈ 38 s  →  effective deceleration ≈ 0.53 kt/s.
+  Descent consumes 1600 fpm → 900 fpm left for deceleration.
+  443 ft / 900 fpm ≈ 30 s  →  effective deceleration ≈ 0.67 kt/s.
 Versus level flight: the full 2500 fpm budget goes to speed → ≈ 1.9 kt/s (clamped to the
 airframe's 1.0 kt/s comfort limit).
 ```
@@ -580,6 +587,12 @@ Mirroring the reference screenshots:
   ```
   Altitude and speed share a line because "how low and how fast" is one question, and the shorter
   block collides with fewer of its neighbours.
+
+  The speed on the block is **ground speed, not the assigned IAS** (§4.4). Radar measures motion
+  over the ground, and ground speed is also what the in-trail spacing closes at — so it is the
+  number to read when judging a sequence. It is *not* the number an instruction sets: a descending
+  aircraft's block speed falls as it loses the altitude bonus even with the IAS held constant. The
+  IAS, current and assigned, is in the sidebar for the selected aircraft.
   with the **assigned heading** shown alongside in a contrasting colour when it differs from the
   current heading (the yellow `040` in the screenshot).
 - **Assigned-heading vector:** for 5 s after a turn instruction, a dashed pale-yellow line is drawn
@@ -587,12 +600,6 @@ Mirroring the reference screenshots:
   with a tick and labelled with the heading. The green leader shows where the aircraft is pointing
   now, the yellow one where it is going; the gap between them *is* the outstanding turn. It fades
   out over its last second, and a further press restarts the window rather than extending it.
-
-  The speed on the block is **ground speed, not the assigned IAS** (§4.4). Radar measures motion
-  over the ground, and ground speed is also what the in-trail spacing closes at — so it is the
-  number to read when judging a sequence. It is *not* the number an instruction sets: a descending
-  aircraft's block speed falls as it loses the altitude bonus even with the IAS held constant. The
-  IAS, current and assigned, is in the sidebar for the selected aircraft.
 - **Altitude convention:** hundreds of feet, two digits (`80` = 8000 ft). `=70` = level at 7000,
   `↓60` = descending to 6000, `↑` for climbing.
 - **Colour coding:** data blocks and leader lines are a cool near-white; the blip is a shade bluer
@@ -845,13 +852,6 @@ for the architecture.
 | Whether the G/S is part of the intercept window | **No — it keeps its own capture, from below only.** That already *is* an individual check at the time of intercept, and an aircraft that intercepts the LOC high is caught by the 5 NM stability gate (§6.2.5) |
 | What arms the 6.14.4 speed technique | **Established, not merely cleared.** Once the clearance can precede the intercept by 20 NM, "speed assigned after the clearance" stops being a reliable proxy for "maintain XXX to X mile final" — it catches every ordinary sequencing reduction as well, switches off the deceleration schedule, and goes an otherwise good approach around for excessive speed (§6.2.3) |
 
-## 15. Still open
-
-None of these blocks play; each is a small, contained change.
-
-1. **Runway identity** — built as `18` with a 180° final approach course. Match the screenshot's
-   `18C` instead? (In reality that implies parallels we are not modelling.)
-2. **Speed floor policy** — currently a hard block below 180 kt (190 for heavies) outside 20 track
 | Question | Decision (2026-08-15, display) |
 | --- | --- |
 | Airspace shape | **The circle's caps are cut at \|y\| = 42 NM** and the scope zooms to the chords (§3.1). The cut cannot go tighter than the entry gates at \|y\| = 38.3 NM without handing arrivals over from outside the airspace; 42 leaves them 3.7 NM and buys ~20 % more scale |
@@ -859,6 +859,13 @@ None of these blocks play; each is a small, contained change.
 | Which speed an instruction sets | **IAS, unchanged** — that is what a crew flies. The sidebar shows the IAS pair for the selected aircraft and prints the altitude bonus next to the ground speed, so the two are reconcilable on sight rather than mysterious (§7.1) |
 | Vertical rate on the readout | **In brackets beside the altitude, dim, rounded to 50 fpm, blank when level.** The assigned figures are yellow; a rate is something the aircraft is doing, not something it was told (§7.1) |
 
+## 15. Still open
+
+None of these blocks play; each is a small, contained change.
+
+1. **Runway identity** — built as `18` with a 180° final approach course. Match the screenshot's
+   `18C` instead? (In reality that implies parallels we are not modelling.)
+2. **Speed floor policy** — currently a hard block below 180 kt (190 for heavies) outside 20 track
    miles, refused with an explanation. Softer alternative: allow it and score it.
 3. **Wake categories** — displayed on the data block, but not used for spacing. Should heavies
    require 4–5 NM in trail?
