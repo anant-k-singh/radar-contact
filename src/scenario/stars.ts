@@ -9,29 +9,26 @@
  * Geometry, all four routes:
  *
  * Every route publishes 250 kt as far as its first fix (OKPUR, NIVEL, SUDIX,
- * TAVIR) and only then reduces towards 230 kt, so the speed comes off over the
- * middle leg rather than from the moment of handover — IF 6.15.8's "keep the
- * speed up until close in", expressed as a published constraint.
+ * TAVIR), 230 kt at the corner, and its own platform speed at the last fix —
+ * 200 kt north, 210 kt south — so the speed comes off over the middle legs
+ * rather than from the moment of handover. IF 6.15.8's "keep the speed up until
+ * close in", expressed as a published constraint.
  *
  * - **North gates** (KOVAL, VANDA) run straight in to a corner fix abeam the
- *   field, then a level leg at 5000 ft along 090/270 that stops 2 NM short of
- *   the extended centerline at 16 NM final — right at the 5000 ft glideslope
- *   intercept range. Turn one onto final; the other has to wait.
+ *   field, then a level leg at 3000 ft along 090/270 that stops 2 NM short of
+ *   the extended centerline at 16 NM final. That is 15.3 NM from the threshold
+ *   along the final approach course, where the glideslope is 4882 ft, so the
+ *   platform sits well under it and the intercept captures from below.
+ *   Turn one onto final; the other has to wait.
  * - **South gates** (TEMBA, RIMOL) run straight in until they cross 8 NM abeam
- *   the centerline, then turn north onto a parallel leg at 5000 ft that ends
+ *   the centerline, then turn north onto a parallel leg at 4000 ft that ends
  *   11 NM north of the field. That leg is a downwind: turn base when the gap
  *   in the sequence is there, and descend for the intercept on the way round.
  *
  * No two routes cross. Only the two north routes end pointing at each other,
  * 4 NM apart, which is the sequencing problem the player is here to solve.
  */
-import {
-  ENTRY_SPEED_KTS,
-  STAR_ARRIVAL_SPEED_KTS,
-  STAR_INTERMEDIATE_ALT_NORTH_FT,
-  STAR_INTERMEDIATE_ALT_SOUTH_FT,
-  STAR_PLATFORM_ALT_FT,
-} from '../sim/constants.js';
+import { ENTRY_SPEED_KTS } from '../sim/constants.js';
 import { distance, headingVector, type Ft, type Kts, type Nm, type Point } from '../sim/units.js';
 import { AIRPORT, type EntryGate } from './airport.js';
 
@@ -135,66 +132,78 @@ function build(name: string, gate: EntryGate, drafts: readonly Draft[]): Star {
   };
 }
 
-/** `side` is −1 west of the centerline, +1 east. */
-function northStar(name: string, gateName: string, side: -1 | 1, fixes: [string, string, string]): Star {
-  const gate = gateFor(gateName);
-  const corner: Point = { x: side * NORTH_CORNER_NM, y: PLATFORM_NM };
-  return build(name, gate, [
-    {
-      name: fixes[0],
-      position: midpoint(gate.position, corner),
-      altitudeFt: STAR_INTERMEDIATE_ALT_NORTH_FT,
-      // Republishing 250 here holds the entry speed all the way to this fix
-      // instead of bleeding it off from the gate (IF 6.15.8).
-      speedKts: ENTRY_SPEED_KTS,
-    },
-    {
-      name: fixes[1],
-      position: corner,
-      altitudeFt: STAR_PLATFORM_ALT_FT,
-      speedKts: STAR_ARRIVAL_SPEED_KTS,
-    },
-    {
-      name: fixes[2],
-      position: { x: side * MERGE_OFFSET_NM, y: PLATFORM_NM },
-      altitudeFt: STAR_PLATFORM_ALT_FT,
-      speedKts: STAR_ARRIVAL_SPEED_KTS,
-    },
-  ]);
+/**
+ * One published fix: its name and whatever it crosses at. Altitude and speed
+ * are per-fix and independent — the geometry below decides *where* each fix
+ * sits, this decides what is published there, and the two are deliberately not
+ * derived from each other so a single crossing can be retuned on its own.
+ */
+interface FixSpec {
+  name: string;
+  altitudeFt: Ft;
+  speedKts: Kts;
 }
 
-function southStar(name: string, gateName: string, side: -1 | 1, fixes: [string, string, string]): Star {
+/** `side` is −1 west of the centerline, +1 east. */
+function northStar(name: string, gateName: string, side: -1 | 1, fixes: [FixSpec, FixSpec, FixSpec]): Star {
+  const gate = gateFor(gateName);
+  const corner: Point = { x: side * NORTH_CORNER_NM, y: PLATFORM_NM };
+  const positions = [
+    midpoint(gate.position, corner),
+    corner,
+    { x: side * MERGE_OFFSET_NM, y: PLATFORM_NM },
+  ];
+  return build(name, gate, fixes.map((fix, i) => ({ ...fix, position: positions[i]! })));
+}
+
+function southStar(name: string, gateName: string, side: -1 | 1, fixes: [FixSpec, FixSpec, FixSpec]): Star {
   const gate = gateFor(gateName);
   // Turning onto the downwind where the gate's own inbound track reaches the
   // offset keeps the first leg dead straight from the handover.
   const corner = inboundTrackAtX(gate, side * DOWNWIND_OFFSET_NM);
-  return build(name, gate, [
-    {
-      name: fixes[0],
-      position: midpoint(gate.position, corner),
-      altitudeFt: STAR_INTERMEDIATE_ALT_SOUTH_FT,
-      speedKts: ENTRY_SPEED_KTS,
-    },
-    {
-      name: fixes[1],
-      position: corner,
-      altitudeFt: STAR_PLATFORM_ALT_FT,
-      speedKts: STAR_ARRIVAL_SPEED_KTS,
-    },
-    {
-      name: fixes[2],
-      position: { x: side * DOWNWIND_OFFSET_NM, y: DOWNWIND_END_NM },
-      altitudeFt: STAR_PLATFORM_ALT_FT,
-      speedKts: STAR_ARRIVAL_SPEED_KTS,
-    },
-  ]);
+  const positions = [
+    midpoint(gate.position, corner),
+    corner,
+    { x: side * DOWNWIND_OFFSET_NM, y: DOWNWIND_END_NM },
+  ];
+  return build(name, gate, fixes.map((fix, i) => ({ ...fix, position: positions[i]! })));
 }
 
+/**
+ * The published profile of every route, fix by fix.
+ *
+ * Each crossing stands on its own — nothing here is shared between routes or
+ * derived from a common constant, so a single fix can be retuned without
+ * dragging the other eleven with it. Republishing 250 kt at the first fix of
+ * each route holds the entry speed that far instead of bleeding it off from the
+ * gate (IF 6.15.8); the reduction happens over the legs after it.
+ *
+ * The last fix of a north route is an intercept platform and must stay below
+ * the glideslope where the route ends (4882 ft at 15.3 NM along the final
+ * course). The last fix of a south route is a downwind that is turned base, so
+ * it is a descent step rather than an intercept level.
+ */
 export const STARS: readonly Star[] = [
-  northStar('VANDA1A', 'VANDA', -1, ['OKPUR', 'ALVOR', 'ARDIS']),
-  northStar('KOVAL1A', 'KOVAL', 1, ['NIVEL', 'BELGA', 'BOXAR']),
-  southStar('RIMOL1A', 'RIMOL', -1, ['SUDIX', 'LOMSA', 'PIKON']),
-  southStar('TEMBA1A', 'TEMBA', 1, ['TAVIR', 'DEMUX', 'KETAN']),
+  northStar('VANDA1A', 'VANDA', -1, [
+    { name: 'OKPUR', altitudeFt: 8000, speedKts: 250 },
+    { name: 'ALVOR', altitudeFt: 6000, speedKts: 230 },
+    { name: 'ARDIS', altitudeFt: 3000, speedKts: 200 },
+  ]),
+  northStar('KOVAL1A', 'KOVAL', 1, [
+    { name: 'NIVEL', altitudeFt: 8000, speedKts: 250 },
+    { name: 'BELGA', altitudeFt: 6000, speedKts: 230 },
+    { name: 'BOXAR', altitudeFt: 3000, speedKts: 200 },
+  ]),
+  southStar('RIMOL1A', 'RIMOL', -1, [
+    { name: 'SUDIX', altitudeFt: 9000, speedKts: 250 },
+    { name: 'LOMSA', altitudeFt: 6000, speedKts: 230 },
+    { name: 'PIKON', altitudeFt: 4000, speedKts: 210 },
+  ]),
+  southStar('TEMBA1A', 'TEMBA', 1, [
+    { name: 'TAVIR', altitudeFt: 9000, speedKts: 250 },
+    { name: 'DEMUX', altitudeFt: 6000, speedKts: 230 },
+    { name: 'KETAN', altitudeFt: 4000, speedKts: 210 },
+  ]),
 ];
 
 export function starForGate(gateName: string): Star | undefined {

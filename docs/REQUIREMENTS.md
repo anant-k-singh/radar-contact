@@ -194,7 +194,12 @@ attempt to go below it is rejected with a log message explaining why.
 
 Everything above 8000 ft sits outside the 25 NM LOC capture window (§6.1 condition 5), so those
 levels are for holding traffic down-level and de-conflicting, not for intercepts. The STARs deliver
-arrivals to **5000 ft**, whose intercept range (15.7 NM) is where the routes end.
+arrivals to **3000 ft** on the north routes and **4000 ft** on the south ones. The north platform is
+the one that has to be an intercept platform: those routes end 15.3 NM from the threshold measured
+along the final approach course, where the glideslope is 4882 ft, so the level flown there must be
+below it — 3000 ft meets the slope at 9.4 NM, comfortably inside the merge. The south routes end on
+a downwind that is turned base rather than final, so their 4000 ft is a descent step on the way
+round rather than an intercept level; it also sits below the 4128 ft glideslope at that range.
 
 ---
 
@@ -351,19 +356,20 @@ published crossing altitude or speed.
 
 | STAR | Fixes | Profile |
 | --- | --- | --- |
-| VANDA1A | VANDA → OKPUR → ALVOR → ARDIS | 8000/250 kt → 7000/250 kt → 5000/230 kt, level to 2 NM west of the centerline at 16 NM |
+| VANDA1A | VANDA → OKPUR → ALVOR → ARDIS | 9000/250 kt → 8000/250 kt → 6000/230 kt → 3000/200 kt, level to 2 NM west of the centerline at 16 NM |
 | KOVAL1A | KOVAL → NIVEL → BELGA → BOXAR | mirror image, 2 NM east |
-| RIMOL1A | RIMOL → SUDIX → LOMSA → PIKON | 9000/250 kt → 8000/250 kt → 5000/230 kt, north up a downwind 8 NM west of the centerline, ending 11 NM north |
+| RIMOL1A | RIMOL → SUDIX → LOMSA → PIKON | 11,000/250 kt → 9000/250 kt → 6000/230 kt → 4000/210 kt, north up a downwind 8 NM west of the centerline, ending 11 NM north |
 | TEMBA1A | TEMBA → TAVIR → DEMUX → KETAN | mirror image, 8 NM east |
 
 Geometry, all four:
 
 - The **north** routes run straight in from the gate to a corner 20 NM abeam, then turn onto a level
-  leg at 5000 ft that stops 2 NM short of the extended centerline at 16 NM final — right at the
-  5000 ft glideslope intercept range. Turn one onto final and the other has to wait: they end
-  pointing at each other, 4 NM apart, which is the sequencing problem the player is there to solve.
+  leg at 3000 ft that stops 2 NM short of the extended centerline at 16 NM final. The glideslope is
+  at 5350 ft there, so the platform sits under it and the intercept captures from below. Turn one
+  onto final and the other has to wait: they end pointing at each other, 4 NM apart, which is the
+  sequencing problem the player is there to solve.
 - The **south** routes run straight in until they cross 8 NM abeam the centerline, then turn north
-  onto a downwind at 5000 ft that ends 11 NM north of the field. Turn base when the gap in the
+  onto a downwind at 4000 ft that ends 11 NM north of the field. Turn base when the gap in the
   sequence is there, and lose the height on the way round.
 - **No two routes cross**, and no route passes within 3 NM of another's fixes. Doing nothing is
   never an instant separation loss; it is only ever a deferred problem.
@@ -374,15 +380,27 @@ exactly rather than dived at and levelled off. The resulting rate is 350–700 f
 descent — and its energy is still charged against the speed budget of §4.3, so an aircraft on the
 profile decelerates more slowly than a level one.
 
-**Speed.** **250 kt is published as far as the first fix** (OKPUR, NIVEL, SUDIX, TAVIR) and only
-then interpolated down to **230 kt by the 5000 ft fix**. The speed comes off over the middle leg,
-not from the moment of handover — IF 6.15.8's "keep the speed up until close in" expressed as a
-published constraint, and it keeps the outer leg of every route at a single predictable speed. An
-aircraft vectored off before its first fix therefore keeps 250 kt, not 230.
+**Speed.** **250 kt is published as far as the first fix** (OKPUR, NIVEL, SUDIX, TAVIR), comes off
+to **230 kt at the corner** (ALVOR, BELGA, LOMSA, DEMUX), and reaches the platform speed — **200 kt
+north, 210 kt south** — at the last fix. The north platform is lower and closer in, so it is also
+the slower of the two; both stay above the 180 kt clean floor of §3.3, so neither can be refused as
+published. The speed comes off over the middle legs, not from the moment of handover — IF 6.15.8's
+"keep the speed up until close in" expressed as a published constraint, and it keeps the outer leg
+of every route at a single predictable speed. An aircraft vectored off before its first fix
+therefore keeps 250 kt.
 
-The two southern first fixes cross at **8000 ft** rather than 7000: those routes start 1000 ft
-higher and are the longer pair, so the descent stays even instead of front-loading into the first
-leg and then running level.
+The two southern first fixes cross **1000 ft higher** than the northern pair (9000 vs 8000): those
+routes start 2000 ft higher and are the longer pair, so the descent stays even instead of
+front-loading into the first leg and then running level.
+
+**Where these numbers live.** Every crossing is maintained **per route and per fix**, declared with
+the geometry in `scenario/stars.ts` rather than as shared constants in `sim/constants.ts`. Two
+successive retunes showed why: a shared "platform altitude" constant meant that moving one fix
+silently moved three others, and each new distinction (north vs south, corner vs platform) needed
+another constant before the change could even be expressed. Repetition across the four charts is
+the point — a published crossing is a fact about one fix on one route, and it should be editable as
+one. The arrival profile is expected to be retuned, so §14 records this as a decision, not an
+accident of refactoring.
 
 **Who owns which axis.** The route is an autopilot, and the controller takes axes back from it:
 
@@ -565,7 +583,7 @@ capture band, closing:
 | --- | --- | --- | --- |
 | 1 | Intercept angle to the 180° final approach course | **≤ 45°** | your spec (IF 6.11.3 prefers ~30°) |
 | 2 | Level, not still descending through the intercept altitude | `|vs| ≤ 200 fpm` | IF 6.11.8 |
-| 3 | Speed | **≤ 230 kt** | the published STAR speed; a faster turn overshoots |
+| 3 | Speed | **≤ 230 kt** | above the published platform speeds; a faster turn overshoots |
 
 Fail any of them and the aircraft **flies through the localizer**: the clearance is cancelled, the
 phase reverts to `inbound`, the crew reports *"unable to intercept — 80° exceeds 45°. Through the
@@ -940,7 +958,8 @@ for the architecture.
 
 | Question | Decision (2026-08-15) |
 | --- | --- |
-| Arrival routing | **Four published STARs, flown on autopilot** to a 5000 ft / 230 kt platform, rather than "direct ARP and wait" (§4.5) |
+| Arrival routing | **Four published STARs, flown on autopilot** to a platform — 3000 ft / 200 kt north, 4000 ft / 210 kt south — rather than "direct ARP and wait" (§4.5) |
+| Where crossing altitudes and speeds live | **Per route and per fix, in `scenario/stars.ts`, not as shared constants.** Shared constants coupled fixes that are only incidentally equal, so retuning one crossing moved three others and every new distinction needed a new constant first. Repeating the twelve crossings is the cheaper trade when the profile is expected to change (§4.5) |
 | What a vector cancels | **Heading takes the aircraft off the route; altitude and speed take only their own axis.** Descending an aircraft on its STAR is the single most common real instruction and must not cost the lateral track (§4.5) |
 | Descent profile | **Continuous, interpolated between published altitudes** — crossing altitudes made good exactly, no dive-and-drive (§4.5) |
 | Pilot reaction | **1–3 s**, one outstanding instruction per axis, assigned values shown immediately (§7.2) |
@@ -949,7 +968,7 @@ for the architecture.
 | --- | --- |
 | When an ILS clearance is tested | **Twice, for different things.** The clearance gate keeps only what makes a clearance meaningless (§6.1); the intercept window — angle, level, speed — is tested at the localizer (§6.1a). A controller must be able to turn an aircraft onto the intercept and clear it in the same breath, or clear one that will level off before it gets there. Refusing on instantaneous state forced a vector-wait-watch-clear rhythm that cost the most attention exactly when there was least to spare |
 | What a missed intercept costs | **The aircraft flies through the localizer**, the clearance is cancelled, and it must be re-vectored and re-cleared. Not a go-around: at 15 NM this is a vectoring failure, not a runway one, and track miles plus a broken sequence are the honest price |
-| The intercept speed limit | **230 kt**, the published STAR speed. It is the one condition the controller can only fix well in advance, which is the point — an aircraft left at 250 kt off the STAR will not intercept |
+| The intercept speed limit | **230 kt**, a ceiling the published platform speeds (200/210 kt) sit under with margin. It is the one condition the controller can only fix well in advance, which is the point — an aircraft left at 250 kt off the STAR will not intercept |
 | Whether the G/S is part of the intercept window | **No — it keeps its own capture, from below only.** That already *is* an individual check at the time of intercept, and an aircraft that intercepts the LOC high is caught by the 5 NM stability gate (§6.2.5) |
 | What arms the 6.14.4 speed technique | **Established, not merely cleared.** Once the clearance can precede the intercept by 20 NM, "speed assigned after the clearance" stops being a reliable proxy for "maintain XXX to X mile final" — it catches every ordinary sequencing reduction as well, switches off the deceleration schedule, and goes an otherwise good approach around for excessive speed (§6.2.3) |
 

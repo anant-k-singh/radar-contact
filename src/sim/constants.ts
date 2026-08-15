@@ -75,7 +75,7 @@ export const LOC_RANGE_NM = 25; // localizer service volume
  * yet. Failing any of them at the localizer means the aircraft flies through it.
  */
 export const MAX_INTERCEPT_ANGLE_DEG = 45;
-export const MAX_INTERCEPT_SPEED_KTS = 230; // the published STAR speed
+export const MAX_INTERCEPT_SPEED_KTS = 230; // ceiling; the platforms sit under it
 export const LEVEL_VS_LIMIT_FPM = 200; // "level" test at the localizer
 export const IDEAL_INTERCEPT_ANGLE_DEG = 30; // IF 6.11.3 — soft warning beyond
 export const LOC_CAPTURE_XTK_NM = 0.5;
@@ -125,20 +125,18 @@ export const MIN_SPAWN_INTERVAL_S = 45;
 export const GATE_COOLDOWN_S = 90;
 export const SPAWN_VETO_NM = 5;
 export const SPAWN_VETO_FT = 1000;
-export const ENTRY_ALTITUDE_FT = 9000;
+export const ENTRY_ALTITUDE_FT = 11_000;
 /** Gates whose geometry gives a short run to the localizer arrive lower. */
-export const ENTRY_ALTITUDE_NEAR_FT = 8000;
+export const ENTRY_ALTITUDE_NEAR_FT = 9000;
 export const ENTRY_SPEED_KTS = 250;
 
 // ── STARs (§4.5) ────────────────────────────────────────────────────────────
-/** Published altitude on the outer leg of the north routes. */
-export const STAR_INTERMEDIATE_ALT_NORTH_FT = 7000;
-/** The south routes are longer and start 1000 ft higher, so their outer leg is too. */
-export const STAR_INTERMEDIATE_ALT_SOUTH_FT = 8000;
-/** Published altitude on the last leg — the platform the vectors start from. */
-export const STAR_PLATFORM_ALT_FT = 5000;
-/** Published speed from the platform fix onwards. */
-export const STAR_ARRIVAL_SPEED_KTS = 230;
+/**
+ * The published crossing altitudes and speeds are *not* here: they are per-fix
+ * and per-route, declared alongside the geometry in scenario/stars.ts, so one
+ * crossing can be retuned without moving the other eleven. Only the values that
+ * are genuinely global to every route live in this file.
+ */
 /** Sequencing tolerance at the last fix of a STAR. */
 export const STAR_FIX_CAPTURE_NM = 0.5;
 /** Cap on fly-by turn anticipation, so a near-reversal cannot cut half the route. */
