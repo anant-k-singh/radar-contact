@@ -271,14 +271,15 @@ describe('landing rate', () => {
     expect(landingRatePerHour(world)).toBeCloseTo(36, 6);
   });
 
-  it('counts only the last 10 minutes, so an earlier rush stops flattering it', () => {
+  it('counts only the trailing window, so an earlier rush stops flattering it', () => {
     const world = quietWorld();
     world.timeS = 1800;
-    // Six landings in the first ten minutes, two in the last ten.
-    world.stats.landingTimesS = [60, 120, 180, 240, 300, 360, 1300, 1500];
+    const since = world.timeS - LANDING_RATE_WINDOW_S;
+    // Six landings early in the session, two inside the window.
+    world.stats.landingTimesS = [60, 120, 180, 240, 300, 360, since + 100, since + 300];
 
-    // 2 in 600 s → 12/h, not the 16/h the whole session would suggest.
-    expect(landingRatePerHour(world)).toBeCloseTo(12, 6);
+    // 2 across the window — well under the 16/h the whole session would suggest.
+    expect(landingRatePerHour(world)).toBeCloseTo((2 / LANDING_RATE_WINDOW_S) * 3600, 6);
   });
 
   it('drops landings out of the window as the session runs on', () => {
@@ -295,7 +296,7 @@ describe('landing rate', () => {
     expect(world.stats.landings).toBe(1);
     expect(landingRatePerHour(world)).toBeGreaterThan(0);
 
-    // Ten more minutes with nothing landing: the rate decays to zero.
+    // A full window more with nothing landing: the rate decays to zero.
     run(world, LANDING_RATE_WINDOW_S);
     expect(world.stats.landings).toBe(1); // the total is untouched
     expect(landingRatePerHour(world)).toBe(0);

@@ -581,7 +581,7 @@ The session is endless; the score is a running quality report, not a life counte
 | Metric | Definition |
 | --- | --- |
 | Landings | Aircraft that touched down |
-| Landing rate | Landings per hour over the **trailing 10 minutes** of sim time (§8.2) |
+| Landing rate | Landings per hour over the **trailing 12 minutes** of sim time (§8.2) |
 | Separation violations | Count, plus total seconds in violation |
 | Go-arounds | Automatic go-arounds triggered |
 | Airspace exits | Aircraft that left the 50 NM circle laterally (handed back to Center — penalty) |
@@ -591,13 +591,13 @@ The session is endless; the score is a running quality report, not a life counte
 
 ### 8.2 Landing rate
 
-Quoted over a **trailing 10 minutes** rather than the whole session, because the useful question is
+Quoted over a **trailing 12 minutes** rather than the whole session, because the useful question is
 "how is it going *now*" — the number to compare against the arrival flow you are being fed. A
-session average only ever converges, and hides the ten minutes where the sequence fell apart.
+session average only ever converges, and hides the twelve minutes where the sequence fell apart.
 
 Landings inside the window are counted and extrapolated over however much of it has elapsed, so at
 minute 5 three landings read as 36/h rather than 18/h. Below **2 minutes** elapsed the sample is too
-short to extrapolate honestly and the field reads `—`. A quiet ten minutes decays the rate to 0/h
+short to extrapolate honestly and the field reads `—`. A quiet twelve minutes decays the rate to 0/h
 while the `Landings` total stands, which is the point of having both.
 
 ---

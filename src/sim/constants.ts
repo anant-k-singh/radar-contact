@@ -149,11 +149,11 @@ export const TOWER_FREQUENCY = '119.1';
 
 // ── Session stats (§8) ──────────────────────────────────────────────────────
 /**
- * Landing rate is quoted over a trailing 10 minutes of sim time rather than the
+ * Landing rate is quoted over a trailing 12 minutes of sim time rather than the
  * whole session, so it reads as "how the last few minutes are going" — the
  * number a controller would compare against the arrival flow.
  */
-export const LANDING_RATE_WINDOW_S = 600;
+export const LANDING_RATE_WINDOW_S = 720;
 /** Below this much elapsed time the sample is too short to extrapolate. */
 export const LANDING_RATE_MIN_ELAPSED_S = 120;
 
