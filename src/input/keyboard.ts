@@ -5,6 +5,7 @@ import {
   adjustSpeed,
   clearForIls,
   selectNext,
+  toggleHold,
 } from '../sim/commands.js';
 import { selectedAircraft, type World } from '../sim/world.js';
 
@@ -76,6 +77,9 @@ export function bindKeyboard(host: KeyboardHost): void {
         break;
       case 'c':
         clearForIls(world, ac);
+        break;
+      case 'h':
+        toggleHold(world, ac);
         break;
       default:
         return;

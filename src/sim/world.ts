@@ -273,15 +273,22 @@ export function step(world: World, dt: Sec): void {
     for (const readback of applyDueInstructions(ac, world.timeS)) {
       log(world, readback.text, readback.kind);
     }
-    const onProfile = starOwnsVertical(ac);
-    for (const event of stepStar(ac, dt)) {
-      if (event.kind === 'starComplete') {
-        log(
-          world,
-          `${ac.callsign} at ${event.fix}, end of the arrival — maintaining heading, ` +
-            `request further.`,
-          'pilot',
-        );
+    for (const event of stepStar(ac, dt, world.timeS)) {
+      switch (event.kind) {
+        case 'starComplete':
+          log(
+            world,
+            `${ac.callsign} at ${event.fix}, end of the arrival — maintaining heading, ` +
+              `request further.`,
+            'pilot',
+          );
+          break;
+        case 'holdEntered':
+          log(world, `${ac.callsign} entering the hold at ${event.fix}.`, 'pilot');
+          break;
+        case 'holdExited':
+          log(world, `${ac.callsign} leaving ${event.fix}, back on the arrival.`, 'pilot');
+          break;
       }
     }
 
@@ -340,8 +347,10 @@ export function step(world: World, dt: Sec): void {
 
     // The glideslope and the STAR's published profile each own the vertical
     // while they are being flown; kinematics still pay for it out of the
-    // energy budget, so a descending aircraft slows more grudgingly.
-    stepKinematics(ac, dt, ac.phase !== 'gs' && !onProfile);
+    // energy budget, so a descending aircraft slows more grudgingly. Read after
+    // the route step, since a hold beginning or ending changes who owns it on
+    // the very tick it happens.
+    stepKinematics(ac, dt, ac.phase !== 'gs' && !starOwnsVertical(ac));
 
     if (checkAirspaceExit(world, ac)) continue;
     tryHandoff(world, ac);

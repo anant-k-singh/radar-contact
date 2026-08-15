@@ -109,6 +109,7 @@ export function createArrival(
     targetAltitudeFt: altitudeFt,
     targetIasKts: ENTRY_SPEED_KTS,
     pending: [],
+    turnDirection: null,
     star,
     phase: 'inbound',
     handedOff: false,

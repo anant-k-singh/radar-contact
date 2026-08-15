@@ -142,11 +142,16 @@ export function planRates(input: RatePlanInput): RatePlan {
 export function stepKinematics(ac: Aircraft, dt: Sec, controlVertical = true): void {
   const tasKts = trueAirspeed(ac.iasKts, ac.altitudeFt);
 
-  // Heading: turn the short way.
+  // Heading: turn the short way, unless a direction has been forced — a 180°
+  // reversal has no short way, so the holding pattern states its own (§4.6).
   const delta = headingDelta(ac.headingDeg, ac.targetHeadingDeg);
   if (Math.abs(delta) > 0.01) {
-    const step = Math.min(Math.abs(delta), turnRateDegPerSec(tasKts) * dt);
-    ac.headingDeg = normalizeHeading(ac.headingDeg + Math.sign(delta) * step);
+    const direction = ac.turnDirection ?? (Math.sign(delta) as -1 | 1);
+    // Going the forced way round means the remaining turn is the reflex angle,
+    // not the shortest one, or the turn would stop 180° early.
+    const remaining = direction === Math.sign(delta) ? Math.abs(delta) : 360 - Math.abs(delta);
+    const step = Math.min(remaining, turnRateDegPerSec(tasKts) * dt);
+    ac.headingDeg = normalizeHeading(ac.headingDeg + direction * step);
   }
 
   // Altitude and speed: share one energy budget.

@@ -11,7 +11,13 @@
  */
 import { AIRPORT } from '../scenario/airport.js';
 import type { Aircraft } from './aircraft.js';
-import { PILOT_DELAY_MAX_S, PILOT_DELAY_MIN_S, PILOT_ORDER_GAP_S } from './constants.js';
+import {
+  HOLD_SPEED_KTS,
+  PILOT_DELAY_MAX_S,
+  PILOT_DELAY_MIN_S,
+  PILOT_ORDER_GAP_S,
+} from './constants.js';
+import { enterHold, requestHoldExit } from './hold.js';
 import { leaveStar } from './star.js';
 import { displayHeading, headingDelta, type Deg, type Ft, type Kts, type Sec } from './units.js';
 import type { MessageKind, World } from './world.js';
@@ -20,7 +26,9 @@ export type Instruction =
   | { kind: 'heading'; headingDeg: Deg }
   | { kind: 'altitude'; altitudeFt: Ft }
   | { kind: 'speed'; iasKts: Kts }
-  | { kind: 'approach'; warnings: readonly string[] };
+  | { kind: 'approach'; warnings: readonly string[] }
+  /** Enter the pattern at the next fix, or leave the one being flown (§4.6). */
+  | { kind: 'hold'; enter: boolean };
 
 export interface PendingInstruction {
   /** Sim time the crew acts on it. */
@@ -149,6 +157,43 @@ function apply(ac: Aircraft, instruction: Instruction): Readback[] {
       ac.targetIasKts = instruction.iasKts;
       readbacks.push({
         text: `${ac.callsign}, ${verb} ${instruction.iasKts} knots.`,
+        kind: 'pilot',
+      });
+      return readbacks;
+    }
+
+    case 'hold': {
+      const nav = ac.star;
+      // The aircraft may have been vectored off the route, or have reached the
+      // end of it, in the seconds between the transmission and the readback.
+      if (!nav) {
+        readbacks.push({
+          text: `${ac.callsign}, negative — we are off the arrival now.`,
+          kind: 'pilot',
+        });
+        return readbacks;
+      }
+
+      if (instruction.enter) {
+        if (nav.hold) return readbacks; // already holding; nothing to say
+        const hold = enterHold(ac, nav);
+        readbacks.push({
+          text: `${ac.callsign}, holding at ${hold.fix} as published, ` +
+            `${Math.round(hold.altitudeFt)} feet, ${HOLD_SPEED_KTS} knots.`,
+          kind: 'pilot',
+        });
+        return readbacks;
+      }
+
+      if (!nav.hold) return readbacks;
+      const fix = nav.hold.fix;
+      // Before the fix is reached the hold has not begun, so it cancels
+      // outright; once established the crew finishes the loop it is flying.
+      const immediate = requestHoldExit(ac, nav.hold);
+      readbacks.push({
+        text: immediate
+          ? `${ac.callsign}, cancelling the hold, continuing on the arrival.`
+          : `${ac.callsign}, leaving ${fix} on the next inbound, continuing on the arrival.`,
         kind: 'pilot',
       });
       return readbacks;

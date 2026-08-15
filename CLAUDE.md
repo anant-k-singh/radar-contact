@@ -45,6 +45,7 @@ Per tick, exactly one authority writes each target, decided by aircraft state:
 | Authority | When | Owns |
 | --- | --- | --- |
 | `stepStar` ([star.ts](src/sim/star.ts)) | `ac.star !== null` | all three axes, minus any the controller has taken over (`altitudeManual` / `speedManual`) |
+| `stepHold` ([hold.ts](src/sim/hold.ts)) | `ac.star.hold !== null` | delegated to by `stepStar`; owns the lateral track, and holds altitude/speed level |
 | `stepApproach` ([ils.ts](src/sim/ils.ts)) | `phase` is `loc`/`gs`/`goAround` | heading + speed; the glideslope also owns altitude |
 | `applyDueInstructions` ([pilot.ts](src/sim/pilot.ts)) | an instruction comes due | whatever was instructed |
 
@@ -52,6 +53,17 @@ Per tick, exactly one authority writes each target, decided by aircraft state:
 STAR's published profile. Both are signalled by passing `controlVertical: false` to
 `stepKinematics`, which then charges the imposed vertical rate against the energy budget instead of
 generating one. If you add a third, follow that seam.
+
+Writing the profile on assumes the aircraft is *already* on it. It isn't while rejoining from a hold
+(`StarNav.rejoining`), so those ticks fall back to kinematics — which is why `starOwnsVertical` must
+be read **after** `stepStar`, not before: entering or leaving a hold changes who owns the vertical
+on the very tick it happens.
+
+Holding is the one thing that suspends a STAR instead of ending it, so anything that ends a hold
+must also undo what it borrowed: `leaveHold` restores `altitudeManual` (a holding level is not a
+standing assignment) and clears `turnDirection`, and `leaveStar` clears both for the vector case.
+Holds are the only user of `Aircraft.turnDirection`, which forces a turn direction because the
+pattern's exact-180° reversals have no "short way" for `headingDelta` to find.
 
 ### Instructions are transmitted, not applied
 

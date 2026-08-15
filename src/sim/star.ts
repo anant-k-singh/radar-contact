@@ -16,6 +16,7 @@ import {
 import type { Aircraft } from './aircraft.js';
 import { STAR_FIX_CAPTURE_NM, STAR_MAX_ANTICIPATION_NM } from './constants.js';
 import { turnRadiusNm } from './dynamics.js';
+import { stepHold, type HoldEvent, type HoldNav } from './hold.js';
 import {
   bearing,
   clamp,
@@ -36,13 +37,35 @@ export interface StarNav {
   altitudeManual: boolean;
   /** The controller has assigned a speed; the published speed is off. */
   speedManual: boolean;
+  /**
+   * Holding pattern at the waypoint at `index`, or null when not holding
+   * (§4.6). The aircraft stays on its STAR throughout: the hold suspends route
+   * following rather than replacing it, so exiting resumes from the same fix.
+   */
+  hold: HoldNav | null;
+  /**
+   * True while the aircraft is descending back down to the published profile
+   * after holding above it (§4.6). The profile is normally written straight
+   * onto the aircraft, which assumes it is already on it — true for an ordinary
+   * arrival, but a teleport for one leaving a hold thousands of feet high. So
+   * it flies down on ordinary kinematic rates until it reaches the profile,
+   * which is a descent through it: the capture test is simply "no longer above".
+   */
+  rejoining: boolean;
 }
 
-export type StarEvent = { kind: 'starComplete'; fix: string };
+export type StarEvent = { kind: 'starComplete'; fix: string } | HoldEvent;
 
 /** Put a freshly handed-over arrival on its route, tracking the fix after the gate. */
 export function joinStar(route: Star): StarNav {
-  return { route, index: 1, altitudeManual: false, speedManual: false };
+  return {
+    route,
+    index: 1,
+    altitudeManual: false,
+    speedManual: false,
+    hold: null,
+    rejoining: false,
+  };
 }
 
 export function activeFix(nav: StarNav) {
@@ -53,9 +76,18 @@ export function activeFix(nav: StarNav) {
  * True while the published profile owns the vertical, in which case the
  * altitude comes straight from the route geometry and kinematics must not also
  * integrate it — exactly as on the glideslope.
+ *
+ * Read *after* `stepStar`, since a hold can end mid-tick and hand the vertical
+ * straight back to the profile on the same tick.
  */
 export function starOwnsVertical(ac: Aircraft): boolean {
-  return ac.star !== null && !ac.star.altitudeManual;
+  const nav = ac.star;
+  // A hold is flown level at a target, like any other assigned altitude, so
+  // kinematics keep the vertical while the pattern is being flown.
+  if (!nav || nav.altitudeManual || nav.hold) return false;
+  // An aircraft rejoining from a holding level is descending *to* the profile,
+  // not sitting on it; kinematics own that descent until it is captured.
+  return !nav.rejoining;
 }
 
 /** Distance still to fly along the route, from wherever the aircraft actually is. */
@@ -83,6 +115,11 @@ export function starTargetSpeedKts(ac: Aircraft): number | null {
 export function leaveStar(ac: Aircraft): void {
   const nav = ac.star;
   if (!nav) return;
+  // A vector out of a holding pattern takes the aircraft off the route the same
+  // way a vector off any other part of it does (§4.6): the pattern goes with
+  // it, and so does the forced right turn it was flying.
+  nav.hold = null;
+  ac.turnDirection = null;
   const dtgNm = distanceToGoNm(ac, nav);
   if (!nav.altitudeManual) ac.targetAltitudeFt = altitudeAheadFt(nav.route, dtgNm);
   if (!nav.speedManual) ac.targetIasKts = speedAheadKts(nav.route, dtgNm);
@@ -109,9 +146,19 @@ function anticipationNm(ac: Aircraft, nav: StarNav): Nm {
 }
 
 /** Drive one tick of route following. Kinematics run after, except the vertical. */
-export function stepStar(ac: Aircraft, dt: Sec): StarEvent[] {
+export function stepStar(ac: Aircraft, dt: Sec, timeS: Sec = 0): StarEvent[] {
   const nav = ac.star;
   if (!nav) return [];
+
+  // Holding suspends route following: the pattern owns the lateral track, and
+  // sequencing stays parked on the holding fix until the aircraft leaves.
+  if (nav.hold) {
+    const events = stepHold(ac, nav, timeS);
+    if (nav.hold) return events;
+    // The hold ended on this tick. Fall through so the STAR resumes from the
+    // holding fix on the same tick rather than after a tick of nothing.
+    return [...events, ...stepStar(ac, dt, timeS)];
+  }
 
   const fix = activeFix(nav);
   const position = { x: ac.x, y: ac.y };
@@ -121,13 +168,26 @@ export function stepStar(ac: Aircraft, dt: Sec): StarEvent[] {
 
   const profile = starProfileAt(nav.route, dtgNm);
   if (!nav.altitudeManual) {
-    // Fly the published profile exactly, so every crossing altitude is made
-    // good; the vertical rate falls out of the geometry (~400–600 fpm) and its
-    // energy is still charged against the speed budget by stepKinematics.
-    const previous = ac.altitudeFt;
-    ac.altitudeFt = profile.altitudeFt;
-    ac.targetAltitudeFt = altitudeAheadFt(nav.route, dtgNm);
-    ac.vsFpm = dt > 0 ? ((ac.altitudeFt - previous) / dt) * 60 : 0;
+    // The profile is captured the moment the aircraft is no longer above it.
+    // Descending onto it is the only way to rejoin, so this needs no tolerance
+    // window: the descent crosses the profile and the crossing is the capture.
+    if (nav.rejoining && ac.altitudeFt <= profile.altitudeFt) nav.rejoining = false;
+
+    if (nav.rejoining) {
+      // Still above it — fly down on ordinary rates rather than being written
+      // onto the chart, which for an aircraft leaving a hold thousands of feet
+      // high would be a teleport (§4.6). `starOwnsVertical` agrees for this
+      // tick, so kinematics integrate the vertical.
+      ac.targetAltitudeFt = profile.altitudeFt;
+    } else {
+      // Fly the published profile exactly, so every crossing altitude is made
+      // good; the vertical rate falls out of the geometry (~400–600 fpm) and its
+      // energy is still charged against the speed budget by stepKinematics.
+      const previous = ac.altitudeFt;
+      ac.altitudeFt = profile.altitudeFt;
+      ac.targetAltitudeFt = altitudeAheadFt(nav.route, dtgNm);
+      ac.vsFpm = dt > 0 ? ((ac.altitudeFt - previous) / dt) * 60 : 0;
+    }
   }
   if (!nav.speedManual) ac.targetIasKts = profile.speedKts;
   ac.targetHeadingDeg = courseDeg;

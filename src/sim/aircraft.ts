@@ -42,6 +42,12 @@ export interface Aircraft {
   targetIasKts: Kts;
   /** Instructions transmitted and not yet acted on. */
   pending: PendingInstruction[];
+  /**
+   * Forces the direction of the commanded turn when set, instead of turning
+   * whichever way is shorter. Only the holding pattern uses it: its 180°
+   * reversals are exactly ambiguous, and a standard hold turns right (§4.6).
+   */
+  turnDirection: -1 | 1 | null;
 
   /** Route being flown on autopilot, or null once vectored off it (§4.5). */
   star: StarNav | null;

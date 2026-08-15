@@ -29,7 +29,7 @@ Manual* for the procedural rules.
 | Deferred | Why parked |
 | --- | --- |
 | Departures / mixed traffic | Doubles the state machine and the conflict logic |
-| Holding patterns | Needs a hold entry/exit model; vectoring is enough to absorb delay in v1 |
+| ~~Holding patterns~~ | **Now in scope** — added as a simplified direct-entry racetrack on the STAR (§4.6) |
 | Wind (and therefore IAS vs GS divergence from wind) | Big complexity driver in intercept geometry; altitude-based TAS is modelled, wind is not |
 | Terrain / MVA map | Single flat MVA constant instead |
 | Parallel runways & reduced parallel separation | Only meaningful with ≥2 runways |
@@ -243,8 +243,10 @@ interface Aircraft {
   targetAltitudeFt: Ft;
   targetIasKts: Kts;
   pending: PendingInstruction[];  // transmitted, not yet read back (§7.2)
+  turnDirection: -1 | 1 | null;   // forces the turn direction; holds only (§4.6)
 
   star: StarNav | null;           // route being flown, null once vectored (§4.5)
+                                  // carries the holding pattern, if any (§4.6)
 
   // Approach state
   phase: Phase;
@@ -389,6 +391,7 @@ leg and then running level.
 | Heading (`A`/`D`) | **Off the route entirely.** Whatever was not taken over stays as published — the descent to the next published level and the reduction to the published speed both stand, which is what "descend 5000, turn left heading 090" means |
 | Altitude (`W`/`S`) | Published profile off, **lateral track kept** |
 | Speed (`Q`/`E`) | Published speed off, **lateral track and descent kept** (IF 6.15 speed control is not a vector) |
+| `H` (hold) | **Stays on the route**, suspended at the holding fix (§4.6) |
 | `C` (cleared ILS) | Off the route; the approach owns it from there |
 
 Nothing rejoins a STAR. Once vectored, an aircraft is on vectors for the rest of its arrival.
@@ -397,6 +400,103 @@ Nothing rejoins a STAR. Once vectored, an aircraft is on vectors for the rest of
 ("*at ARDIS, end of the arrival — maintaining heading, request further*"), holds its heading, level
 and speed, and flies on. Left alone it crosses the centerline and eventually exits the airspace
 (§3.4). The routes buy the controller 3–5 minutes of level flight, not indefinite parking.
+
+### 4.6 Holding patterns
+
+The routes buy minutes; a hold buys as long as the controller wants. When the arrival rate outruns
+the runway, the tool for it is a published hold at a fix on the STAR — the aircraft parks itself in
+a racetrack and stops consuming the airspace on final. Implemented in
+[`src/sim/hold.ts`](../src/sim/hold.ts).
+
+**Only aircraft on a STAR can hold.** The pattern is anchored on the fix the aircraft is already
+tracking to, so off the route there is no fix to hold at and the instruction is refused. A hold
+**suspends** the STAR rather than replacing it: `ac.star` stays set and sequencing stays parked on
+the holding fix, which is what makes rejoining it a matter of dropping the hold state.
+
+**The pattern.** Standard (right-hand) turns, flown as a direct entry from wherever the aircraft is:
+
+```
+inbound  ──────────────▶ FIX ─┐  180° right
+                              │
+◀────────── 1 min ────────────┘
+```
+
+Press `H`, and the aircraft continues to the next fix on its route, slowing to 230 kt on the way —
+the lateral track does not change until it gets there. Over the fix it turns right through 180°,
+flies **one minute** of straight and level, turns right through 180° again, and tracks back to the
+fix. Then it does it again, indefinitely.
+
+The real procedure has three published entries (direct, parallel, teardrop) chosen from the angle of
+arrival, all of it there to get an aircraft onto the inbound leg from an arbitrary direction without
+leaving protected airspace. Here the aircraft always arrives along its own STAR leg, so the entry is
+always a direct one and the geometry reduces to the loop above. The outbound leg is flown as the
+**reciprocal of the track the aircraft crossed the fix on**, so the pattern aligns itself with the
+arrival instead of needing a published inbound course on every fix.
+
+The one-minute leg is timed **from the roll-out, not from the fix**: the minute is a minute of
+straight flight, and the turn is not part of it. The resulting racetrack is 7–10 NM long at 230 kt
+across the four routes.
+
+**The turn direction is stated, not derived.** Both reversals in the pattern are *exactly* 180°, and
+"turn the short way" (§4.3) has no answer for a reversal: `headingDelta` returns ±180 and the sign
+falls out of floating-point rounding, so an aircraft that drifts a hundredth of a degree past the
+target rolls out the other way and flies the pattern left-handed. `Aircraft.turnDirection` therefore
+forces the direction for the duration of each reversal and is released at the roll-out, so the
+tracking legs still correct whichever way is shorter. It is cleared whenever the hold ends, however
+it ends — including by a vector, which must be free to turn the short way.
+
+**Numbers.** 230 kt is the ICAO/FAA standard holding speed below 14,000 ft, and it is also the
+published STAR arrival speed — so an aircraft sent into the pattern has one deceleration to make and
+nothing else changes. One minute is the standard leg below 14,000 ft.
+
+**Altitude is frozen** at the holding fix's published crossing altitude on entry. It has to be: the
+STAR's descent profile is interpolated against distance-to-go, and distance-to-go stops decreasing
+once the aircraft is going round in circles. Unlike the profile and the glideslope, the hold writes
+only a *target* and lets kinematics fly it (§4.3) — a hold is level flight, not an imposed rate.
+
+**What the controller can do to a holding aircraft:**
+
+| Instruction | Effect |
+| --- | --- |
+| Altitude (`W`/`S`) | **Stays in the pattern**, at the new altitude — stacking a hold is the point. The level belongs to the hold and is given back on exit (below) |
+| Speed (`Q`/`E`) | **Stays in the pattern**, at the new speed |
+| Heading (`A`/`D`) | **Out of the pattern and off the STAR**, exactly as a vector off any other part of the route |
+| `H` again | Leaves the pattern (below) |
+| `C` (cleared ILS) | **Refused** — a holding aircraft is circling a fix, not tracking towards final; take it out of the hold first |
+
+**Leaving.** Pressing `H` a second time depends on whether the pattern has actually begun:
+
+- **Before the fix is reached** — the hold has not started, so it cancels outright and the aircraft
+  simply carries on down the STAR ("*cancelling the hold, continuing on the arrival*").
+- **Once established** — the crew finishes the loop it is flying and leaves at the **next crossing
+  of the fix** ("*leaving KETAN on the next inbound*"). It does not cut the pattern short.
+
+On leaving, the STAR resumes from the holding fix on the same tick, published profile and all: the
+aircraft picks the descent back up where the hold interrupted it. This is the **one exception to
+"nothing rejoins a STAR"** in §4.5 — and it is not really an exception, since the aircraft never
+left the route in the first place.
+
+**A holding level is not a standing altitude assignment.** "Descend 7000 in the hold" belongs to the
+pattern, so the `altitudeManual` flag it sets must not outlive it: on exit the vertical goes back to
+whoever had it *before* the hold began. Without that, stacking an aircraft in the pattern silently
+cancels the published profile, and it flies the rest of the arrival level at the holding level — the
+descent never resumes. An altitude assigned *before* the hold is a genuine takeover and does stand.
+
+**Rejoining is a descent, not a jump.** The profile is normally written straight onto the aircraft,
+which assumes it is already on it — fine for an ordinary arrival, but an aircraft leaving a hold is
+typically thousands of feet above, and writing the chart onto it would teleport it (and report a
+vertical rate in the millions of fpm). So while it is above the profile it descends *towards* it on
+ordinary kinematic rates, and `starOwnsVertical` reports false for those ticks so kinematics
+integrate the vertical. **The capture test is simply "no longer above"**: descending onto the
+profile is the only way to rejoin, so the crossing is the capture and no tolerance window is needed
+— which matters, because any window wide enough to be safe is also wide enough to be a visible step,
+and one narrow enough to be invisible breaks ordinary arrivals where the profile levels off at a
+platform faster than the aeroplane can follow.
+
+**Display.** The data block shows `HOLD` in place of the fix name — a holding aircraft is circling
+that fix rather than tracking to it, and that is the thing the controller has to see at a glance.
+The racetrack itself is **not drawn**: the trail dots already show it, and four overlapping
+racetracks on a congested scope cost more legibility than they buy.
 
 ---
 
@@ -542,6 +642,7 @@ fixes it, and the sidebar says so continuously for the whole `loc` leg rather th
 | `W` / `S` | Assigned altitude +1000 / −1000 ft (clamped 2000–12,000) |
 | `Q` / `E` | Assigned speed −10 / +10 kt (clamped per §3.3) |
 | `C` | Clear for ILS approach (subject to §6.1) |
+| `H` | Hold at the next fix / leave the hold (§4.6, STAR only) |
 | `Tab` | Cycle selection |
 | `Space` | Pause / resume |
 | `1` `2` `4` | Time acceleration |
@@ -824,7 +925,7 @@ for the architecture.
 | A8 | Aircraft turn the short way to an assigned heading; long-way-round vectors aren't expressible |
 | A9 | 4 gates, 90° apart, offset 40° from the cardinals |
 | A10 | Endless session, no win/lose state; quality is reported, not enforced |
-| A11 | One STAR per gate, never rejoined once vectored off; no route changes, no holds |
+| A11 | One STAR per gate, never rejoined once vectored off; no route changes. Holding is the one way back onto a route, and only because the aircraft never leaves it (§4.6) |
 
 ---
 
@@ -859,6 +960,20 @@ for the architecture.
 | Which speed an instruction sets | **IAS, unchanged** — that is what a crew flies. The sidebar shows the IAS pair for the selected aircraft and prints the altitude bonus next to the ground speed, so the two are reconcilable on sight rather than mysterious (§7.1) |
 | Vertical rate on the readout | **In brackets beside the altitude, dim, rounded to 50 fpm, blank when level.** The assigned figures are yellow; a rate is something the aircraft is doing, not something it was told (§7.1) |
 
+| Question | Decision (2026-08-15, holding) |
+| --- | --- |
+| Who may hold | **Only aircraft on a STAR.** The pattern is anchored on the fix the aircraft is already tracking to, so off the route there is nothing to anchor it to. It also keeps the feature to the case it is for: metering the arrival flow before it reaches the vectoring area (§4.6) |
+| Which fix | **Whichever fix the aircraft is currently tracking to**, including the last one on the route. Holding at the final fix is exactly where a congested field wants the aircraft parked, and allowing it means the STAR simply never completes until the hold is left |
+| Entry procedure | **Direct entry only.** The published parallel and teardrop entries exist to join the inbound leg from an arbitrary direction; an aircraft on its own STAR leg is always arriving in the direct sector, so modelling the other two would add a state machine that never runs (§4.6) |
+| Inbound course | **The reciprocal of the track the aircraft crossed the fix on**, rather than a published course per fix. The pattern aligns itself with the arrival, so no fix needs new chart data and the geometry is identical from every gate |
+| Altitude in the pattern | **Frozen at the fix's published crossing altitude**, flown level as an ordinary target. The STAR profile is keyed to distance-to-go, which stops decreasing in a hold, so the profile cannot own the vertical there (§4.6) |
+| What a hold does to the STAR | **Suspends it, does not end it.** `ac.star` stays set and sequencing stays on the holding fix, so leaving the hold resumes the published profile from that fix — the one route-rejoin in the model, and only because the aircraft never left (§4.5, A11) |
+| Second `H` before the fix | **Cancels outright.** Nothing has happened yet; making the aircraft fly a full pattern it was never established in to undo a keypress would be a punishment, not a simulation |
+| Second `H` once established | **Completes the loop and leaves at the next crossing of the fix.** A hold exit is a fix-referenced instruction in the real world, and cutting the pattern short mid-leg would put the aircraft somewhere the controller has not planned for |
+| Turn direction | **Always right**, even where the geometry pushes toward the boundary. Standard holds are right-hand; a left-hand pattern is a published exception, and choosing the direction per fix would hide the airspace cost of holding at a corner. Where it runs out of room, that is the controller's problem to see (§3.4) |
+| Drawing the pattern | **No racetrack on the scope, just `HOLD` on the block.** The history trail already shows the shape, and four overlapping racetracks cost more legibility on a congested scope than they buy |
+| `C` while holding | **Refused.** A holding aircraft is not tracking towards final, so a clearance would be a prediction that cannot come true; take it out of the hold first (§6.1) |
+
 ## 15. Still open
 
 None of these blocks play; each is a small, contained change.
@@ -872,8 +987,16 @@ None of these blocks play; each is a small, contained change.
 4. **Sound** — no audio at all yet. IF 6.2.4 describes an audible alarm inside 1.5 NM / 500 ft;
    one Web Audio beep would cover it.
 5. **Aircraft glyph** — a simple cross-and-nose symbol. Worth drawing a proper airliner shape?
-6. **Rejoining a STAR** — there is no "resume own navigation"; once vectored, an aircraft is on
+6. **Rejoining a STAR** — there is no "resume own navigation"; once *vectored*, an aircraft is on
    vectors for good. A `direct <fix>` instruction would be the natural way to give the route back.
+   Holding (§4.6) is not this: it suspends the route rather than leaving it.
+9. **Holding is unmetered** — nothing scores time spent in a pattern, and nothing stops the whole
+   arrival flow being parked indefinitely. Track miles flown already grow while holding, so the
+   efficiency ratio (§8) absorbs some of it, but a deliberate delay cost would say more.
+10. **One hold per fix** — two aircraft told to hold at the same fix fly the same racetrack at the
+    same published altitude and will trigger a separation violation. Real holds stack at 1000 ft
+    intervals; here the controller has to assign the levels by hand, which is arguably the more
+    honest exercise but is worth revisiting if it reads as a trap.
 7. **Should "closing on the localizer" also move to the intercept window?** It is the one
    instantaneous condition left in §6.1. The argument for keeping it there is that a diverging
    track never reaches the window at all, so there is nothing to defer the check to; the argument
@@ -890,7 +1013,7 @@ None of these blocks play; each is a small, contained change.
 nvm use          # Node 24 LTS, pinned in .nvmrc — the system default is 18 (EOL)
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 86 sim tests, headless, ~0.7 s
+npm test         # 112 sim tests, headless, ~0.8 s
 npm run build    # typecheck + static bundle into dist/
 ```
 

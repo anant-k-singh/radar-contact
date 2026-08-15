@@ -144,6 +144,17 @@ export const STAR_FIX_CAPTURE_NM = 0.5;
 /** Cap on fly-by turn anticipation, so a near-reversal cannot cut half the route. */
 export const STAR_MAX_ANTICIPATION_NM = 6;
 
+// ── Holding (§4.6) ──────────────────────────────────────────────────────────
+/**
+ * Standard holding speed below 14,000 ft for civil aircraft (ICAO Doc 8168 /
+ * FAA AIM 5-3-8: 230 kt). It is also the published STAR arrival speed, so an
+ * aircraft sent into the pattern from the outer legs has one deceleration to
+ * make and nothing else changes.
+ */
+export const HOLD_SPEED_KTS = 230;
+/** Standard outbound leg below 14,000 ft: one minute of straight flight. */
+export const HOLD_LEG_S = 60;
+
 // ── Pilot reaction (§7.2) ───────────────────────────────────────────────────
 /** An instruction is read back and flown 1–3 s after it is transmitted. */
 export const PILOT_DELAY_MIN_S = 1.0;

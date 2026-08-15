@@ -76,7 +76,7 @@ const TEMPLATE = `
   <h2>Controls</h2>
   <div class="keys">
     <kbd>A</kbd><kbd>D</kbd> heading &nbsp; <kbd>W</kbd><kbd>S</kbd> altitude<br />
-    <kbd>Q</kbd><kbd>E</kbd> speed &nbsp; <kbd>C</kbd> clear ILS<br />
+    <kbd>Q</kbd><kbd>E</kbd> speed &nbsp; <kbd>C</kbd> clear ILS &nbsp; <kbd>H</kbd> hold<br />
     <kbd>Tab</kbd> cycle &nbsp; <kbd>Space</kbd> pause &nbsp; <kbd>1</kbd><kbd>2</kbd><kbd>4</kbd><kbd>8</kbd> rate
   </div>
 

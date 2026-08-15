@@ -25,6 +25,7 @@ import {
   isPending,
   issue,
 } from './pilot.js';
+import { activeFix } from './star.js';
 import { clamp, normalizeHeading, quantize } from './units.js';
 import { log, type World } from './world.js';
 
@@ -100,9 +101,39 @@ export function adjustSpeed(world: World, ac: Aircraft, direction: Direction): v
   issue(world, ac, { kind: 'speed', iasKts: next });
 }
 
+/**
+ * Toggle the holding pattern (§4.6). Only an aircraft on its STAR can be sent
+ * into one — the pattern is anchored on the fix it is tracking to, and off the
+ * route there is no next fix to hold at.
+ */
+export function toggleHold(world: World, ac: Aircraft): void {
+  if (!guard(world, ac)) return;
+  if (isPending(ac, 'hold')) return; // already transmitted, still being read back
+
+  if (!ac.star) {
+    log(world, `${ac.callsign} unable — not on an arrival, no fix to hold at.`, 'system');
+    return;
+  }
+
+  const holding = ac.star.hold !== null;
+  if (!holding) {
+    log(world, `${ac.callsign}, hold at ${activeFix(ac.star).name} as published.`, 'system');
+  } else {
+    log(world, `${ac.callsign}, leave the hold, continue on the arrival.`, 'system');
+  }
+  issue(world, ac, { kind: 'hold', enter: !holding });
+}
+
 export function clearForIls(world: World, ac: Aircraft): void {
   if (!guard(world, ac)) return;
   if (isPending(ac, 'approach')) return; // already transmitted, still being read back
+
+  // A holding aircraft is going round in circles at a fix, not tracking towards
+  // final: take it out of the pattern first (§4.6).
+  if (ac.star?.hold) {
+    log(world, `${ac.callsign} unable — in the hold at ${ac.star.hold.fix}.`, 'alert');
+    return;
+  }
 
   const geo = finalGeometry(ac);
   const result = evaluateClearance(ac, geo);

@@ -34,6 +34,9 @@ const CANDIDATES: ReadonlyArray<{ dx: number; dy: number; align: 'left' | 'right
 
 function stateTag(ac: Aircraft): string {
   if (ac.handedOff) return 'TWR';
+  // Holding outranks the fix name: the aircraft is circling that fix rather
+  // than tracking to it, and that is the thing the controller has to see (§4.6).
+  if (ac.star?.hold) return 'HOLD';
   // On the arrival, the fix it is tracking to says more than any state name.
   if (ac.star && ac.phase === 'inbound') return activeFix(ac.star).name;
   switch (ac.phase) {
