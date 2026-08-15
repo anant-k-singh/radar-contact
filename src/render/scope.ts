@@ -4,6 +4,7 @@ import type { World } from '../sim/world.js';
 import { mapLayer } from './mapLayer.js';
 import { drawMessages, drawStatusLine } from './messageLog.js';
 import { createProjection, screenX, screenY, type Projection } from './project.js';
+import { drawStats } from './statsLayer.js';
 import { drawTraffic, type Rect } from './trafficLayer.js';
 
 const HIT_RADIUS_PX = 15;
@@ -41,7 +42,8 @@ export function createScope(canvas: HTMLCanvasElement): Scope {
       const dpr = window.devicePixelRatio || 1;
       ctx.drawImage(mapLayer(projection, dpr), 0, 0, projection.width, projection.height);
       blocks = drawTraffic(ctx, world, projection);
-      drawStatusLine(ctx, world, projection);
+      drawStatusLine(ctx, world);
+      drawStats(ctx, world, projection);
       drawMessages(ctx, world, projection);
     },
 

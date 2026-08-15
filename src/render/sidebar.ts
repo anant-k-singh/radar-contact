@@ -17,7 +17,7 @@ import { assignedAltitudeFt, assignedHeadingDeg, assignedIasKts, isPending } fro
 import { activeFix, starTargetSpeedKts } from '../sim/star.js';
 import { displayHeading, distance, quantize } from '../sim/units.js';
 import type { World } from '../sim/world.js';
-import { landingRatePerHour, selectedAircraft } from '../sim/world.js';
+import { selectedAircraft } from '../sim/world.js';
 import { clockText } from './messageLog.js';
 
 export interface SidebarHandlers {
@@ -59,19 +59,6 @@ const TEMPLATE = `
     </dl>
     <div class="ils" data-field="ils"></div>
   </div>
-
-  <h2>Session</h2>
-  <dl class="detail stats">
-    <dt>Landings</dt><dd data-field="landings"></dd>
-    <dt>Landing rate</dt><dd data-field="landingrate"></dd>
-    <dt>Handed off</dt><dd data-field="handoffs"></dd>
-    <dt>Violations</dt><dd data-field="violations"></dd>
-    <dt>Go-arounds</dt><dd data-field="goarounds"></dd>
-    <dt>Airspace exits</dt><dd data-field="exits"></dd>
-    <dt>Track miles</dt><dd data-field="trackmiles"></dd>
-    <dt>Refused ILS</dt><dd data-field="rejections"></dd>
-    <dt>Missed intercepts</dt><dd data-field="missed"></dd>
-  </dl>
 
   <h2>Controls</h2>
   <div class="keys">
@@ -286,34 +273,7 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
         }
       }
 
-      const stats = world.stats;
-      set('landings', String(stats.landings));
-      const rate = landingRatePerHour(world);
-      set('landingrate', rate === null ? '—' : `${rate.toFixed(1)}/h`);
-      set('handoffs', String(stats.handoffs));
-      set(
-        'violations',
-        stats.violations === 0
-          ? '0'
-          : `${stats.violations}  (${Math.round(stats.violationSeconds)}s)`,
-        stats.violations > 0 ? 'bad' : '',
-      );
-      set('goarounds', String(stats.goArounds), stats.goArounds > 0 ? 'warn' : '');
-      set('exits', String(stats.exits), stats.exits > 0 ? 'warn' : '');
-      set(
-        'trackmiles',
-        stats.trackMileSamples > 0
-          ? `${(stats.trackMileRatioSum / stats.trackMileSamples).toFixed(2)}×`
-          : '—',
-      );
-      const tally = (counts: Map<string, number>): string =>
-        [...counts.entries()]
-          .sort((a, b) => b[1] - a[1])
-          .map(([code, count]) => `${code} ${count}`)
-          .join(', ');
-      set('rejections', tally(stats.rejections) || '0');
-      const missed = tally(stats.missedIntercepts);
-      set('missed', missed || '0', missed ? 'warn' : '');
+      // Session stats moved to the scope's top-right gutter (statsLayer.ts).
     },
   };
 }

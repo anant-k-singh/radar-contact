@@ -43,7 +43,7 @@ export function drawMessages(ctx: CanvasRenderingContext2D, world: World, p: Pro
   ctx.globalAlpha = 1;
 }
 
-export function drawStatusLine(ctx: CanvasRenderingContext2D, world: World, p: Projection): void {
+export function drawStatusLine(ctx: CanvasRenderingContext2D, world: World): void {
   ctx.font = THEME.fontSmall;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
@@ -58,9 +58,4 @@ export function drawStatusLine(ctx: CanvasRenderingContext2D, world: World, p: P
   ];
   if (world.paused) parts.push('— PAUSED');
   ctx.fillText(parts.join('   ·   '), 14, 12);
-
-  // Sequence hint: how many are on final.
-  const onFinal = world.aircraft.filter((ac) => ac.phase === 'loc' || ac.phase === 'gs').length;
-  ctx.textAlign = 'right';
-  ctx.fillText(`ON FINAL ${onFinal}`, p.width - 14, 12);
 }
