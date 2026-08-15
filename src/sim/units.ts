@@ -48,6 +48,12 @@ export function headingDiff(a: Deg, b: Deg): Deg {
   return Math.abs(headingDelta(a, b));
 }
 
+/** Headings are spoken and drawn as 010–360, never 000. */
+export function displayHeading(deg: Deg): string {
+  const rounded = Math.round(normalizeHeading(deg)) % 360;
+  return String(rounded === 0 ? 360 : rounded).padStart(3, '0');
+}
+
 /** Unit vector for a compass heading (0 = north, 90 = east). */
 export function headingVector(deg: Deg): Point {
   const r = toRad(deg);

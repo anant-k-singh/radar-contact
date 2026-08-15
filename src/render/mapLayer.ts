@@ -6,6 +6,7 @@
  * when the window is resized.
  */
 import { AIRPORT } from '../scenario/airport.js';
+import { STARS } from '../scenario/stars.js';
 import {
   AIRSPACE_RADIUS_NM,
   CENTERLINE_LENGTH_NM,
@@ -13,7 +14,7 @@ import {
   RANGE_RINGS_NM,
 } from '../sim/constants.js';
 import { centerlinePoint } from '../sim/ils.js';
-import { headingVector } from '../sim/units.js';
+import { headingVector, magnitude } from '../sim/units.js';
 import { screenX, screenY, toScreen, type Projection } from './project.js';
 import { THEME } from './theme.js';
 
@@ -41,9 +42,69 @@ function draw(ctx: CanvasRenderingContext2D, p: Projection): void {
 
   drawRings(ctx, p);
   drawCompassTicks(ctx, p);
+  drawStars(ctx, p);
   drawCenterline(ctx, p);
   drawRunway(ctx, p);
   drawGates(ctx, p);
+}
+
+/**
+ * The four STARs, drawn the way a chart draws them: the track, a tick at each
+ * fix, and the published crossing altitude and speed printed where they change.
+ */
+function drawStars(ctx: CanvasRenderingContext2D, p: Projection): void {
+  ctx.font = THEME.fontLabel;
+  ctx.textBaseline = 'middle';
+
+  for (const star of STARS) {
+    ctx.strokeStyle = THEME.starPath;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    star.waypoints.forEach((wpt, index) => {
+      const point = toScreen(p, wpt.position);
+      if (index === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    });
+    ctx.stroke();
+
+    let altitudeFt: number | undefined;
+    let speedKts: number | undefined;
+    for (const [index, wpt] of star.waypoints.entries()) {
+      // Only what changes at this fix, so a long level leg is not labelled twice.
+      const parts: string[] = [];
+      if (wpt.altitudeFt !== undefined && wpt.altitudeFt !== altitudeFt) {
+        parts.push(String(wpt.altitudeFt));
+      }
+      if (wpt.speedKts !== undefined && wpt.speedKts !== speedKts) parts.push(`${wpt.speedKts}K`);
+      altitudeFt = wpt.altitudeFt ?? altitudeFt;
+      speedKts = wpt.speedKts ?? speedKts;
+
+      // The gate marker already carries its own name and altitude.
+      if (index === 0) continue;
+
+      const point = toScreen(p, wpt.position);
+      ctx.strokeStyle = THEME.starFix;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 2.5, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Labels sit on the far side of the fix from the airport, where there is
+      // no traffic and nothing else drawn.
+      const range = magnitude(wpt.position);
+      const outward = range > 0 ? { x: wpt.position.x / range, y: wpt.position.y / range } : { x: 0, y: 1 };
+      const lx = point.x + outward.x * 9;
+      const ly = point.y - outward.y * 9;
+      ctx.textAlign = outward.x < -0.2 ? 'right' : outward.x > 0.2 ? 'left' : 'center';
+
+      ctx.fillStyle = THEME.starLabel;
+      ctx.fillText(wpt.name, lx, ly - (parts.length > 0 ? 6 : 0));
+      if (parts.length > 0) {
+        ctx.fillStyle = THEME.starConstraint;
+        ctx.fillText(parts.join(' · '), lx, ly + 6);
+      }
+    }
+  }
 }
 
 function drawRings(ctx: CanvasRenderingContext2D, p: Projection): void {

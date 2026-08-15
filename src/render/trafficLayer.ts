@@ -4,8 +4,9 @@
  * overlap an already-placed block — cheap, and it matters a lot at 25 aircraft.
  */
 import type { Aircraft } from '../sim/aircraft.js';
-import { displayHeading } from '../sim/commands.js';
-import { headingDiff, headingVector } from '../sim/units.js';
+import { assignedAltitudeFt, assignedHeadingDeg, isPending } from '../sim/pilot.js';
+import { activeFix } from '../sim/star.js';
+import { displayHeading, headingDiff, headingVector } from '../sim/units.js';
 import type { World } from '../sim/world.js';
 import { screenX, screenY, type Projection } from './project.js';
 import { THEME } from './theme.js';
@@ -32,6 +33,8 @@ const CANDIDATES: ReadonlyArray<{ dx: number; dy: number; align: 'left' | 'right
 
 function stateTag(ac: Aircraft): string {
   if (ac.handedOff) return 'TWR';
+  // On the arrival, the fix it is tracking to says more than any state name.
+  if (ac.star && ac.phase === 'inbound') return activeFix(ac.star).name;
   switch (ac.phase) {
     case 'cleared':
       return 'ILS';
@@ -56,14 +59,15 @@ function primaryColor(ac: Aircraft, selected: boolean): string {
 
 function blockLines(ac: Aircraft): string[] {
   const hundreds = Math.round(ac.radar.altitudeFt / 100);
-  const target = Math.round(ac.targetAltitudeFt / 100);
+  const assignedFt = assignedAltitudeFt(ac);
+  const target = Math.round(assignedFt / 100);
   let vertical: string;
   if (ac.phase === 'gs') {
     vertical = `${hundreds} G/S`;
-  } else if (Math.abs(ac.radar.altitudeFt - ac.targetAltitudeFt) < 100) {
+  } else if (Math.abs(ac.radar.altitudeFt - assignedFt) < 100) {
     vertical = `${hundreds} =${target}`;
   } else {
-    vertical = `${hundreds} ${ac.radar.altitudeFt > ac.targetAltitudeFt ? '↓' : '↑'}${target}`;
+    vertical = `${hundreds} ${ac.radar.altitudeFt > assignedFt ? '↓' : '↑'}${target}`;
   }
 
   const tag = stateTag(ac);
@@ -167,9 +171,10 @@ export function drawTraffic(
 
     // Assigned-heading vector, for a few seconds after the instruction: where
     // the nose is going, alongside the green leader line showing where it is.
+    const assignedDeg = assignedHeadingDeg(ac);
     const hintLeftS = ac.headingHintUntilS - world.timeS;
     if (hintLeftS > 0 && !ac.handedOff) {
-      const want = headingVector(ac.targetHeadingDeg);
+      const want = headingVector(assignedDeg);
       // Half again the leader line, and never so short that it hides under the
       // selection ring — this has to read at a glance from across the scope.
       const hintPx = Math.max(leaderPx * 1.5, 60);
@@ -186,7 +191,7 @@ export function drawTraffic(
       ctx.setLineDash([]);
 
       // Cap tick across the end, so the target is readable even at a small angle.
-      const cross = headingVector(ac.targetHeadingDeg + 90);
+      const cross = headingVector(assignedDeg + 90);
       ctx.beginPath();
       ctx.moveTo(ex + cross.x * 4, ey - cross.y * 4);
       ctx.lineTo(ex - cross.x * 4, ey + cross.y * 4);
@@ -196,7 +201,7 @@ export function drawTraffic(
       ctx.fillStyle = THEME.hint;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(displayHeading(ac.targetHeadingDeg), ex + want.x * 12, ey - want.y * 12);
+      ctx.fillText(displayHeading(assignedDeg), ex + want.x * 12, ey - want.y * 12);
       ctx.globalAlpha = 1;
     }
 
@@ -238,11 +243,13 @@ export function drawTraffic(
       ctx.fillText(line, rect.x, rect.y + index * LINE_HEIGHT);
     });
 
-    // Assigned heading, shown only while a turn is outstanding.
-    const turning = headingDiff(ac.headingDeg, ac.targetHeadingDeg) > 1.5;
-    if (turning && !ac.handedOff) {
+    // Assigned heading, shown only while a turn the player asked for is
+    // outstanding — an aircraft turning to follow its STAR was not vectored.
+    const vectored = !ac.star || isPending(ac, 'heading');
+    const turning = headingDiff(ac.headingDeg, assignedDeg) > 1.5;
+    if (turning && vectored && !ac.handedOff) {
       ctx.fillStyle = THEME.assigned;
-      ctx.fillText(displayHeading(ac.targetHeadingDeg), rect.x + rect.w + 6, rect.y);
+      ctx.fillText(displayHeading(assignedDeg), rect.x + rect.w + 6, rect.y);
     }
   }
 

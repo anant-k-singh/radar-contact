@@ -18,8 +18,10 @@ import {
 } from './constants.js';
 import { groundSpeed, stepKinematics } from './dynamics.js';
 import { finalGeometry, isEstablished, stepApproach } from './ils.js';
+import { applyDueInstructions } from './pilot.js';
 import { createRng, type Rng } from './rng.js';
 import { analyzeSeparation, type SeparationReport } from './separation.js';
+import { starOwnsVertical, stepStar } from './star.js';
 import { createTrafficState, scheduleNextSpawn, trySpawn, type TrafficState } from './traffic.js';
 import { distance, headingVector, type Nm, type Sec } from './units.js';
 
@@ -50,6 +52,11 @@ export interface World {
   stats: Stats;
   flowPerHour: number;
   rng: Rng;
+  /**
+   * Pilot reaction times come from their own stream, so how much the player
+   * talks cannot shift the traffic sequence a seed produces.
+   */
+  pilotRng: Rng;
   traffic: TrafficState;
   separation: SeparationReport;
   selectedId: number | null;
@@ -81,6 +88,7 @@ export function createWorld(seed: number, flowPerHour = FLOW_DEFAULT_PER_HOUR): 
     },
     flowPerHour,
     rng: createRng(seed),
+    pilotRng: createRng(seed ^ 0x5f356495),
     traffic,
     separation: { pairs: [], alerts: new Map(), inTrail: new Map(), inTrailLeader: new Map() },
     selectedId: null,
@@ -207,10 +215,13 @@ export function step(world: World, dt: Sec): void {
     if (arrival) {
       world.aircraft.push(arrival);
       scheduleNextSpawn(world.traffic, world.rng, world.timeS, world.flowPerHour);
+      const routing = arrival.star
+        ? `on the ${arrival.star.route.name} arrival`
+        : `inbound ${arrival.entryGate}`;
       log(
         world,
         `${arrival.callsign} (${arrival.type.code}) with you at ${Math.round(arrival.altitudeFt)} ft, ` +
-          `${Math.round(arrival.iasKts)} knots, inbound ${arrival.entryGate}.`,
+          `${Math.round(arrival.iasKts)} knots, ${routing}.`,
         'pilot',
       );
     }
@@ -225,6 +236,23 @@ export function step(world: World, dt: Sec): void {
 
   // ── Fly ──────────────────────────────────────────────────────────────────
   for (const ac of [...world.aircraft]) {
+    // Instructions the crew has now had time to act on, then the route they
+    // fly in the absence of one.
+    for (const readback of applyDueInstructions(ac, world.timeS)) {
+      log(world, readback.text, readback.kind);
+    }
+    const onProfile = starOwnsVertical(ac);
+    for (const event of stepStar(ac, dt)) {
+      if (event.kind === 'starComplete') {
+        log(
+          world,
+          `${ac.callsign} at ${event.fix}, end of the arrival — maintaining heading, ` +
+            `request further.`,
+          'pilot',
+        );
+      }
+    }
+
     const geo = finalGeometry(ac);
     const inTrailNm = world.separation.inTrail.get(ac.id) ?? null;
     const events = stepApproach(ac, geo, { inTrailNm }, dt);
@@ -256,8 +284,10 @@ export function step(world: World, dt: Sec): void {
     }
     if (removed) continue;
 
-    // The glideslope owns the vertical profile once captured.
-    stepKinematics(ac, dt, ac.phase !== 'gs');
+    // The glideslope and the STAR's published profile each own the vertical
+    // while they are being flown; kinematics still pay for it out of the
+    // energy budget, so a descending aircraft slows more grudgingly.
+    stepKinematics(ac, dt, ac.phase !== 'gs' && !onProfile);
 
     if (checkAirspaceExit(world, ac)) continue;
     tryHandoff(world, ac);

@@ -5,6 +5,7 @@
 import { AIRCRAFT_TYPES } from '../scenario/aircraftTypes.js';
 import { AIRLINES } from '../scenario/airlines.js';
 import { AIRPORT, type EntryGate } from '../scenario/airport.js';
+import { starForGate } from '../scenario/stars.js';
 import type { Aircraft } from './aircraft.js';
 import {
   ENTRY_SPEED_KTS,
@@ -14,7 +15,8 @@ import {
   SPAWN_VETO_NM,
 } from './constants.js';
 import type { Rng } from './rng.js';
-import { distance, type Sec } from './units.js';
+import { joinStar } from './star.js';
+import { bearing, distance, type Sec } from './units.js';
 
 export interface TrafficState {
   nextSpawnAtS: Sec;
@@ -79,6 +81,19 @@ export function createArrival(
   state.nextId += 1;
   const altitudeFt = gate.entryAltitudeFt;
 
+  // Center delivers the arrival established on the first leg of the STAR.
+  const route = starForGate(gate.name);
+  const star = route ? joinStar(route) : null;
+  const headingDeg = star
+    ? bearing(gate.position, star.route.waypoints[star.index]!.position)
+    : gate.inboundHeadingDeg;
+  // The shortest route anyone could reasonably fly, for the track-mile ratio:
+  // the published arrival, then straight in from where it ends.
+  const directDistanceNm = route
+    ? route.lengthNm +
+      distance(route.waypoints[route.waypoints.length - 1]!.position, AIRPORT.runway.threshold)
+    : distance(gate.position, AIRPORT.runway.threshold);
+
   return {
     id,
     callsign: text,
@@ -87,19 +102,21 @@ export function createArrival(
     x: gate.position.x,
     y: gate.position.y,
     altitudeFt,
-    headingDeg: gate.inboundHeadingDeg,
+    headingDeg,
     iasKts: ENTRY_SPEED_KTS,
     vsFpm: 0,
-    targetHeadingDeg: gate.inboundHeadingDeg,
+    targetHeadingDeg: headingDeg,
     targetAltitudeFt: altitudeFt,
     targetIasKts: ENTRY_SPEED_KTS,
+    pending: [],
+    star,
     phase: 'inbound',
     handedOff: false,
     speedAssignedAfterClearance: false,
     entryGate: gate.name,
     spawnedAtS: timeS,
     trackMilesFlown: 0,
-    directDistanceNm: distance(gate.position, AIRPORT.runway.threshold),
+    directDistanceNm,
     goArounds: 0,
     exitWarned: false,
     headingHintUntilS: 0,
@@ -108,7 +125,7 @@ export function createArrival(
     radar: {
       altitudeFt,
       iasKts: ENTRY_SPEED_KTS,
-      headingDeg: gate.inboundHeadingDeg,
+      headingDeg,
       groundSpeedKts: ENTRY_SPEED_KTS * 1.16,
       vsFpm: 0,
     },

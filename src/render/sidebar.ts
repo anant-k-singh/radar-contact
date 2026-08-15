@@ -5,8 +5,11 @@
  * Plain DOM on purpose — this is six fields and a log (docs §11.2).
  */
 import { AIRPORT } from '../scenario/airport.js';
-import { displayHeading, speedFloorKts } from '../sim/commands.js';
+import { speedFloorKts } from '../sim/commands.js';
 import { evaluateClearance, finalGeometry, rangeToThresholdNm } from '../sim/ils.js';
+import { assignedAltitudeFt, assignedHeadingDeg, assignedIasKts, isPending } from '../sim/pilot.js';
+import { activeFix, starTargetSpeedKts } from '../sim/star.js';
+import { displayHeading, distance } from '../sim/units.js';
 import type { World } from '../sim/world.js';
 import { selectedAircraft } from '../sim/world.js';
 import { clockText } from './messageLog.js';
@@ -38,6 +41,8 @@ const TEMPLATE = `
       <div class="digits"><span data-field="hdg"></span><i data-field="hdgTarget"></i></div>
     </div>
     <dl class="detail">
+      <dt>Arrival</dt><dd data-field="star"></dd>
+      <dt>Next fix</dt><dd data-field="nextfix"></dd>
       <dt>Range</dt><dd data-field="range"></dd>
       <dt>Cross-track</dt><dd data-field="xtk"></dd>
       <dt>G/S here</dt><dd data-field="gs"></dd>
@@ -141,7 +146,9 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
         for (const name of ['alt', 'spd', 'hdg', 'altTarget', 'spdTarget', 'hdgTarget']) {
           set(name, '');
         }
-        for (const name of ['range', 'xtk', 'gs', 'intercept', 'minspd']) set(name, '—');
+        for (const name of ['star', 'nextfix', 'range', 'xtk', 'gs', 'intercept', 'minspd']) {
+          set(name, '—');
+        }
         set('ils', 'Click an aircraft or press Tab.', 'ils idle');
       } else {
         const geo = finalGeometry(ac);
@@ -149,11 +156,26 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
         set('actype', `${ac.type.code} ${ac.type.wake}`);
 
         set('alt', String(Math.round(ac.radar.altitudeFt)));
-        set('altTarget', ac.phase === 'gs' ? '→ G/S' : `→ ${ac.targetAltitudeFt}`);
+        set('altTarget', ac.phase === 'gs' ? '→ G/S' : `→ ${Math.round(assignedAltitudeFt(ac))}`);
         set('spd', String(Math.round(ac.radar.iasKts)));
-        set('spdTarget', `→ ${Math.round(ac.targetIasKts)}`);
+        set('spdTarget', `→ ${Math.round(starTargetSpeedKts(ac) ?? assignedIasKts(ac))}`);
         set('hdg', displayHeading(ac.radar.headingDeg));
-        set('hdgTarget', `→ ${displayHeading(ac.targetHeadingDeg)}`);
+        const onRoute = ac.star !== null && !isPending(ac, 'heading');
+        set('hdgTarget', onRoute ? '→ route' : `→ ${displayHeading(assignedHeadingDeg(ac))}`);
+
+        // Which published arrival it came in on, and how it is being flown now.
+        if (ac.star) {
+          const nav = ac.star;
+          const fix = activeFix(nav);
+          const manual = [nav.altitudeManual ? 'alt' : '', nav.speedManual ? 'speed' : '']
+            .filter(Boolean)
+            .join(' + ');
+          set('star', manual ? `${nav.route.name} (${manual} assigned)` : nav.route.name);
+          set('nextfix', `${fix.name} · ${distance({ x: ac.x, y: ac.y }, fix.position).toFixed(1)} NM`);
+        } else {
+          set('star', 'vectors');
+          set('nextfix', '—');
+        }
 
         set('range', `${rangeToThresholdNm(ac).toFixed(1)} NM`);
         set(

@@ -22,7 +22,7 @@ export const TRAIL_LENGTH = 6;
 export const AIRSPACE_RADIUS_NM = 50;
 export const EXIT_WARN_NM = 45;
 export const MVA_FT = 2000;
-export const CEILING_FT = 10_000;
+export const CEILING_FT = 12_000;
 export const RANGE_RINGS_NM = [10, 20, 30, 40, 50];
 export const CENTERLINE_LENGTH_NM = 20;
 export const CENTERLINE_TICK_NM = 2;
@@ -98,10 +98,27 @@ export const MIN_SPAWN_INTERVAL_S = 45;
 export const GATE_COOLDOWN_S = 90;
 export const SPAWN_VETO_NM = 5;
 export const SPAWN_VETO_FT = 1000;
-export const ENTRY_ALTITUDE_FT = 8000;
+export const ENTRY_ALTITUDE_FT = 9000;
 /** Gates whose geometry gives a short run to the localizer arrive lower. */
-export const ENTRY_ALTITUDE_NEAR_FT = 7000;
+export const ENTRY_ALTITUDE_NEAR_FT = 8000;
 export const ENTRY_SPEED_KTS = 250;
+
+// ── STARs (§4.5) ────────────────────────────────────────────────────────────
+/** Published altitude on the outer leg of every STAR. */
+export const STAR_INTERMEDIATE_ALT_FT = 7000;
+/** Published altitude on the last leg — the platform the vectors start from. */
+export const STAR_PLATFORM_ALT_FT = 5000;
+/** Published speed from the platform fix onwards. */
+export const STAR_ARRIVAL_SPEED_KTS = 230;
+/** Sequencing tolerance at the last fix of a STAR. */
+export const STAR_FIX_CAPTURE_NM = 0.5;
+/** Cap on fly-by turn anticipation, so a near-reversal cannot cut half the route. */
+export const STAR_MAX_ANTICIPATION_NM = 6;
+
+// ── Pilot reaction (§7.2) ───────────────────────────────────────────────────
+/** An instruction is read back and flown 1–3 s after it is transmitted. */
+export const PILOT_DELAY_MIN_S = 1.0;
+export const PILOT_DELAY_MAX_S = 3.0;
 
 // ── Handoff (§10) ───────────────────────────────────────────────────────────
 export const TOWER_FREQUENCY = '119.1';

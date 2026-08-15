@@ -72,8 +72,9 @@ describe('traffic generation', () => {
     expect(ac.iasKts).toBe(ENTRY_SPEED_KTS);
     // One physics step of flying has already happened since the handover.
     expect(Math.hypot(ac.x, ac.y)).toBeCloseTo(AIRSPACE_RADIUS_NM, 1);
-    // Pointed at the airport reference point.
-    expect(bearing({ x: ac.x, y: ac.y }, { x: 0, y: 0 })).toBeCloseTo(ac.headingDeg, 4);
+    // Established on the first leg of its STAR.
+    const first = ac.star!.route.waypoints[1]!;
+    expect(bearing(gate.position, first.position)).toBeCloseTo(ac.headingDeg, 4);
   });
 
   it('hands the two northern gates over 1000 ft lower', () => {

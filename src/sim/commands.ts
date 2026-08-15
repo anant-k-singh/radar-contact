@@ -1,8 +1,8 @@
 /**
- * Player instructions. Each one assigns a *target* and emits a readback —
- * the aircraft gets there in its own time (docs §4.3, §7.2).
+ * Player instructions. Each one is validated, then *transmitted*: the crew
+ * reads it back and flies it a second or two later (docs §4.3, §7.2), so what
+ * happens here is limited to the refusals the controller hears immediately.
  */
-import { AIRPORT } from '../scenario/airport.js';
 import type { Aircraft } from './aircraft.js';
 import { isControllable } from './aircraft.js';
 import {
@@ -18,16 +18,17 @@ import {
   SPEED_STEP_KTS,
 } from './constants.js';
 import { evaluateClearance, finalGeometry, rangeToThresholdNm } from './ils.js';
+import {
+  assignedAltitudeFt,
+  assignedHeadingDeg,
+  assignedIasKts,
+  isPending,
+  issue,
+} from './pilot.js';
+import { clamp, normalizeHeading, quantize } from './units.js';
 import { log, type World } from './world.js';
-import { clamp, headingDelta, normalizeHeading, quantize, type Deg } from './units.js';
 
 export type Direction = -1 | 1;
-
-/** Headings read out as 010–360 rather than 000. */
-export function displayHeading(deg: Deg): string {
-  const rounded = Math.round(normalizeHeading(deg)) % 360;
-  return String(rounded === 0 ? 360 : rounded).padStart(3, '0');
-}
 
 /**
  * Slowest speed the player may assign.
@@ -46,53 +47,36 @@ function guard(world: World, ac: Aircraft): boolean {
   return true;
 }
 
-/** A vector or an altitude change while on the approach cancels the clearance. */
-function cancelApproachIfNeeded(world: World, ac: Aircraft): void {
-  if (ac.phase === 'cleared' || ac.phase === 'loc' || ac.phase === 'gs') {
-    ac.phase = 'inbound';
-    ac.speedAssignedAfterClearance = false;
-    log(world, `${ac.callsign}, cancelling the approach clearance.`, 'pilot');
-  }
-}
-
 export function adjustHeading(world: World, ac: Aircraft, direction: Direction): void {
   if (!guard(world, ac)) return;
-  cancelApproachIfNeeded(world, ac);
 
-  const base = quantize(ac.targetHeadingDeg, HEADING_STEP_DEG);
+  const base = quantize(assignedHeadingDeg(ac), HEADING_STEP_DEG);
   const next = normalizeHeading(base + direction * HEADING_STEP_DEG);
-  ac.targetHeadingDeg = next;
-  // Show the assigned vector on the scope for a few seconds. Restarted on every
-  // press, so holding D down keeps the hint alive through the whole turn.
+  // Show the assigned vector on the scope from the moment it is transmitted, so
+  // the reaction delay reads as a gap between the two lines rather than as lag.
   ac.headingHintUntilS = world.timeS + HEADING_HINT_S;
-
-  const turn = headingDelta(ac.headingDeg, next);
-  const sense = Math.abs(turn) < 0.5 ? 'maintaining' : turn < 0 ? 'turning left' : 'turning right';
-  log(world, `${ac.callsign}, ${sense} heading ${displayHeading(next)}.`, 'pilot');
+  issue(world, ac, { kind: 'heading', headingDeg: next });
 }
 
 export function adjustAltitude(world: World, ac: Aircraft, direction: Direction): void {
   if (!guard(world, ac)) return;
 
-  const base = quantize(ac.targetAltitudeFt, ALTITUDE_STEP_FT);
+  const base = quantize(assignedAltitudeFt(ac), ALTITUDE_STEP_FT);
   const next = clamp(base + direction * ALTITUDE_STEP_FT, MVA_FT, CEILING_FT);
-  if (next === ac.targetAltitudeFt) {
+  if (next === base) {
     const limit = direction > 0 ? `ceiling ${CEILING_FT} ft` : `MVA ${MVA_FT} ft`;
     log(world, `${ac.callsign} unable — at the ${limit}.`, 'system');
     return;
   }
 
-  cancelApproachIfNeeded(world, ac);
-  ac.targetAltitudeFt = next;
-  const verb = next > ac.altitudeFt ? 'climbing' : next < ac.altitudeFt ? 'descending' : 'maintaining';
-  log(world, `${ac.callsign}, ${verb} ${next} feet.`, 'pilot');
+  issue(world, ac, { kind: 'altitude', altitudeFt: next });
 }
 
 export function adjustSpeed(world: World, ac: Aircraft, direction: Direction): void {
   if (!guard(world, ac)) return;
 
   const floor = speedFloorKts(ac);
-  const base = quantize(ac.targetIasKts, SPEED_STEP_KTS);
+  const base = quantize(assignedIasKts(ac), SPEED_STEP_KTS);
   const requested = base + direction * SPEED_STEP_KTS;
 
   if (requested < floor) {
@@ -108,22 +92,17 @@ export function adjustSpeed(world: World, ac: Aircraft, direction: Direction): v
     return;
   }
   const next = clamp(requested, floor, SPEED_MAX_KTS);
-  if (next === ac.targetIasKts) {
+  if (next === base) {
     log(world, `${ac.callsign} unable — at ${SPEED_MAX_KTS} kt.`, 'system');
     return;
   }
 
-  ac.targetIasKts = next;
-  // IF 6.14.4 — "maintain XXX kt until X mile final" survives the clearance.
-  if (ac.phase === 'cleared' || ac.phase === 'loc' || ac.phase === 'gs') {
-    ac.speedAssignedAfterClearance = true;
-  }
-  const verb = next > ac.iasKts ? 'increasing' : 'reducing';
-  log(world, `${ac.callsign}, ${verb} ${next} knots.`, 'pilot');
+  issue(world, ac, { kind: 'speed', iasKts: next });
 }
 
 export function clearForIls(world: World, ac: Aircraft): void {
   if (!guard(world, ac)) return;
+  if (isPending(ac, 'approach')) return; // already transmitted, still being read back
 
   const geo = finalGeometry(ac);
   const result = evaluateClearance(ac, geo);
@@ -135,12 +114,7 @@ export function clearForIls(world: World, ac: Aircraft): void {
     return;
   }
 
-  ac.phase = 'cleared';
-  ac.speedAssignedAfterClearance = false;
-  log(world, `${ac.callsign}, cleared ILS approach runway ${AIRPORT.runway.id}.`, 'pilot');
-  for (const warning of result.warnings) {
-    log(world, `Poor practice: ${ac.callsign} — ${warning}.`, 'system');
-  }
+  issue(world, ac, { kind: 'approach', warnings: result.warnings });
 }
 
 /** Cycle selection by distance to the threshold, nearest first. */

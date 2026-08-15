@@ -10,6 +10,10 @@ export const THEME = {
   centerlineTick: '#3f86e8',
   gate: '#2f7a58',
   gateLabel: '#3d8f68',
+  starPath: '#2d4c5c',
+  starFix: '#456a7d',
+  starLabel: '#4f7c92',
+  starConstraint: '#8a763f',
 
   traffic: '#74e874',
   trafficDim: '#3f7f4f',

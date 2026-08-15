@@ -138,32 +138,31 @@ not a code change.
 Four gates on the 50 NM boundary, spaced 90° apart and deliberately offset from the final approach
 course so nothing arrives already lined up on the LOC:
 
-| Gate | Bearing from ARP | Inbound heading at entry | Handover altitude |
-| --- | --- | --- | --- |
-| KOVAL | 040° | 220° | **7000 ft** |
-| TEMBA | 130° | 310° | 8000 ft |
-| RIMOL | 230° | 050° | 8000 ft |
-| VANDA | 320° | 140° | **7000 ft** |
+| Gate | Bearing from ARP | Inbound heading at entry | Handover altitude | STAR |
+| --- | --- | --- | --- | --- |
+| KOVAL | 040° | 220° | **8000 ft** | KOVAL1A |
+| TEMBA | 130° | 310° | 9000 ft | TEMBA1A |
+| RIMOL | 230° | 050° | 9000 ft | RIMOL1A |
+| VANDA | 320° | 140° | **8000 ft** | VANDA1A |
 
 **Center's handover contract:** every aircraft appears exactly at its gate at its gate altitude,
-**250 kt IAS**, **heading direct to the ARP**, level and steady.
+**250 kt IAS**, **established on the first leg of its STAR** (§4.5), level and steady.
 
 KOVAL and VANDA lie north of the field — the same side as the final approach course for runway 18 —
 so their arrivals reach the localizer with far fewer track miles in which to lose the height. Center
-hands those two over 1000 ft lower, which puts them at the 7000 ft G/S intercept range (22.0 NM)
-instead of 8000 ft (25.1 NM). The gate marker on the scope carries its altitude in hundreds
-(`KOVAL 70`).
+hands those two over 1000 ft lower, and their STARs are correspondingly shorter. The gate marker on
+the scope carries its altitude in hundreds (`KOVAL 80`).
 
 ### 3.3 Player authority limits
 
 | Parameter | Range | Step |
 | --- | --- | --- |
 | Heading | 010–360 | 10° |
-| Altitude | 2000–10,000 ft | 1000 ft |
+| Altitude | 2000–12,000 ft | 1000 ft |
 | Speed (IAS) | 180–250 kt outside 20 track miles; **160**–250 kt within | 10 kt |
 
-Aircraft enter at 7000–8000 ft, but the assignable ceiling is **10,000 ft** so climbs are available as a
-de-confliction tool and a queue can be stacked vertically above the entry altitude. Nine usable
+Aircraft enter at 8000–9000 ft, but the assignable ceiling is **12,000 ft** so climbs are available as a
+de-confliction tool and a queue can be stacked vertically above the entry altitude. Eleven usable
 levels between MVA and ceiling.
 
 The 180 kt floor outside 20 track miles enforces IF 6.15.8 rather than merely suggesting it. An
@@ -182,9 +181,12 @@ attempt to go below it is rejected with a log message explaining why.
 | 8000 ft | 25.1 NM |
 | 9000 ft | 28.3 NM — beyond LOC coverage; stacking altitude only |
 | 10,000 ft | 31.4 NM — beyond LOC coverage; stacking altitude only |
+| 11,000 ft | 34.5 NM — stacking altitude only |
+| 12,000 ft | 37.7 NM — stacking altitude only |
 
-The top two levels sit outside the 25 NM LOC capture window (§6.1 condition 5), so they are for
-holding traffic down-level and de-conflicting, not for intercepts.
+Everything above 8000 ft sits outside the 25 NM LOC capture window (§6.1 condition 5), so those
+levels are for holding traffic down-level and de-conflicting, not for intercepts. The STARs deliver
+arrivals to **5000 ft**, whose intercept range (15.7 NM) is where the routes end.
 
 ---
 
@@ -225,10 +227,13 @@ interface Aircraft {
   iasKts: Kts;
   vsFpm: Fpm;
 
-  // Controller targets
-  targetHeadingDeg: Deg;         // multiples of 10
-  targetAltitudeFt: Ft;          // multiples of 1000
-  targetIasKts: Kts;             // multiples of 10
+  // Controller targets — what it is flying now, not what was just transmitted
+  targetHeadingDeg: Deg;
+  targetAltitudeFt: Ft;
+  targetIasKts: Kts;
+  pending: PendingInstruction[];  // transmitted, not yet read back (§7.2)
+
+  star: StarNav | null;           // route being flown, null once vectored (§4.5)
 
   // Approach state
   phase: Phase;
@@ -313,8 +318,60 @@ as either alone; asking for both late in the sequence blows the spacing; and the
   spawn is deferred to the next tick. Center never hands over a conflict.
 - **Callsigns:** `<airline><2–4 digits>` from a small airline table (KLM, BAW, DLH, AFR, UAE, SIA,
   IGO, AIC, QTR, THY). Uniqueness enforced against live traffic.
-- **Determinism:** all randomness from a single seeded PRNG (mulberry32). A seed reproduces a
-  session exactly — essential for debugging and for replayable "scenarios" later.
+- **Determinism:** all randomness from a single seeded PRNG (mulberry32), plus a second stream for
+  pilot reaction times (§7.2) so how much the player talks cannot shift the traffic sequence. A seed
+  reproduces a session exactly — essential for debugging and for replayable "scenarios" later.
+
+### 4.5 STARs — standard arrival routes
+
+Arrivals do not fly at the ARP and wait to be noticed: each gate has a published arrival that its
+traffic flies on autopilot until the controller intervenes. Defined in
+[`src/scenario/stars.ts`](../src/scenario/stars.ts) as a chain of waypoints, some carrying a
+published crossing altitude or speed.
+
+| STAR | Fixes | Profile |
+| --- | --- | --- |
+| VANDA1A | VANDA → OKPUR → ALVOR → ARDIS | 8000 → 7000 → 5000/230 kt, level to 2 NM west of the centerline at 16 NM |
+| KOVAL1A | KOVAL → NIVEL → BELGA → BOXAR | mirror image, 2 NM east |
+| RIMOL1A | RIMOL → SUDIX → LOMSA → PIKON | 9000 → 7000 → 5000/230 kt, north up a downwind 8 NM west of the centerline, ending 11 NM north |
+| TEMBA1A | TEMBA → TAVIR → DEMUX → KETAN | mirror image, 8 NM east |
+
+Geometry, all four:
+
+- The **north** routes run straight in from the gate to a corner 20 NM abeam, then turn onto a level
+  leg at 5000 ft that stops 2 NM short of the extended centerline at 16 NM final — right at the
+  5000 ft glideslope intercept range. Turn one onto final and the other has to wait: they end
+  pointing at each other, 4 NM apart, which is the sequencing problem the player is there to solve.
+- The **south** routes run straight in until they cross 8 NM abeam the centerline, then turn north
+  onto a downwind at 5000 ft that ends 11 NM north of the field. Turn base when the gap in the
+  sequence is there, and lose the height on the way round.
+- **No two routes cross**, and no route passes within 3 NM of another's fixes. Doing nothing is
+  never an instant separation loss; it is only ever a deferred problem.
+
+**Vertical.** The published altitudes are flown as a continuous descent, linearly interpolated
+against distance-to-go between one constraint and the next, so every crossing altitude is made good
+exactly rather than dived at and levelled off. The resulting rate is 350–700 fpm — an ordinary
+descent — and its energy is still charged against the speed budget of §4.3, so an aircraft on the
+profile decelerates more slowly than a level one.
+
+**Speed.** 250 kt at the gate, interpolated down to **230 kt by the 5000 ft fix**: a slow, steady
+reduction across the whole descent rather than a step.
+
+**Who owns which axis.** The route is an autopilot, and the controller takes axes back from it:
+
+| Instruction | Effect on the STAR |
+| --- | --- |
+| Heading (`A`/`D`) | **Off the route entirely.** Whatever was not taken over stays as published — the descent to the next published level and the reduction to the published speed both stand, which is what "descend 5000, turn left heading 090" means |
+| Altitude (`W`/`S`) | Published profile off, **lateral track kept** |
+| Speed (`Q`/`E`) | Published speed off, **lateral track and descent kept** (IF 6.15 speed control is not a vector) |
+| `C` (cleared ILS) | Off the route; the approach owns it from there |
+
+Nothing rejoins a STAR. Once vectored, an aircraft is on vectors for the rest of its arrival.
+
+**Running out of route.** Reaching the last fix ends the arrival: the aircraft calls
+("*at ARDIS, end of the arrival — maintaining heading, request further*"), holds its heading, level
+and speed, and flies on. Left alone it crosses the centerline and eventually exits the airspace
+(§3.4). The routes buy the controller 3–5 minutes of level flight, not indefinite parking.
 
 ---
 
@@ -399,7 +456,7 @@ Soft warnings that do **not** block the clearance but are logged and scored: int
 | Key | Action |
 | --- | --- |
 | `A` / `D` | Assigned heading −10° / +10° (wraps 010–360) |
-| `W` / `S` | Assigned altitude +1000 / −1000 ft (clamped 2000–10,000) |
+| `W` / `S` | Assigned altitude +1000 / −1000 ft (clamped 2000–12,000) |
 | `Q` / `E` | Assigned speed −10 / +10 kt (clamped per §3.3) |
 | `C` | Clear for ILS approach (subject to §6.1) |
 | `Tab` | Cycle selection |
@@ -407,9 +464,23 @@ Soft warnings that do **not** block the clearance but are logged and scored: int
 | `1` `2` `4` | Time acceleration |
 | `Esc` | Deselect |
 
-**Commit semantics: each keypress applies immediately** to the target value — no OK/confirm step.
-Targets are advisory to the aircraft, which is already rate-limited, so a burst of `S` presses is
-harmless and reads naturally as "descend 6000 … no, 4000". Every change emits a readback line.
+**Commit semantics: each keypress transmits immediately** — no OK/confirm step. What it does *not*
+do is take effect immediately.
+
+**Pilot reaction time.** An instruction is read back and flown **1–3 s** after it is transmitted
+(uniform, from its own PRNG stream). The consequences are the point:
+
+- Only **one instruction of each kind** can be outstanding, so a burst of `D` presses inside the
+  window is *one* turn instruction at the final value, read back once — "turn right heading 210",
+  not four separate 10° turns. A burst of `S` still reads naturally as "descend 4000".
+- The scope shows the **assigned** value from the moment it is transmitted (the dashed heading
+  vector, the sidebar's `→` targets), while the aircraft is still flying the old one. The gap
+  between the two is the reaction, not lag.
+- At 4× time acceleration the delay is 4× more expensive in track miles, which is the honest cost
+  of running the session fast.
+
+Refusals — below the speed floor, at the ceiling, an ILS clearance that fails §6.1 — are heard
+immediately, because they are the controller's own check, not the crew's.
 
 ### 7.3 Radar display
 
@@ -604,11 +675,12 @@ for the architecture.
 | A3 | No magnetic variation |
 | A4 | Single landing direction, never changes |
 | A5 | Flat MVA of 2000 ft; no terrain model |
-| A6 | Aircraft always comply; no "unable", no pilot deviations, no emergencies, no fuel state |
-| A7 | Center's handover is always conflict-free, at the gate's altitude (7000 or 8000 ft) / 250 kt / direct ARP |
+| A6 | Aircraft always comply, after a 1–3 s reaction; no "unable", no pilot deviations, no emergencies, no fuel state |
+| A7 | Center's handover is always conflict-free, at the gate's altitude (8000 or 9000 ft) / 250 kt / on the STAR |
 | A8 | Aircraft turn the short way to an assigned heading; long-way-round vectors aren't expressible |
 | A9 | 4 gates, 90° apart, offset 40° from the cardinals |
 | A10 | Endless session, no win/lose state; quality is reported, not enforced |
+| A11 | One STAR per gate, never rejoined once vectored off; no route changes, no holds |
 
 ---
 
@@ -618,8 +690,15 @@ for the architecture.
 | --- | --- |
 | Radar refresh feel | **Smooth motion at 20 Hz, data blocks at 1 Hz.** Physics runs at the render rate so no interpolation layer exists (§5) |
 | Bad-approach handling | **Both gates**: `C` refuses an out-of-limits clearance with the specific reason, *and* an unstable approach inside 5 NM auto-goes-around (§6) |
-| Altitude ceiling | **10,000 ft**, giving climbs as a de-confliction tool; top two levels are stacking-only, outside LOC coverage (§3.3) |
+| Altitude ceiling | **12,000 ft**, giving climbs as a de-confliction tool; everything above 8000 ft is stacking-only, outside LOC coverage (§3.3) |
 | Airspace exit | **Scored penalty, aircraft despawns**, with an amber warning at 45 NM. No soft wall (§3.4) |
+
+| Question | Decision (2026-08-15) |
+| --- | --- |
+| Arrival routing | **Four published STARs, flown on autopilot** to a 5000 ft / 230 kt platform, rather than "direct ARP and wait" (§4.5) |
+| What a vector cancels | **Heading takes the aircraft off the route; altitude and speed take only their own axis.** Descending an aircraft on its STAR is the single most common real instruction and must not cost the lateral track (§4.5) |
+| Descent profile | **Continuous, interpolated between published altitudes** — crossing altitudes made good exactly, no dive-and-drive (§4.5) |
+| Pilot reaction | **1–3 s**, one outstanding instruction per axis, assigned values shown immediately (§7.2) |
 
 ## 15. Still open
 
@@ -634,6 +713,11 @@ None of these blocks play; each is a small, contained change.
 4. **Sound** — no audio at all yet. IF 6.2.4 describes an audible alarm inside 1.5 NM / 500 ft;
    one Web Audio beep would cover it.
 5. **Aircraft glyph** — a simple cross-and-nose symbol. Worth drawing a proper airliner shape?
+6. **Rejoining a STAR** — there is no "resume own navigation"; once vectored, an aircraft is on
+   vectors for good. A `direct <fix>` instruction would be the natural way to give the route back.
+7. **The two north routes end pointing at each other** at the same level, 4 NM apart. Deliberate —
+   it is the sequencing problem — but if it proves unfair rather than hard, staggering ARDIS and
+   BOXAR by 1000 ft is a one-line change.
 
 ---
 
@@ -643,7 +727,7 @@ None of these blocks play; each is a small, contained change.
 nvm use          # Node 24 LTS, pinned in .nvmrc — the system default is 18 (EOL)
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 52 sim tests, headless, ~0.5 s
+npm test         # 66 sim tests, headless, ~0.7 s
 npm run build    # typecheck + static bundle into dist/
 ```
 

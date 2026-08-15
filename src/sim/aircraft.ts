@@ -1,5 +1,7 @@
 import type { AircraftType } from '../scenario/aircraftTypes.js';
 import type { Airline } from '../scenario/airlines.js';
+import type { PendingInstruction } from './pilot.js';
+import type { StarNav } from './star.js';
 import type { Deg, Fpm, Ft, Kts, Nm, Point, Sec } from './units.js';
 
 /**
@@ -33,10 +35,16 @@ export interface Aircraft {
   iasKts: Kts;
   vsFpm: Fpm;
 
-  // Controller targets
+  // Controller targets. These are what the aircraft is flying *now*; anything
+  // transmitted but not yet read back is still in `pending` (§7.2).
   targetHeadingDeg: Deg;
   targetAltitudeFt: Ft;
   targetIasKts: Kts;
+  /** Instructions transmitted and not yet acted on. */
+  pending: PendingInstruction[];
+
+  /** Route being flown on autopilot, or null once vectored off it (§4.5). */
+  star: StarNav | null;
 
   // Approach state
   phase: Phase;
