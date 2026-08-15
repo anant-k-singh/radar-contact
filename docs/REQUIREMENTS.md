@@ -547,13 +547,17 @@ knows whether the controller's prediction came true.
 
 Mirroring the reference screenshots:
 
-- **Blip:** small aircraft glyph, plus a **leader line** showing the 1-minute projected position.
-- **Data block**, three lines, offset from the blip:
+- **Blip:** a filled top-down airliner silhouette, rotated to the current heading, plus a **leader
+  line** showing the 1-minute projected position. **Wake category sizes it** — a heavy draws at
+  1.2× and a medium at 0.8×, so the aircraft that will need the wider gap is the one that looks
+  bigger, without reading the `H` off its block.
+- **Data block**, two lines, offset from the blip:
   ```
-  KLM133          ← callsign
-  80 ↓60          ← current altitude / target, in hundreds of feet
-  250M            ← IAS + wake category
+  KLM133 ARDIS    ← callsign + state tag (next fix, ILS/LOC/G/S, G/A or TWR)
+  80 ↓60  250M    ← altitude / target in hundreds of feet, then IAS + wake category
   ```
+  Altitude and speed share a line because "how low and how fast" is one question, and the shorter
+  block collides with fewer of its neighbours.
   with the **assigned heading** shown alongside in a contrasting colour when it differs from the
   current heading (the yellow `040` in the screenshot).
 - **Assigned-heading vector:** for 5 s after a turn instruction, a dashed pale-yellow line is drawn
@@ -563,8 +567,14 @@ Mirroring the reference screenshots:
   out over its last second, and a further press restarts the window rather than extending it.
 - **Altitude convention:** hundreds of feet, two digits (`80` = 8000 ft). `=70` = level at 7000,
   `↓60` = descending to 6000, `↑` for climbing.
-- **Colour coding:** unselected traffic green; selected white/bright; conflict amber; violation red;
-  handed-off-to-tower dimmed grey.
+- **Colour coding:** data blocks and leader lines are a cool near-white; the blip is a shade bluer
+  than its own label so the two read apart. Over that, in order of precedence: **violation** bright
+  red *and ringed*, **conflict warning** light red, **go-around** light yellow, **selected** white,
+  **handed off to Tower** dimmed grey. The two alert levels differ in brightness rather than hue —
+  a warning is the same problem as a violation a few seconds earlier — and the ring is held back
+  for the violation alone so the escalation reads across the scope without the two reds having to
+  be told apart. A go-around outranks the selection because the selection already has a ring of its
+  own, while a go-around is the state that must be noticed unprompted.
 - **Static map layer** (range rings, centerline + 2 NM ticks, gate markers, runway) is drawn once
   to an offscreen canvas and blitted each frame.
 - **Message log**, bottom of the scope: pilot readbacks and system messages, ~4 lines visible,

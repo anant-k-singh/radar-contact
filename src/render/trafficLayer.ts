@@ -3,6 +3,7 @@
  * Data blocks are placed by trying candidate offsets until one does not
  * overlap an already-placed block — cheap, and it matters a lot at 25 aircraft.
  */
+import type { WakeCategory } from '../scenario/aircraftTypes.js';
 import type { Aircraft } from '../sim/aircraft.js';
 import { assignedAltitudeFt, assignedHeadingDeg, isPending } from '../sim/pilot.js';
 import { activeFix } from '../sim/star.js';
@@ -59,8 +60,15 @@ function primaryColor(ac: Aircraft, selected: boolean): string {
 
 /** The blip's own shade, except when something more urgent has claimed the colour. */
 function glyphColor(ac: Aircraft, selected: boolean): string {
-  const primary = primaryColor(ac, selected);
-  return primary === THEME.traffic ? THEME.glyph : primary;
+  if (ac.alert === 'violation') return THEME.violation;
+  if (ac.alert === 'warning') return THEME.warning;
+  // A go-around outranks the selection here. It is the one state the controller
+  // has to notice without being told: the aircraft is off the approach and
+  // climbing, and the selection ring already says which one is selected.
+  if (ac.phase === 'goAround') return THEME.glyphGoAround;
+  if (selected) return THEME.selected;
+  if (ac.handedOff) return THEME.handedOff;
+  return THEME.glyph;
 }
 
 function blockLines(ac: Aircraft): string[] {
@@ -130,14 +138,26 @@ const GLYPH_HALF: ReadonlyArray<readonly [number, number]> = [
   [0.85, 7.6], // tail
 ];
 const GLYPH_SCALE = 0.8;
+/**
+ * Wake category sizes the blip. A heavy really does look different on final —
+ * it is the slower, longer-spaced one — so carrying that in the symbol saves
+ * reading the `H` off every block while judging a sequence.
+ */
+const GLYPH_WAKE_SCALE: Record<WakeCategory, number> = { H: 1.2, M: 0.8 };
 
-function drawGlyph(ctx: CanvasRenderingContext2D, sx: number, sy: number, headingDeg: number): void {
+function drawGlyph(
+  ctx: CanvasRenderingContext2D,
+  sx: number,
+  sy: number,
+  headingDeg: number,
+  scale: number,
+): void {
   ctx.save();
   ctx.translate(sx, sy);
   // The silhouette is drawn nose-up, so rotating by the heading points it the
   // right way: screen y is inverted, which is exactly the sense canvas rotates.
   ctx.rotate((headingDeg * Math.PI) / 180);
-  ctx.scale(GLYPH_SCALE, GLYPH_SCALE);
+  ctx.scale(GLYPH_SCALE * scale, GLYPH_SCALE * scale);
 
   ctx.beginPath();
   ctx.moveTo(GLYPH_HALF[0]![0], GLYPH_HALF[0]![1]);
@@ -183,15 +203,15 @@ export function drawTraffic(
     }
     ctx.globalAlpha = 1;
 
-    // Alert halo.
-    if (ac.alert !== 'none') {
+    // Violation ring. A warning is already carrying a colour of its own; the
+    // ring is held back for the violation so the escalation reads across the
+    // scope rather than needing the two reds told apart.
+    if (ac.alert === 'violation') {
       ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
-      ctx.globalAlpha = 0.7;
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(sx, sy, 13, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.globalAlpha = 1;
     }
 
     // Leader line: one minute of flight at the current ground speed.
@@ -246,7 +266,7 @@ export function drawTraffic(
 
     // Blip.
     ctx.fillStyle = glyphColor(ac, selected);
-    drawGlyph(ctx, sx, sy, ac.headingDeg);
+    drawGlyph(ctx, sx, sy, ac.headingDeg, GLYPH_WAKE_SCALE[ac.type.wake]);
 
     if (selected) {
       ctx.strokeStyle = color;

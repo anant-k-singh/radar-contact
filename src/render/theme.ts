@@ -20,12 +20,19 @@ export const THEME = {
   trafficDim: '#5f7183',
   /** The blip itself is a shade bluer than its label, so the two read apart. */
   glyph: '#a6c8ea',
+  /** A go-around blip, so it is spotted without reading the block. */
+  glyphGoAround: '#f2e394',
   selected: '#ffffff',
   handedOff: '#5d6f63',
   assigned: '#ffe14d',
   hint: '#f6eba6',
-  warning: '#ffb020',
-  violation: '#ff4a4a',
+  /**
+   * The two alert levels are one hue apart in brightness, not in colour: a
+   * warning is the same problem as a violation, a few seconds earlier. Only the
+   * violation gets a ring drawn round it, so the step up is unmissable.
+   */
+  warning: '#ff9a9a',
+  violation: '#ff2b2b',
 
   logPilot: '#74e874',
   logSystem: '#9fb4a8',
