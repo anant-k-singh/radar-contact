@@ -20,7 +20,17 @@ export const TRAIL_LENGTH = 6;
 
 // ── Airspace (§3) ───────────────────────────────────────────────────────────
 export const AIRSPACE_RADIUS_NM = 50;
-export const EXIT_WARN_NM = 45;
+/**
+ * The circle's northern and southern caps are cut off by chords at this
+ * latitude (§3.1). Those extremities were dead airspace — no gate, no route,
+ * nothing but the compass rose — and cutting them lets the scope draw the same
+ * 50 NM of usable width at a bigger scale, since the height no longer has to
+ * carry 100 NM of it. The four gates sit at |y| = 38.3 NM, so 42 keeps them
+ * inside with room for their markers and labels.
+ */
+export const AIRSPACE_HALF_HEIGHT_NM = 42;
+/** How close to the boundary an outbound aircraft gets its warning. */
+export const EXIT_WARN_MARGIN_NM = 5;
 export const MVA_FT = 2000;
 export const CEILING_FT = 12_000;
 export const RANGE_RINGS_NM = [10, 20, 30, 40, 50];

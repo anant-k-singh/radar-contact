@@ -1,5 +1,8 @@
-import { AIRSPACE_RADIUS_NM } from '../sim/constants.js';
+import { AIRSPACE_HALF_HEIGHT_NM, AIRSPACE_RADIUS_NM } from '../sim/constants.js';
 import type { Nm, Point } from '../sim/units.js';
+
+/** Fraction of the canvas the airspace fills, leaving the boundary off the edge. */
+const FIT = 0.98;
 
 /** Maps the local NM frame to canvas pixels. North is up, so screen y is inverted. */
 export interface Projection {
@@ -11,13 +14,18 @@ export interface Projection {
 }
 
 export function createProjection(width: number, height: number): Projection {
-  const radiusPx = (Math.min(width, height) / 2) * 0.94;
+  // The chords fill the height — that is the whole reason for cutting them, and
+  // it buys ~20 % more scale than fitting a 100 NM diameter into the same
+  // canvas. The circle's full east–west extent still has to fit, so on a narrow
+  // window the width takes over.
+  const byHeight = ((height / 2) * FIT) / AIRSPACE_HALF_HEIGHT_NM;
+  const byWidth = ((width / 2) * FIT) / AIRSPACE_RADIUS_NM;
   return {
     width,
     height,
     cx: width / 2,
     cy: height / 2,
-    pxPerNm: radiusPx / AIRSPACE_RADIUS_NM,
+    pxPerNm: Math.min(byHeight, byWidth),
   };
 }
 

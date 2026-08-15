@@ -124,7 +124,15 @@ not a code change.
 - **Coordinate frame:** local flat Cartesian, origin at the Airport Reference Point (ARP).
   `x` = east (NM), `y` = north (NM). At 50 NM the earth-curvature error is well under the width of
   a radar blip, so **no geodesy, no lat/lon, no projection** — a deliberate simplification.
-- **Radar circle:** 50 NM radius, centred on ARP. Range rings drawn at 10, 20, 30, 40, 50 NM.
+- **Radar area:** a 50 NM circle centred on the ARP with its **northern and southern caps cut off**
+  by chords at **|y| = 42 NM**. Range rings at 10, 20, 30, 40 NM; the boundary itself is the two
+  surviving arcs plus the two chords, and the compass rose rides that outline rather than a circle.
+  The caps were dead airspace — no gate, no route, nothing but rose — and removing them lets the
+  same 50 NM of usable width draw about **20 % larger**, because the canvas height carries 84 NM
+  instead of 100. The scale is set so the chords fill the height exactly; on a narrow window the
+  circle's east–west extent takes over instead. The four gates sit at |y| = 38.3 NM, comfortably
+  inside the cuts, and the shape is defined once in `sim/airspace.ts` so the exit check and the
+  drawing cannot disagree.
 - **Runway:** single, **RWY 18** (final approach course **180°**), length 1.6 NM. Landing direction
   is fixed (no runway changes in v1). Magnetic variation = 0, so heading = track = true bearing.
 - **Threshold of 18** sits at `(0, +0.8)` NM, i.e. the north end. Aircraft land southbound.
@@ -192,13 +200,16 @@ arrivals to **5000 ft**, whose intercept range (15.7 NM) is where the routes end
 
 ### 3.4 Leaving the airspace
 
-There are no holding patterns in v1, so the 50 NM boundary is the real constraint on how long you
-can defer a sequencing decision. Crossing it outbound is a **scored failure, not a soft wall**:
+There are no holding patterns in v1, so the boundary is the real constraint on how long you can
+defer a sequencing decision. Crossing it outbound is a **scored failure, not a soft wall**:
 
-- When an aircraft's position passes 50 NM from the ARP while tracking outbound, it is handed back
-  to Center, **despawns**, and the session logs an **airspace exit** (§8).
+- When an aircraft crosses the boundary of §3.1 while tracking outbound, it is handed back to
+  Center, **despawns**, and the session logs an **airspace exit** (§8). Note this is 50 NM to the
+  east and west but only **42 NM north and south**, where the caps are cut off — there is less
+  room to run than the range rings suggest.
 - Log line: `KLM133 leaving your airspace, returned to Center.`
-- A warning fires at 45 NM outbound (`amber` data block) so the exit is never a surprise.
+- A warning fires **5 NM before the boundary** outbound (`amber` data block) so the exit is never
+  a surprise. Measured against the shape, not the radius, so it fires on the chords too.
 - Aircraft are *not* prevented from crossing, and are *not* auto-turned back. The boundary has to
   cost something or vectoring is unconstrained and the airspace stops being a puzzle.
 
@@ -805,7 +816,7 @@ for the architecture.
 | Radar refresh feel | **Smooth motion at 20 Hz, data blocks at 1 Hz.** Physics runs at the render rate so no interpolation layer exists (§5) |
 | Bad-approach handling | **Both gates**: `C` refuses an out-of-limits clearance with the specific reason, *and* an unstable approach inside 5 NM auto-goes-around (§6) |
 | Altitude ceiling | **12,000 ft**, giving climbs as a de-confliction tool; everything above 8000 ft is stacking-only, outside LOC coverage (§3.3) |
-| Airspace exit | **Scored penalty, aircraft despawns**, with an amber warning at 45 NM. No soft wall (§3.4) |
+| Airspace exit | **Scored penalty, aircraft despawns**, with an amber warning 5 NM before the boundary. No soft wall (§3.4) |
 
 | Question | Decision (2026-08-15) |
 | --- | --- |

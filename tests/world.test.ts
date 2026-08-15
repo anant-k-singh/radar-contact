@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { AIRPORT } from '../src/scenario/airport.js';
+import { boundaryRangeAtBearing } from '../src/sim/airspace.js';
 import {
+  AIRSPACE_HALF_HEIGHT_NM,
   AIRSPACE_RADIUS_NM,
   ENTRY_ALTITUDE_FT,
   ENTRY_ALTITUDE_NEAR_FT,
@@ -142,10 +144,11 @@ describe('the radar return', () => {
 
 describe('airspace boundary', () => {
   it('hands an outbound aircraft back to Center and scores an exit', () => {
+    // Due east, where the boundary is still the 50 NM arc.
     const ac = makeAircraft({
-      x: 0,
-      y: AIRSPACE_RADIUS_NM - 0.2,
-      headingDeg: 360,
+      x: AIRSPACE_RADIUS_NM - 0.2,
+      y: 0,
+      headingDeg: 90,
       altitudeFt: 6000,
       iasKts: 250,
     });
@@ -157,10 +160,27 @@ describe('airspace boundary', () => {
     expect(world.messages.some((m) => m.text.includes('returned to Center'))).toBe(true);
   });
 
+  it('exits north through the chord, well inside 50 NM', () => {
+    // The caps are cut off (§3.1), so running out of airspace northbound
+    // happens at 42 NM — the radius alone would still call this inside.
+    const ac = makeAircraft({
+      x: 0,
+      y: AIRSPACE_HALF_HEIGHT_NM - 0.2,
+      headingDeg: 360,
+      altitudeFt: 6000,
+      iasKts: 250,
+    });
+    const world = quietWorld(ac);
+    run(world, 30);
+
+    expect(world.aircraft).toHaveLength(0);
+    expect(world.stats.exits).toBe(1);
+  });
+
   it('leaves inbound traffic at the boundary alone', () => {
     const ac = makeAircraft({
       x: 0,
-      y: AIRSPACE_RADIUS_NM,
+      y: AIRSPACE_HALF_HEIGHT_NM,
       headingDeg: 180,
       altitudeFt: 8000,
       iasKts: 250,
@@ -170,6 +190,16 @@ describe('airspace boundary', () => {
 
     expect(world.aircraft).toHaveLength(1);
     expect(world.stats.exits).toBe(0);
+  });
+
+  it('keeps every entry gate inside the shape, with room for its label', () => {
+    // The chords are only safe to cut where nothing lives. Gates sit *on* the
+    // boundary, so the test is that each one still meets it at the arc rather
+    // than beyond a chord — and with enough room left for its marker.
+    for (const gate of AIRPORT.gates) {
+      expect(boundaryRangeAtBearing(gate.bearingDeg)).toBeCloseTo(AIRSPACE_RADIUS_NM, 6);
+      expect(AIRSPACE_HALF_HEIGHT_NM - Math.abs(gate.position.y)).toBeGreaterThan(2);
+    }
   });
 });
 

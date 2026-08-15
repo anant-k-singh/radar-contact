@@ -5,9 +5,9 @@
 import { AIRPORT } from '../scenario/airport.js';
 import type { Aircraft } from './aircraft.js';
 import { sampleRadar } from './aircraft.js';
+import { boundaryMarginNm } from './airspace.js';
 import {
-  AIRSPACE_RADIUS_NM,
-  EXIT_WARN_NM,
+  EXIT_WARN_MARGIN_NM,
   FLOW_DEFAULT_PER_HOUR,
   HISTORY_PERIOD_S,
   IN_TRAIL_MIN_NM,
@@ -184,13 +184,18 @@ function checkAirspaceExit(world: World, ac: Aircraft): boolean {
     ac.exitWarned = false;
     return false;
   }
-  if (range > AIRSPACE_RADIUS_NM) {
+
+  // Against the boundary's actual shape, not just the radius: the airspace is
+  // cut off north and south (§3.1), so an aircraft can run out of room while
+  // still well inside 50 NM.
+  const marginNm = boundaryMarginNm({ x: ac.x, y: ac.y });
+  if (marginNm < 0) {
     world.stats.exits += 1;
     log(world, `${ac.callsign} leaving your airspace, returned to Center.`, 'alert');
     remove(world, ac);
     return true;
   }
-  if (range > EXIT_WARN_NM && !ac.exitWarned) {
+  if (marginNm < EXIT_WARN_MARGIN_NM && !ac.exitWarned) {
     ac.exitWarned = true;
     log(world, `${ac.callsign} is approaching the airspace boundary.`, 'alert');
   }

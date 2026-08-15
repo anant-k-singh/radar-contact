@@ -8,6 +8,12 @@
 import { AIRPORT } from '../scenario/airport.js';
 import { STARS } from '../scenario/stars.js';
 import {
+  AIRSPACE_ARC_HALF_ANGLE_RAD,
+  AIRSPACE_CHORD_HALF_WIDTH_NM,
+  boundaryRangeAtBearing,
+} from '../sim/airspace.js';
+import {
+  AIRSPACE_HALF_HEIGHT_NM,
   AIRSPACE_RADIUS_NM,
   CENTERLINE_LENGTH_NM,
   CENTERLINE_TICK_NM,
@@ -113,21 +119,50 @@ function drawRings(ctx: CanvasRenderingContext2D, p: Projection): void {
   ctx.textBaseline = 'middle';
 
   for (const ring of RANGE_RINGS_NM) {
-    const outer = ring === AIRSPACE_RADIUS_NM;
+    // The outermost ring *is* the boundary, and the boundary is not a circle.
+    if (ring >= AIRSPACE_RADIUS_NM) continue;
     ctx.beginPath();
     ctx.arc(p.cx, p.cy, ring * p.pxPerNm, 0, Math.PI * 2);
-    ctx.strokeStyle = outer ? THEME.ringBright : THEME.ring;
-    ctx.lineWidth = outer ? 1.5 : 1;
+    ctx.strokeStyle = THEME.ring;
+    ctx.lineWidth = 1;
     ctx.stroke();
 
-    // Label each ring below the airport, clear of the centerline.
+    // Label each ring below the airport, clear of the centerline — and *under*
+    // its own line, since above it the outermost ring now shares a row with the
+    // 180° compass label sitting on the southern chord.
     ctx.fillStyle = THEME.ringLabel;
-    ctx.fillText(String(ring), p.cx + 12, screenY(p, -ring) - 8);
+    ctx.fillText(String(ring), p.cx + 12, screenY(p, -ring) + 10);
+  }
+
+  drawBoundary(ctx, p);
+}
+
+/** The 50 NM circle with its northern and southern caps cut off (§3.1). */
+function drawBoundary(ctx: CanvasRenderingContext2D, p: Projection): void {
+  const radiusPx = AIRSPACE_RADIUS_NM * p.pxPerNm;
+  const half = AIRSPACE_ARC_HALF_ANGLE_RAD;
+
+  ctx.strokeStyle = THEME.ringBright;
+  ctx.lineWidth = 1.5;
+
+  // The two surviving arcs, east and west of the cuts.
+  for (const centre of [0, Math.PI]) {
+    ctx.beginPath();
+    ctx.arc(p.cx, p.cy, radiusPx, centre - half, centre + half);
+    ctx.stroke();
+  }
+
+  // The chords that replaced the caps.
+  for (const side of [1, -1]) {
+    const y = screenY(p, side * AIRSPACE_HALF_HEIGHT_NM);
+    ctx.beginPath();
+    ctx.moveTo(screenX(p, -AIRSPACE_CHORD_HALF_WIDTH_NM), y);
+    ctx.lineTo(screenX(p, AIRSPACE_CHORD_HALF_WIDTH_NM), y);
+    ctx.stroke();
   }
 }
 
 function drawCompassTicks(ctx: CanvasRenderingContext2D, p: Projection): void {
-  const outer = AIRSPACE_RADIUS_NM * p.pxPerNm;
   ctx.strokeStyle = THEME.compassTick;
   ctx.lineWidth = 1;
   ctx.font = THEME.fontLabel;
@@ -137,6 +172,9 @@ function drawCompassTicks(ctx: CanvasRenderingContext2D, p: Projection): void {
 
   for (let deg = 0; deg < 360; deg += 10) {
     const v = headingVector(deg);
+    // Ride the boundary rather than a circle, so the rose stays on the edge of
+    // the shape where the caps have been replaced by chords.
+    const outer = boundaryRangeAtBearing(deg) * p.pxPerNm;
     const major = deg % 30 === 0;
     const inner = outer - (major ? 12 : 6);
     ctx.beginPath();
@@ -214,7 +252,7 @@ function drawGates(ctx: CanvasRenderingContext2D, p: Projection): void {
   for (const gate of AIRPORT.gates) {
     // Pull the marker just inside the boundary so it stays on screen.
     const inward = headingVector(gate.bearingDeg);
-    const radius = AIRSPACE_RADIUS_NM - 1.5;
+    const radius = boundaryRangeAtBearing(gate.bearingDeg) - 1.5;
     const sx = p.cx + inward.x * radius * p.pxPerNm;
     const sy = p.cy - inward.y * radius * p.pxPerNm;
 
