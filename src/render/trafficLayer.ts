@@ -197,8 +197,10 @@ export function drawTraffic(
     const sx = screenX(p, ac.x);
     const sy = screenY(p, ac.y);
 
-    // History trail — one dot per radar return, oldest faintest.
-    for (let i = 0; i < ac.trail.length - 1; i += 1) {
+    // History trail — one dot every 6 s, oldest faintest. The newest is drawn
+    // too and simply disappears under the glyph for the moment after it is laid
+    // down, which keeps the gap behind the blip even instead of doubling.
+    for (let i = 0; i < ac.trail.length; i += 1) {
       const point = ac.trail[i]!;
       ctx.globalAlpha = 0.2 + (i / ac.trail.length) * 0.45;
       ctx.fillStyle = ac.handedOff ? THEME.handedOff : THEME.trafficDim;

@@ -10,13 +10,15 @@ export const PHYSICS_DT = 1 / PHYSICS_HZ; // 0.05 s
 export const RADAR_PERIOD_S = 1.0; // data blocks sample at 1 Hz
 export const RENDER_FPS = 20;
 /**
- * History dots are laid down every 5 s rather than every radar return: at
+ * History dots are laid down every 10 s rather than every radar return: at
  * 250 kt on a 50 NM scope a 1 Hz dot moves about half a pixel, so a 1 Hz trail
- * is invisible. Six dots at 5 s gives 30 s of history — the same look as a real
- * scope's slower sweep.
+ * is invisible. Ten dots at 10 s gives 100 s of history — well past the minute
+ * the leader line projects forward, so a turn that began before the last
+ * instruction is still on the scope, and the dots are far enough apart to read
+ * a speed off their spacing.
  */
-export const HISTORY_PERIOD_S = 5.0;
-export const TRAIL_LENGTH = 6;
+export const HISTORY_PERIOD_S = 10.0;
+export const TRAIL_LENGTH = 10;
 
 // ── Airspace (§3) ───────────────────────────────────────────────────────────
 export const AIRSPACE_RADIUS_NM = 50;

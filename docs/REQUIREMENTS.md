@@ -255,7 +255,7 @@ interface Aircraft {
   entryGate: string;
   trackMilesFlown: Nm;
   directDistanceNm: Nm;
-  trail: Point[];                // history dots, one per 5 s
+  trail: Point[];                // history dots, one per 10 s
   radar: RadarReturn;            // the 1 Hz snapshot the data block shows
   alert: 'none' | 'warning' | 'violation';
 }
@@ -402,7 +402,7 @@ Three distinct rates, which is the whole design of the loop:
 | **20 Hz** (dt = 0.05 s), fixed timestep | Physics: turn, vertical, speed integration, LOC/GS capture, separation checks |
 | **20 fps** | Scope redraw — glyph position, leader line. Motion reads as smooth |
 | **1 Hz** | "Radar return": data-block values (altitude, speed, heading) and conflict-alert level for display |
-| **0.2 Hz** | History dots. At 250 kt a 1 Hz dot moves ~0.6 px on a 50 NM scope — invisible. One dot every 5 s, six retained, gives 30 s of visible history, which is also how a real scope's slower sweep looks |
+| **0.1 Hz** | History dots. At 250 kt a 1 Hz dot moves ~0.6 px on a 50 NM scope — invisible. One dot every 10 s, ten retained, gives 100 s of visible history — longer than the minute the leader line projects forward, so a turn that started before the last instruction is still on the scope, and the dots are spaced far enough apart to read a speed off them |
 
 - Physics and rendering share the 20 Hz tick, so **no interpolation layer is needed** — the glyph
   simply draws wherever the sim currently is. That removes an entire class of "render state drifted
