@@ -11,12 +11,14 @@ and get each one established on the localizer before you hand it to Tower.
 *Fourteen aircraft, four of them stacked in the hold at OKPUR because the sequence had no room for
 them, one established on the localizer, no violations. That is a good day.*
 
+**[Play it in your browser →](https://anant-k-singh.github.io/radar-contact/)**
+
+No backend, no accounts, no install. A static bundle and a canvas.
+
 ```bash
 nvm use && npm install
 npm run dev      # http://localhost:5173
 ```
-
-No backend, no accounts, no install. A static bundle and a canvas.
 
 ---
 
