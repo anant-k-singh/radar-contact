@@ -8,8 +8,8 @@ and get each one established on the localizer before you hand it to Tower.
 
 ![A busy scope](docs/screenshots/busy-airspace.png)
 
-*Sixty arrivals an hour. Four of them stacked in the hold at OKPUR because the sequence had no room
-for them, one on the localizer, no violations. That is a good day.*
+*Fourteen aircraft, four of them stacked in the hold at OKPUR because the sequence had no room for
+them, one established on the localizer, no violations. That is a good day.*
 
 ```bash
 nvm use && npm install

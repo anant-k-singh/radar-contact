@@ -23,7 +23,7 @@ and sourced in [REQUIREMENTS.md](REQUIREMENTS.md).
 | `Space` | Pause · `1` `2` `4` `8` time rate · `Esc` deselect |
 
 Click a blip or its data block to select it. **Flow −/+** in the sidebar sets arrivals per hour
-(5–80, default 25) — turn it down to learn the field, up when you want to be buried.
+(5–50, default 25) — turn it down to learn the field, up when you want to be buried.
 
 `?seed=1234` in the URL reproduces a session exactly, down to the pilot reaction times.
 
