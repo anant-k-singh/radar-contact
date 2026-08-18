@@ -120,8 +120,8 @@ export const GO_AROUND_ALT_FT = 3000;
 // ── Traffic generation (§4.4) ───────────────────────────────────────────────
 export const FLOW_DEFAULT_PER_HOUR = 25;
 export const FLOW_MIN_PER_HOUR = 5;
-export const FLOW_MAX_PER_HOUR = 80;
-export const MIN_SPAWN_INTERVAL_S = 25;
+export const FLOW_MAX_PER_HOUR = 50;
+export const MIN_SPAWN_INTERVAL_S = 45;
 export const GATE_COOLDOWN_S = 90;
 export const SPAWN_VETO_NM = 5;
 export const SPAWN_VETO_FT = 1000;
