@@ -1,76 +1,85 @@
 # Approach Radar
 
-A browser-based approach-control radar simulator. You are the Approach controller at a
-single-runway airport: take arrivals from Center at the entry gates, vector and descend them onto
-the ILS, keep them separated, and hand them to Tower once established.
+**Turn four streams of arrivals into one line of aircraft on the ILS.**
 
-Inspired by *Endless ATC*; the procedures follow the
-[Infinite Flight ATC Manual](https://infiniteflight.com/guide/atc-manual/6.-radar/6.2-separation)
-radar chapter.
+You are the Approach controller at a single-runway field. Center hands you traffic at the edge of a
+50 NM circle at 250 knots. Everything after that is yours: vector them, descend them, space them,
+and get each one established on the localizer before you hand it to Tower.
+
+![A busy scope](docs/screenshots/busy-airspace.png)
+
+*Sixty arrivals an hour. Four of them stacked in the hold at OKPUR because the sequence had no room
+for them, one on the localizer, no violations. That is a good day.*
 
 ```bash
 nvm use && npm install
 npm run dev      # http://localhost:5173
 ```
 
-## Controls
+No backend, no accounts, no install. A static bundle and a canvas.
 
-| Key | Action |
-| --- | --- |
-| `A` / `D` | Heading −10° / +10° |
-| `W` / `S` | Altitude +1000 / −1000 ft (2000–12,000) |
-| `Q` / `E` | Speed −10 / +10 kt |
-| `C` | Clear for the ILS approach |
-| `Tab` | Cycle selection (nearest the runway first) |
-| `Space` | Pause · `1` `2` `4` time rate · `Esc` deselect |
+---
 
-Click a blip or its data block to select it. Instructions are *targets* — the crew reads back and
-acts 1–3 seconds later, then the aircraft takes time to get there, and descending while slowing
-takes about twice as long as either alone. After a turn is assigned, a dashed yellow vector shows
-the assigned heading for five seconds alongside the green leader line; the gap between them is the
-turn still to come.
+Nothing snaps. Aircraft take time to turn, take time to come down, and take **longer to do both at
+once** — one energy budget, spent on the descent or the deceleration, never both at full rate. That
+one coupling is the whole game: it's why an instruction given 4 NM too late leaves an aircraft high
+*and* fast at the localizer, with nothing you can do about it.
 
-## Arrivals
+The crew doesn't act the instant you press a key, either. Every instruction is transmitted, read
+back 1–3 seconds later, and only then flown.
 
-Center hands each arrival over at its gate, established on that gate's **STAR**, at the altitude
-printed under the gate marker — 8000 ft at KOVAL and VANDA, which sit on the final approach side of
-the field, 9000 ft at TEMBA and RIMOL. Aircraft fly the published route on autopilot: descending
-continuously to make each crossing altitude exactly, holding 250 kt to the first fix (OKPUR, NIVEL,
-SUDIX, TAVIR) and only then slowing to 230 kt by the 5000 ft fix.
+![Vectoring onto the intercept](docs/screenshots/vectoring.png)
 
-The north routes (VANDA1A, KOVAL1A) end level at 5000 ft just short of the extended centerline at
-16 NM — the 5000 ft glideslope intercept range, pointing at each other. The south ones (RIMOL1A,
-TEMBA1A) run up a downwind 8 NM abeam and end 11 NM north of the field. Nothing crosses anything,
-so the routes are always safe and never sufficient: reach the last fix without a vector and the
-aircraft calls "*request further*", flies straight ahead and eventually leaves your airspace.
+*The dashed line is the heading you assigned. The solid one is where the aircraft is actually
+pointing. The gap is the turn still to come.*
 
-A heading takes an aircraft off its route for good. An altitude or a speed overrides only that part
-of the published profile and leaves it tracking the route — which is how "descend 5000" works
-without also costing you the lateral picture.
+---
 
-`C` is refused unless the aircraft is set up correctly, and the refusal says exactly what is wrong
-("900 ft above the glideslope at 12.0 NM"). The sidebar previews that check live.
+**The glideslope has to be captured from below** — a 3° slope is 318 ft/NM, and an aircraft that
+arrives above it cannot get down onto it. **The intercept is judged when the aircraft reaches the
+localizer**, not when you clear it: too steep, not level, or too fast, and it flies straight
+through. **Spacing on final is 4 NM at 10 NM and beyond**, because the runway has to be vacated
+before the next one lands, and that gap has to be built while there's still room to build it.
 
-## Spacing on final
+Get it wrong and you'll know. Clearances that can't work are refused, and the refusal names the
+exact condition that failed.
 
-Radar separation is 3 NM, but the runway has to be vacated before the next one lands, so the gap
-between two aircraft on final has to be **4 NM — and it is enforced at 10 NM and beyond**, where
-you can still build it. Inside 10 NM the ordinary 3 NM minimum applies: by then the sequence is
-what it is. An aircraft that is not properly spaced stays on your frequency instead of being
-transferred to Tower.
+![A refused clearance](docs/screenshots/refused.png)
 
-The sidebar's **In trail** row shows the gap to the aircraft ahead and the minimum in force, and
-**Landing rate** reports what you are actually achieving over the last 10 minutes of sim time.
+Clearances that are merely *optimistic* are accepted — and you find out at the localizer whether you
+got away with it.
 
-## What is where
+---
 
-- [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) — the full spec: rules, sources, numbers, decisions,
-  and what is still open. Read this first.
-- `src/sim/` — the simulation. Pure, headless, no DOM; this is what the tests cover.
-- `src/render/` — Canvas 2D scope and the DOM sidebar.
-- `src/scenario/` — airport, gates, aircraft types. Swap `airport.ts` to fly a different field.
+There's no win condition. There's a landing rate, and there's how honestly you got it: the gutter
+keeps a running account of landings per hour, separation violations and the seconds spent inside
+them, go-arounds, aircraft that wandered out of your airspace, and how many track miles you spent
+getting each one down.
+
+![A separation violation](docs/screenshots/conflict.png)
+
+The four published arrivals never cross each other, so the routes are always safe — and never
+sufficient. The two northern ones end 4 NM apart pointing straight at each other. Flying the charts
+is not controlling.
+
+---
+
+**[Gameplay guide →](docs/GAMEPLAY.md)** — controls, how to read the scope, the airspace, and how
+each rule is enforced.
+
+**[Requirements →](docs/REQUIREMENTS.md)** — the spec: every rule, every number, where it came from,
+and what is still open.
+
+```
+src/sim/       the simulation — pure, headless, no DOM. This is what the tests cover.
+src/render/    Canvas 2D scope and the DOM sidebar.
+src/scenario/  airport, gates, STARs, aircraft types. Swap airport.ts to fly a different field.
+```
 
 ```bash
-npm test         # 77 tests over the flight model, STARs, ILS logic and separation rules
-npm run build    # typecheck + static bundle (no backend, no runtime dependencies)
+npm test         # the flight model, STARs, ILS logic and the separation rules
+npm run check    # tsc --noEmit
+npm run build    # typecheck + static bundle, no runtime dependencies
 ```
+
+Inspired by *Endless ATC*.
