@@ -102,9 +102,9 @@ export function rangeToThresholdNm(ac: Aircraft): Nm {
 }
 
 /**
- * Established on the localizer — IF 6.14.2: "aircraft must be aligned with the
- * centerline of the runway, regardless of their position inside or outside of
- * the cone." Being near the runway is not enough.
+ * Established on the localizer: aligned with the centerline of the runway,
+ * regardless of position inside or outside the cone. Being near the runway is
+ * not enough.
  */
 export function isEstablished(ac: Aircraft, geo: FinalGeometry): boolean {
   return (
@@ -263,9 +263,9 @@ export function localizerHeading(ac: Aircraft, geo: FinalGeometry): Deg {
 }
 
 /**
- * Speed once cleared. Per IF 6.15.10 speed becomes the aircraft's business,
- * unless the player reissued one — the "maintain X kt until Y mile final"
- * technique of 6.14.4, which is honoured until 5 NM.
+ * Speed once cleared. It becomes the aircraft's own business, unless the
+ * player reissued one — the "maintain X kt until Y mile final" technique,
+ * which is honoured until 5 NM.
  */
 export function approachSpeedTargetKts(ac: Aircraft, alongNm: Nm): number {
   if (alongNm <= FINAL_SPEED_NM) return ac.type.vappKts;

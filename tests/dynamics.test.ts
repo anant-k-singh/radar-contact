@@ -35,8 +35,8 @@ describe('turn performance', () => {
 });
 
 describe('true airspeed', () => {
-  it('matches the manual’s 2% per 1000 ft rule', () => {
-    // IF 6.15.3: 250 KIAS at 9000 ft ≈ 290 kt.
+  it('matches the 2% per 1000 ft rule of thumb', () => {
+    // 250 KIAS at 9000 ft ≈ 290 kt.
     expect(trueAirspeed(250, 9000)).toBeCloseTo(295, 0);
     expect(trueAirspeed(250, 0)).toBe(250);
   });

@@ -33,7 +33,7 @@ export type Direction = -1 | 1;
 
 /**
  * Slowest speed the player may assign.
- * IF 6.15.8: don't make an aircraft configure until within 20 track miles.
+ * Don't make an aircraft configure until it is within 20 track miles.
  */
 export function speedFloorKts(ac: Aircraft): number {
   if (rangeToThresholdNm(ac) <= CONFIG_RANGE_NM) return SPEED_FLOOR_LOW_KTS;

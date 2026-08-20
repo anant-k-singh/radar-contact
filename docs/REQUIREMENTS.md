@@ -6,8 +6,7 @@ A browser-based, single-airport **approach radar** simulator. The player is the 
 controller: accept arrivals handed over from Center at fixed entry gates, sequence and vector
 them onto a single ILS, maintain separation, and hand off to Tower once established.
 
-Inspiration: *Endless ATC* (mobile) for the scope look and control feel; *Infinite Flight ATC
-Manual* for the procedural rules.
+Inspiration: *Endless ATC* (mobile) for the scope look and control feel.
 
 ---
 
@@ -41,56 +40,58 @@ Manual* for the procedural rules.
 
 ---
 
-## 2. Source material and the rules derived from it
+## 2. The rules, and where the numbers come from
 
-All quantitative rules below come from the Infinite Flight ATC Manual (radar chapter) or from
-standard flight-dynamics relationships. Citations are given so the numbers can be re-checked.
+Everything quantitative below is either standard radar-control practice or a standard
+flight-dynamics relationship. Each value is stated with the reasoning that fixes it, so it can be
+argued with rather than merely obeyed.
 
-### 2.1 Separation — [IF 6.2](https://infiniteflight.com/guide/atc-manual/6.-radar/6.2-separation)
+### 2.1 Separation
 
-> 6.2.2 — "aircraft must be no closer than **3 nm laterally or 1000 ft vertically** at all times."
-
-> 6.2.4 collision alert table — Red target: `<1000 ft and/or 3 nm`; Red target + audible alarm:
-> `<500 ft and/or 1.5 nm`.
+- Aircraft must be no closer than **3 NM laterally or 1000 ft vertically** at any time.
+- Alerting has two tiers: a red target inside **3 NM and 1000 ft**, and a red target with an
+  audible alarm inside **1.5 NM and 500 ft**.
 
 Derived rules → §9.
 
-### 2.2 ILS approach — [IF 6.11](https://infiniteflight.com/guide/atc-manual/6.-radar/6.11-instrument-landing-system-(ils)-approach)
+### 2.2 ILS approach
 
-- 6.11.3 — intercept heading should be **as close to 30° as possible** off the final approach
-  course; **≤10° should be avoided** (too shallow to close).
-- 6.11.4 — to intercept the glideslope the aircraft must be **below** the G/S. Typical G/S is a
-  **3° path** to the threshold: **300 ft AAL at 1 NM, 600 ft at 2 NM**, and so on.
-- 6.11.5 — a clearance may be issued without an intercept heading if the intercept angle is
-  "reasonable" (~30°) **or** the aircraft joins the extended final **at 20 NM or greater**. An
+- The intercept heading should be **as close to 30° as possible** off the final approach course.
+  Angles of **10° or less should be avoided** — too shallow to close on the localizer.
+- To intercept the glideslope the aircraft must be **below** it. A typical glideslope is a **3°
+  path** to the threshold: roughly **300 ft above the field at 1 NM, 600 ft at 2 NM**, and so on.
+- A clearance may be issued without an intercept heading when the intercept angle is already
+  reasonable (~30°), or when the aircraft joins the extended final **at 20 NM or beyond**. An
   altitude must still be assigned as the lowest authorised altitude until established.
-- 6.11.6 — the ILS cone is ~**11 NM** long, so G/S altitude there is ~**3500 ft AAL**. Intercept
-  altitude should be below the G/S at the intercept point — **by convention 500 ft lower**.
+- The ILS cone is about **11 NM** long, so the glideslope altitude there is about **3500 ft** above
+  the field. The intercept altitude should sit below the glideslope at the intercept point — by
+  convention **500 ft lower**.
 
-### 2.3 Handover to Tower — [IF 6.14](https://infiniteflight.com/guide/atc-manual/6.-radar/6.14-handover-to-towerunicom)
+### 2.3 Handover to Tower
 
-- 6.14.1 — before handover the aircraft must be **established on the intended approach path**
-  **AND** have an **acceptable closure rate with the aircraft ahead**.
-- 6.14.2 — for ILS, "established" means the **LOC is intercepted**. "Do not confuse aircraft being
-  established on the LOC with being in the cone — aircraft must be **aligned with the centerline**
-  … regardless of their position inside or outside of the cone."
-- 6.14.3 — example of an unacceptable closure rate: lead at 180 kt GS on final, follower
-  intercepting at 250 kt GS with only 3 NM spacing → go-around risk. "Aircraft should be kept on
-  frequency until separation is assured."
+- Before handover the aircraft must be **established on the intended approach path** *and* have an
+  **acceptable closure rate on the aircraft ahead**.
+- For an ILS, "established" means the localizer is intercepted — the aircraft is **aligned with the
+  centerline**, regardless of whether it is inside or outside the cone. Being in the cone is not
+  the same thing and is not sufficient.
+- An unacceptable closure rate looks like this: the lead at 180 kt ground speed on final, the
+  follower intercepting at 250 kt with only 3 NM of spacing. That pair is a go-around waiting to
+  happen, and the follower should be kept on frequency until the separation is assured.
 
-### 2.4 Speed control — [IF 6.15](https://infiniteflight.com/guide/atc-manual/6.-radar/6.15-aircraft-speed)
+### 2.4 Speed control
 
-- 6.15.3 — IAS→GS drift with altitude at 250 kt IAS, no wind: 3000 ft ≈ 260 (+10), 6000 ft ≈ 270
-  (+20), 9000 ft ≈ 290 (+40), 12000 ft ≈ 300 (+50). → ~**2 % per 1000 ft**, which is the standard
-  TAS rule of thumb.
-- Speed Control box — "choose **2–3 common speeds (such as 250 kts, 210 kts and 180 kts)**… Using
-  the same speed assignments helps standardize the approach."
-- 6.15.6 — reduce the *trailing* aircraft first (or speed the lead up first); allow **sufficient
-  time and distance** for speed changes, especially at high altitude / clean configuration.
-- 6.15.8 — **avoid slowing aircraft below clean speed until within 20 track miles** of touchdown;
-  "expeditious approaches are only possible if aircraft keep their speed up until close in."
-- 6.15.10 — once cleared for the approach, **speed is at the aircraft's discretion** unless a
-  further speed command is issued.
+- Indicated airspeed drifts from ground speed with altitude. At 250 kt IAS in still air: 3000 ft ≈
+  260 (+10), 6000 ft ≈ 270 (+20), 9000 ft ≈ 290 (+40), 12,000 ft ≈ 300 (+50). That is about **2 %
+  per 1000 ft**, the standard true-airspeed rule of thumb.
+- Standardise on **two or three common speeds** — 250, 210 and 180 kt — rather than assigning
+  arbitrary ones. Repetition is what makes a sequence predictable.
+- Reduce the **trailing** aircraft first, or speed the lead up first, and allow **sufficient time
+  and distance** for any speed change — especially high and clean, where deceleration is slowest.
+- **Avoid slowing an aircraft below its clean speed until it is within 20 track miles** of
+  touchdown. Expeditious approaches are only possible if aircraft keep their speed up until close
+  in.
+- Once cleared for the approach, **speed is at the aircraft's discretion** unless a further speed
+  instruction is issued.
 
 ### 2.5 Turn performance (standard aerodynamics)
 
@@ -173,7 +174,8 @@ Aircraft enter at 8000–9000 ft, but the assignable ceiling is **12,000 ft** so
 de-confliction tool and a queue can be stacked vertically above the entry altitude. Eleven usable
 levels between MVA and ceiling.
 
-The 180 kt floor outside 20 track miles enforces IF 6.15.8 rather than merely suggesting it. An
+The 180 kt floor outside 20 track miles enforces the configuration gate (§2.4) rather than merely
+suggesting it. An
 attempt to go below it is rejected with a log message explaining why.
 
 **Intercept altitude reference** (3° G/S, 318 ft/NM — the number the player needs internalised):
@@ -256,7 +258,7 @@ interface Aircraft {
   // Approach state
   phase: Phase;
   handedOff: boolean;
-  speedAssignedAfterClearance: boolean;   // IF 6.14.4
+  speedAssignedAfterClearance: boolean;   // §2.3
 
   // Bookkeeping and display
   entryGate: string;
@@ -296,7 +298,7 @@ Every parameter moves toward its target at a bounded rate. Nothing snaps.
 roll-in/roll-out lag in v1 (roll dynamics are invisible at 1 Hz radar resolution).
 
 **TAS.** `TAS = IAS × (1 + 0.02 × altitude_ft / 1000)`. Ground speed = TAS (no wind). This
-reproduces IF 6.15.3's table: 250 IAS at 9000 ft → 295 kt.
+reproduces the table in §2.4: 250 IAS at 9000 ft → 295 kt.
 
 **Vertical + speed coupling (the core mechanic you asked about).** Modelled with *total energy*
 rather than an arbitrary penalty, because the real constraint is that a jet at idle can dissipate
@@ -384,7 +386,7 @@ profile decelerates more slowly than a level one.
 to **230 kt at the corner** (ALVOR, BELGA, LOMSA, DEMUX), and reaches the platform speed — **200 kt
 north, 210 kt south** — at the last fix. The north platform is lower and closer in, so it is also
 the slower of the two; both stay above the 180 kt clean floor of §3.3, so neither can be refused as
-published. The speed comes off over the middle legs, not from the moment of handover — IF 6.15.8's
+published. The speed comes off over the middle legs, not from the moment of handover — §2.4's
 "keep the speed up until close in" expressed as a published constraint, and it keeps the outer leg
 of every route at a single predictable speed. An aircraft vectored off before its first fix
 therefore keeps 250 kt.
@@ -408,7 +410,7 @@ accident of refactoring.
 | --- | --- |
 | Heading (`A`/`D`) | **Off the route entirely.** Whatever was not taken over stays as published — the descent to the next published level and the reduction to the published speed both stand, which is what "descend 5000, turn left heading 090" means |
 | Altitude (`W`/`S`) | Published profile off, **lateral track kept** |
-| Speed (`Q`/`E`) | Published speed off, **lateral track and descent kept** (IF 6.15 speed control is not a vector) |
+| Speed (`Q`/`E`) | Published speed off, **lateral track and descent kept** (speed control is not a vector) |
 | `H` (hold) | **Stays on the route**, suspended at the holding fix (§4.6) |
 | `C` (cleared ILS) | Off the route; the approach owns it from there |
 
@@ -581,8 +583,8 @@ capture band, closing:
 
 | # | Condition | Value | Source |
 | --- | --- | --- | --- |
-| 1 | Intercept angle to the 180° final approach course | **≤ 45°** | your spec (IF 6.11.3 prefers ~30°) |
-| 2 | Level, not still descending through the intercept altitude | `|vs| ≤ 200 fpm` | IF 6.11.8 |
+| 1 | Intercept angle to the 180° final approach course | **≤ 45°** | your spec (§2.2 prefers ~30°) |
+| 2 | Level, not still descending through the intercept altitude | `|vs| ≤ 200 fpm` | §2.2 |
 | 3 | Speed | **≤ 230 kt** | above the published platform speeds; a faster turn overshoots |
 
 Fail any of them and the aircraft **flies through the localizer**: the clearance is cancelled, the
@@ -609,16 +611,16 @@ fixes it, and the sidebar says so continuously for the whole `loc` leg rather th
 1. **LOC capture** — once cleared, when cross-track error < 0.5 NM *and the intercept window of
    §6.1a is satisfied*, the aircraft turns to track the final approach course, holding assigned
    altitude. Phase → `loc`.
-   *Established* (the handoff criterion, IF 6.14.2) = `phase ≥ loc` AND `|cross-track| < 0.3 NM`
+   *Established* (the handoff criterion, §2.3) = `phase ≥ loc` AND `|cross-track| < 0.3 NM`
    AND `|heading − 180| < 5°` AND tracking inbound.
 2. **G/S capture** — when the 3° path is reached from below, phase → `gs`; the aircraft descends at
    `fpm ≈ 5.31 × GS`, i.e. ~740 fpm at 140 kt.
-3. **Deceleration on final** — per IF 6.15.10, once cleared, speed reverts to the aircraft's
+3. **Deceleration on final** — once cleared, speed reverts to the aircraft's
    discretion, on a schedule keyed to along-track distance: ≤250 kt beyond 12 NM, ≤210 kt from
    12 NM, ≤180 kt from 8 NM, and **Vapp from 5 NM regardless**. Each gate only ever slows the
    aircraft — the schedule never speeds one back up. A speed the player assigns **once the aircraft
    is established** (`loc` or `gs`) replaces the schedule entirely and is honoured until 5 NM (the
-   "maintain 170 kt to 5 mile final" technique of IF 6.14.4), which is also the trap: assign 210
+   "maintain 170 kt to 5 mile final" technique of §2.3), which is also the trap: assign 210
    and forget, and the 5 NM gate drops the target straight to Vapp with the aircraft 70 kt above
    it, failing the stability check below.
    A speed assigned while merely *cleared* — before the intercept — is **ordinary speed control**
@@ -768,8 +770,8 @@ while the `Landings` total stands, which is the point of having both.
 
 ## 9. Separation and conflict detection
 
-- **Violation:** horizontal < **3.0 NM** *and* vertical < **1000 ft** simultaneously (IF 6.2.2).
-- **Alert tiers** (IF 6.2.4): **amber** at <3 NM and <1000 ft; **red + audible** at <1.5 NM and
+- **Violation:** horizontal < **3.0 NM** *and* vertical < **1000 ft** simultaneously (§2.1).
+- **Alert tiers** (§2.1): **amber** at <3 NM and <1000 ft; **red + audible** at <1.5 NM and
   <500 ft.
 - **Predicted conflict:** straight-line extrapolation of both aircraft 90 s ahead; if it breaches
   the minima, both blips get an amber halo. This is what makes the game teachable rather than
@@ -808,7 +810,7 @@ is being measured against.
 
 ## 10. Handoff to Tower
 
-Automatic, when **all** hold (IF 6.14.1 / 6.14.2 / 6.14.3):
+Automatic, when **all** hold (§2.3):
 
 1. `established` on the LOC (per §6.2 step 1 — aligned with the centerline, not merely "in the cone").
 2. G/S captured (`phase = gs`) or at/below the G/S and descending.
@@ -1003,7 +1005,7 @@ None of these blocks play; each is a small, contained change.
    miles, refused with an explanation. Softer alternative: allow it and score it.
 3. **Wake categories** — displayed on the data block, but not used for spacing. Should heavies
    require 4–5 NM in trail?
-4. **Sound** — no audio at all yet. IF 6.2.4 describes an audible alarm inside 1.5 NM / 500 ft;
+4. **Sound** — no audio at all yet. §2.1 describes an audible alarm inside 1.5 NM / 500 ft;
    one Web Audio beep would cover it.
 5. **Aircraft glyph** — a simple cross-and-nose symbol. Worth drawing a proper airliner shape?
 6. **Rejoining a STAR** — there is no "resume own navigation"; once *vectored*, an aircraft is on

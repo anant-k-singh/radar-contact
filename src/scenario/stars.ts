@@ -11,8 +11,8 @@
  * Every route publishes 250 kt as far as its first fix (OKPUR, NIVEL, SUDIX,
  * TAVIR), 230 kt at the corner, and its own platform speed at the last fix —
  * 200 kt north, 210 kt south — so the speed comes off over the middle legs
- * rather than from the moment of handover. IF 6.15.8's "keep the speed up until
- * close in", expressed as a published constraint.
+ * rather than from the moment of handover: "keep the speed up until close in",
+ * expressed as a published constraint.
  *
  * - **North gates** (KOVAL, VANDA) run straight in to a corner fix abeam the
  *   field, then a level leg at 3000 ft along 090/270 that stops 2 NM short of
@@ -176,7 +176,7 @@ function southStar(name: string, gateName: string, side: -1 | 1, fixes: [FixSpec
  * derived from a common constant, so a single fix can be retuned without
  * dragging the other eleven with it. Republishing 250 kt at the first fix of
  * each route holds the entry speed that far instead of bleeding it off from the
- * gate (IF 6.15.8); the reduction happens over the legs after it.
+ * gate; the reduction happens over the legs after it.
  *
  * The last fix of a north route is an intercept platform and must stay below
  * the glideslope where the route ends (4882 ft at 15.3 NM along the final

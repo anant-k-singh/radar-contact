@@ -23,7 +23,7 @@ export interface ConflictPair {
   horizNm: Nm;
   vertFt: number;
   level: Exclude<AlertLevel, 'none'>;
-  /** <1.5 NM and <500 ft — the audible tier of IF 6.2.4. */
+  /** <1.5 NM and <500 ft — the tier that warrants an audible alarm. */
   red: boolean;
   key: string;
 }
@@ -138,7 +138,7 @@ export function analyzeSeparation(aircraft: readonly Aircraft[]): SeparationRepo
       const a = aircraft[i]!;
       const b = aircraft[j]!;
 
-      // Both on the localizer: in-trail spacing applies instead (IF 6.11.7).
+      // Both on the localizer: in-trail spacing applies instead (§9.3).
       if (onFinal(a) && onFinal(b)) continue;
 
       const horizNm = horizontalDistance(a, b);

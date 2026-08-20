@@ -5,8 +5,8 @@ hands you arrivals at the edge of a 50 NM circle, already established on a publi
 is to sequence them onto the ILS — correctly spaced, at or below the glideslope, slow enough to
 configure — and hand each one to Tower once it is established.
 
-Procedures follow the radar chapter of the Infinite Flight ATC Manual. Every number below is derived
-and sourced in [REQUIREMENTS.md](REQUIREMENTS.md).
+Procedures follow standard radar-control practice. Every number below is derived and justified in
+[REQUIREMENTS.md](REQUIREMENTS.md).
 
 ---
 

@@ -149,7 +149,7 @@ export function landingRatePerHour(world: World): number | null {
   return (landings / elapsedS) * 3600;
 }
 
-/** Projected in-trail spacing when the aircraft ahead reaches the threshold (IF 6.14.3). */
+/** Projected in-trail spacing when the aircraft ahead reaches the threshold (§9.3). */
 export function projectedSpacingNm(follower: Aircraft, leader: Aircraft): Nm {
   const followerAlong = finalGeometry(follower).alongNm;
   const leaderAlong = finalGeometry(leader).alongNm;
@@ -165,7 +165,7 @@ function tryHandoff(world: World, ac: Aircraft): void {
   if (!isEstablished(ac, geo)) return;
 
   const leader = world.separation.inTrailLeader.get(ac.id);
-  // IF 6.14.3 — keep it on frequency until the closure rate is acceptable,
+  // Keep it on frequency until the closure rate is acceptable,
   // against whichever in-trail minimum applies at its current range (§9.3).
   const minimumNm = world.separation.inTrailMinimum.get(ac.id) ?? IN_TRAIL_MIN_NM;
   if (leader && projectedSpacingNm(ac, leader) < minimumNm) return;

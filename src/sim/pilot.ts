@@ -144,7 +144,7 @@ function apply(ac: Aircraft, instruction: Instruction): Readback[] {
     case 'speed': {
       // Speed control does not take an aircraft off its STAR (§4.5).
       if (ac.star) ac.star.speedManual = true;
-      // IF 6.14.4 — "maintain XXX kt until X mile final" survives the clearance
+      // "Maintain XXX kt until X mile final" survives the clearance
       // and switches off the deceleration schedule, so it has to mean the
       // technique and nothing else. That means *established*, not merely
       // cleared: since a clearance may now be given 20 NM out (§6.1a), ordinary

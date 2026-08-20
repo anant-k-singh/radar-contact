@@ -15,7 +15,7 @@ export const THEME = {
   starLabel: '#4f7c92',
   starConstraint: '#8a763f',
 
-  /** Data block and leader line: the cool near-white of an Infinite Flight block. */
+  /** Data block and leader line: the cool near-white of a radar block. */
   traffic: '#cfdae6',
   trafficDim: '#5f7183',
   /** The blip itself is a shade bluer than its label, so the two read apart. */

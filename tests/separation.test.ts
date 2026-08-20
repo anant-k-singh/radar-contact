@@ -65,7 +65,7 @@ describe('in-trail spacing on final', () => {
 
   it('leaves legally spaced traffic on the same localizer alone', () => {
     // 4 NM in trail: fine under the in-trail rule, and exempt from the
-    // lateral/vertical test that would otherwise apply (IF 6.11.7).
+    // lateral/vertical test that would otherwise apply.
     const report = analyzeSeparation([lead, follower]);
     expect(report.pairs).toHaveLength(0);
     expect(report.alerts.get(follower.id)).toBeUndefined();

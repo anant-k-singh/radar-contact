@@ -106,7 +106,7 @@ describe('altitude assignment', () => {
 });
 
 describe('speed assignment', () => {
-  it('holds a clean minimum until 20 track miles (IF 6.15.8)', () => {
+  it('holds a clean minimum until 20 track miles', () => {
     // Against the type's own clean speed, not a literal: the floor is whichever
     // of that and SPEED_FLOOR_CLEAN_KTS is higher, so retuning either must not
     // silently retune the rule.

@@ -31,10 +31,10 @@ function goodSetup() {
 }
 
 describe('glideslope geometry', () => {
-  it('follows a 3° path — the manual’s 300 ft per NM rule of thumb', () => {
+  it('follows a 3° path — the 300 ft per NM rule of thumb', () => {
     expect(glideslopeAltitudeFt(1)).toBeCloseTo(318, 0);
     expect(glideslopeAltitudeFt(2)).toBeCloseTo(637, 0);
-    // IF 6.11.6: the cone is ~11 NM long, so the G/S there is ~3500 ft.
+    // The cone is ~11 NM long, so the G/S there is ~3500 ft.
     expect(glideslopeAltitudeFt(11)).toBeCloseTo(3503, 0);
     // The intercept table in the requirements doc.
     expect(3000 / 318.4).toBeCloseTo(9.4, 1);

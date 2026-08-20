@@ -55,7 +55,7 @@ export interface Aircraft {
   // Approach state
   phase: Phase;
   handedOff: boolean;
-  /** Set when the player assigns a speed after the ILS clearance (IF 6.14.4). */
+  /** Set when the player assigns a speed after the ILS clearance (§6.2). */
   speedAssignedAfterClearance: boolean;
 
   // Bookkeeping

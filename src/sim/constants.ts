@@ -46,7 +46,7 @@ export const SPEED_STEP_KTS = 10;
 export const SPEED_MAX_KTS = 250;
 export const SPEED_FLOOR_CLEAN_KTS = 180; // outside 20 track miles
 export const SPEED_FLOOR_LOW_KTS = 160; // within 20 track miles
-export const CONFIG_RANGE_NM = 20; // IF 6.15.8 "20 track miles"
+export const CONFIG_RANGE_NM = 20; // the "20 track miles" configuration gate
 
 // ── Flight dynamics (§4.3) ──────────────────────────────────────────────────
 export const BANK_DEG = 25;
@@ -77,9 +77,9 @@ export const LOC_RANGE_NM = 25; // localizer service volume
 export const MAX_INTERCEPT_ANGLE_DEG = 45;
 export const MAX_INTERCEPT_SPEED_KTS = 230; // ceiling; the platforms sit under it
 export const LEVEL_VS_LIMIT_FPM = 200; // "level" test at the localizer
-export const IDEAL_INTERCEPT_ANGLE_DEG = 30; // IF 6.11.3 — soft warning beyond
+export const IDEAL_INTERCEPT_ANGLE_DEG = 30; // preferred angle; soft warning beyond
 export const LOC_CAPTURE_XTK_NM = 0.5;
-export const ESTABLISHED_XTK_NM = 0.3; // IF 6.14.2 — aligned with the centerline
+export const ESTABLISHED_XTK_NM = 0.3; // aligned with the centerline
 export const ESTABLISHED_HDG_DEG = 5;
 export const GS_CAPTURE_WINDOW_FT = 60;
 export const PURSUIT_LEAD_NM = 2.5; // localizer tracking lead distance

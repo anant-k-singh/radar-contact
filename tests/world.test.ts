@@ -206,7 +206,7 @@ describe('airspace boundary', () => {
 describe('handover to Tower', () => {
   it('holds an aircraft on frequency when the closure rate is unacceptable', () => {
     // Follower 3.2 NM behind but 60 kt faster: it will be inside 3 NM by the
-    // time the lead touches down (IF 6.14.3).
+    // time the lead touches down.
     const lead = makeAircraft({
       ...onFinalApproach(5),
       altitudeFt: 1592,
