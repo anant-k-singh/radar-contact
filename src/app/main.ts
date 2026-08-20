@@ -1,6 +1,6 @@
 /*!
  * @license AGPL-3.0-or-later
- * Approach Radar — Copyright (C) 2026 Anant Kumar Singh
+ * Radar Contact — Copyright (C) 2026 Anant Kumar Singh
  * Source: https://github.com/anant-k-singh/radar-contact
  *
  * Free software under the GNU Affero General Public License v3 or later. If you
