@@ -85,3 +85,19 @@ npm run build    # typecheck + static bundle, no runtime dependencies
 ```
 
 Inspired by *Endless ATC*.
+
+---
+
+## License
+
+**[GNU AGPL v3 or later](LICENSE).** Free to play, read, fork, and learn from.
+
+The one thing it asks: **if you host a modified version of this for other people, you have to
+publish your source too.** That applies to running it as a network service, not just shipping
+copies — hosting a reskin of this behind a login without releasing the changes is exactly what the
+license forbids.
+
+Using it privately, or for anything non-commercial, needs nothing from you.
+
+Want to use this commercially without the source-release obligation? A commercial license is
+available — open an issue or get in touch.

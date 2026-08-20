@@ -1,3 +1,12 @@
+/*!
+ * @license AGPL-3.0-or-later
+ * Approach Radar — Copyright (C) 2026 Anant Kumar Singh
+ * Source: https://github.com/anant-k-singh/radar-contact
+ *
+ * Free software under the GNU Affero General Public License v3 or later. If you
+ * run a modified version of this program for users over a network, AGPL §13
+ * requires you to offer those users its complete corresponding source.
+ */
 /**
  * Wiring and the loop: 20 Hz fixed-timestep physics, 20 fps redraw.
  * The 1 Hz radar sample happens inside step() against sim time, so it scales

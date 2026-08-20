@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Single-airport approach radar simulator — ILS arrivals only",
+  "license": "AGPL-3.0-or-later",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
