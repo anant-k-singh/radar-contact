@@ -74,16 +74,16 @@ function drawStars(ctx: CanvasRenderingContext2D, p: Projection): void {
     ctx.stroke();
 
     let altitudeFt: number | undefined;
-    let speedKts: number | undefined;
     for (const [index, wpt] of star.waypoints.entries()) {
-      // Only what changes at this fix, so a long level leg is not labelled twice.
-      const parts: string[] = [];
-      if (wpt.altitudeFt !== undefined && wpt.altitudeFt !== altitudeFt) {
-        parts.push(String(wpt.altitudeFt));
-      }
-      if (wpt.speedKts !== undefined && wpt.speedKts !== speedKts) parts.push(`${wpt.speedKts}K`);
+      // Only the altitude, and only where it changes, so a long level leg is
+      // not labelled twice. The published speeds are deliberately left off the
+      // chart: they are flown for the player rather than by them, and a second
+      // number per fix cost more legibility than it bought.
+      const crossing =
+        wpt.altitudeFt !== undefined && wpt.altitudeFt !== altitudeFt
+          ? String(wpt.altitudeFt)
+          : undefined;
       altitudeFt = wpt.altitudeFt ?? altitudeFt;
-      speedKts = wpt.speedKts ?? speedKts;
 
       // The gate marker already carries its own name and altitude.
       if (index === 0) continue;
@@ -104,10 +104,10 @@ function drawStars(ctx: CanvasRenderingContext2D, p: Projection): void {
       ctx.textAlign = outward.x < -0.2 ? 'right' : outward.x > 0.2 ? 'left' : 'center';
 
       ctx.fillStyle = THEME.starLabel;
-      ctx.fillText(wpt.name, lx, ly - (parts.length > 0 ? 6 : 0));
-      if (parts.length > 0) {
+      ctx.fillText(wpt.name, lx, ly - (crossing !== undefined ? 6 : 0));
+      if (crossing !== undefined) {
         ctx.fillStyle = THEME.starConstraint;
-        ctx.fillText(parts.join(' · '), lx, ly + 6);
+        ctx.fillText(crossing, lx, ly + 6);
       }
     }
   }
