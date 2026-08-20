@@ -11,13 +11,22 @@ import {
   LANDING_RATE_MIN_ELAPSED_S,
   LANDING_RATE_WINDOW_S,
   MIN_SPAWN_INTERVAL_S,
+  PILOT_DELAY_MAX_S,
   PHYSICS_DT,
   SEP_HORIZ_NM,
 } from '../src/sim/constants.js';
+import { adjustHeading } from '../src/sim/commands.js';
 import { createRng } from '../src/sim/rng.js';
 import { createArrival, createTrafficState, scheduleNextSpawn } from '../src/sim/traffic.js';
 import { bearing } from '../src/sim/units.js';
-import { createWorld, landingRatePerHour, projectedSpacingNm, step } from '../src/sim/world.js';
+import {
+  createWorld,
+  landingRatePerHour,
+  log,
+  messagesFor,
+  projectedSpacingNm,
+  step,
+} from '../src/sim/world.js';
 import { makeAircraft, onFinalApproach, quietWorld } from './helpers.js';
 
 /** Run the world forward by `seconds` of sim time. */
@@ -330,5 +339,39 @@ describe('landing rate', () => {
     run(world, LANDING_RATE_WINDOW_S);
     expect(world.stats.landings).toBe(1); // the total is untouched
     expect(landingRatePerHour(world)).toBe(0);
+  });
+});
+
+describe('the message log follows the selection', () => {
+  it('shows only the selected aircraft, and the whole frequency when nothing is', () => {
+    // `makeAircraft` builds each one through its own traffic state, so the ids
+    // have to be separated by hand here.
+    const one = makeAircraft({ ...onFinalApproach(12), callsign: 'AAA111', id: 1 });
+    const two = makeAircraft({ ...onFinalApproach(20), callsign: 'BBB222', id: 2 });
+    const world = quietWorld(one, two);
+    log(world, 'one', 'pilot', [one.id]);
+    log(world, 'two', 'pilot', [two.id]);
+    log(world, 'both', 'alert', [one.id, two.id]);
+    log(world, 'neither', 'system');
+
+    expect(messagesFor(world).map((m) => m.text)).toEqual(['one', 'two', 'both', 'neither']);
+
+    world.selectedId = one.id;
+    expect(messagesFor(world).map((m) => m.text)).toEqual(['one', 'both']);
+
+    world.selectedId = two.id;
+    expect(messagesFor(world).map((m) => m.text)).toEqual(['two', 'both']);
+  });
+
+  it('tags what an aircraft says with the aircraft that said it', () => {
+    const ac = makeAircraft({ ...onFinalApproach(12), headingDeg: 360 });
+    const world = quietWorld(ac);
+    world.selectedId = ac.id;
+    adjustHeading(world, ac, 1);
+    run(world, PILOT_DELAY_MAX_S + 1);
+
+    // The readback reached the filtered log rather than only the raw one.
+    expect(messagesFor(world).length).toBe(world.messages.length);
+    expect(world.messages.length).toBeGreaterThan(0);
   });
 });

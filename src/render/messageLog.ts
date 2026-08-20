@@ -1,7 +1,7 @@
 /** Readback log along the bottom of the scope, and the status line along the top. */
 import { AIRPORT } from '../scenario/airport.js';
 import { MESSAGE_LOG_VISIBLE } from '../sim/constants.js';
-import type { MessageKind, World } from '../sim/world.js';
+import { messagesFor, type MessageKind, type World } from '../sim/world.js';
 import type { Projection } from './project.js';
 import { THEME } from './theme.js';
 
@@ -28,7 +28,7 @@ export function clockText(timeS: number): string {
 }
 
 export function drawMessages(ctx: CanvasRenderingContext2D, world: World, p: Projection): void {
-  const visible = world.messages.slice(-MESSAGE_LOG_VISIBLE);
+  const visible = messagesFor(world).slice(-MESSAGE_LOG_VISIBLE);
   ctx.font = THEME.fontLog;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'bottom';

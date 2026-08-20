@@ -42,7 +42,7 @@ export function speedFloorKts(ac: Aircraft): number {
 
 function guard(world: World, ac: Aircraft): boolean {
   if (!isControllable(ac)) {
-    log(world, `${ac.callsign} is on Tower frequency now.`, 'system');
+    log(world, `${ac.callsign} is on Tower frequency now.`, 'system', [ac.id]);
     return false;
   }
   return true;
@@ -66,7 +66,7 @@ export function adjustAltitude(world: World, ac: Aircraft, direction: Direction)
   const next = clamp(base + direction * ALTITUDE_STEP_FT, MVA_FT, CEILING_FT);
   if (next === base) {
     const limit = direction > 0 ? `ceiling ${CEILING_FT} ft` : `MVA ${MVA_FT} ft`;
-    log(world, `${ac.callsign} unable — at the ${limit}.`, 'system');
+    log(world, `${ac.callsign} unable — at the ${limit}.`, 'system', [ac.id]);
     return;
   }
 
@@ -89,12 +89,13 @@ export function adjustSpeed(world: World, ac: Aircraft, direction: Direction): v
         : `${ac.callsign} unable ${requested} kt — ${floor} kt clean minimum until ` +
             `${CONFIG_RANGE_NM} track miles.`,
       'system',
+      [ac.id],
     );
     return;
   }
   const next = clamp(requested, floor, SPEED_MAX_KTS);
   if (next === base) {
-    log(world, `${ac.callsign} unable — at ${SPEED_MAX_KTS} kt.`, 'system');
+    log(world, `${ac.callsign} unable — at ${SPEED_MAX_KTS} kt.`, 'system', [ac.id]);
     return;
   }
 
@@ -111,15 +112,19 @@ export function toggleHold(world: World, ac: Aircraft): void {
   if (isPending(ac, 'hold')) return; // already transmitted, still being read back
 
   if (!ac.star) {
-    log(world, `${ac.callsign} unable — not on an arrival, no fix to hold at.`, 'system');
+    log(world, `${ac.callsign} unable — not on an arrival, no fix to hold at.`, 'system', [
+      ac.id,
+    ]);
     return;
   }
 
   const holding = ac.star.hold !== null;
   if (!holding) {
-    log(world, `${ac.callsign}, hold at ${activeFix(ac.star).name} as published.`, 'system');
+    log(world, `${ac.callsign}, hold at ${activeFix(ac.star).name} as published.`, 'system', [
+      ac.id,
+    ]);
   } else {
-    log(world, `${ac.callsign}, leave the hold, continue on the arrival.`, 'system');
+    log(world, `${ac.callsign}, leave the hold, continue on the arrival.`, 'system', [ac.id]);
   }
   issue(world, ac, { kind: 'hold', enter: !holding });
 }
@@ -131,7 +136,7 @@ export function clearForIls(world: World, ac: Aircraft): void {
   // A holding aircraft is going round in circles at a fix, not tracking towards
   // final: take it out of the pattern first (§4.6).
   if (ac.star?.hold) {
-    log(world, `${ac.callsign} unable — in the hold at ${ac.star.hold.fix}.`, 'alert');
+    log(world, `${ac.callsign} unable — in the hold at ${ac.star.hold.fix}.`, 'alert', [ac.id]);
     return;
   }
 
@@ -141,7 +146,7 @@ export function clearForIls(world: World, ac: Aircraft): void {
   if (!result.ok) {
     const code = result.code ?? 'state';
     world.stats.rejections.set(code, (world.stats.rejections.get(code) ?? 0) + 1);
-    log(world, `${ac.callsign} unable — ${result.reason}.`, 'alert');
+    log(world, `${ac.callsign} unable — ${result.reason}.`, 'alert', [ac.id]);
     return;
   }
 

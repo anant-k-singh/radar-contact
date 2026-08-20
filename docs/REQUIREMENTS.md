@@ -650,6 +650,13 @@ fixes it, and the sidebar says so continuously for the whole `loc` leg rather th
 - The sidebar speed pair is **IAS**, because IAS is what an instruction sets. Ground speed is a
   detail row below it, with the altitude bonus printed alongside (`287 kt (IAS +37)`), so the two
   numbers on screen can be reconciled without arithmetic.
+- **The message log follows the selection**: with an aircraft selected it shows only the lines
+  about that aircraft, and with nothing selected the whole frequency. At 20-plus aircraft the log
+  scrolls faster than it can be read, so the readback to an instruction just given is usually gone
+  by the time it is looked for; filtering makes the last five lines the ones that answer "what did
+  I tell *this* aircraft, and what did it say". A separation call names two aircraft and appears
+  under either of them. This holds in replay too, where reading one aircraft's exchanges back is
+  most of what a review is (§17.2).
 - The altitude row carries the **current vertical rate in brackets** — `7001 (−1200) → 5000` —
   dim rather than yellow, since it is a trend the aircraft is producing, not a value assigned to
   it. Rounded to 50 fpm and blank in level flight, so it reads as a trend rather than jitter.
@@ -734,7 +741,9 @@ Mirroring the reference screenshots:
 - **Static map layer** (range rings, centerline + 2 NM ticks, gate markers, runway) is drawn once
   to an offscreen canvas and blitted each frame.
 - **Message log**, bottom of the scope: pilot readbacks and system messages, ~4 lines visible,
-  styled like the screenshot's green text.
+  styled like the screenshot's green text. Filtered to the selected aircraft (§7.1). Each line
+  carries the aircraft it is about rather than being matched on its callsign text, so the filter
+  does not depend on how a message happens to be worded.
 - **Label de-clutter:** data blocks are placed at the first of 8 candidate offsets that does not
   overlap an existing block. Cheap, and it matters a lot at 25 aircraft.
 

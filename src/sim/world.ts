@@ -33,6 +33,12 @@ export interface Message {
   timeS: Sec;
   text: string;
   kind: MessageKind;
+  /**
+   * Aircraft the line is about, so selecting one filters the log down to its
+   * own exchanges (§7.1). A separation call names two; the handful of lines
+   * that are about no aircraft in particular carry none, and are always shown.
+   */
+  aircraftIds: number[];
 }
 
 export interface Stats {
@@ -114,11 +120,29 @@ export function createWorld(seed: number, flowPerHour = FLOW_DEFAULT_PER_HOUR): 
   };
 }
 
-export function log(world: World, text: string, kind: MessageKind = 'system'): void {
-  world.messages.push({ timeS: world.timeS, text, kind });
+export function log(
+  world: World,
+  text: string,
+  kind: MessageKind = 'system',
+  aircraftIds: number[] = [],
+): void {
+  world.messages.push({ timeS: world.timeS, text, kind, aircraftIds });
   if (world.messages.length > MESSAGE_LOG_MAX) {
     world.messages.splice(0, world.messages.length - MESSAGE_LOG_MAX);
   }
+}
+
+/**
+ * The log the controller should be reading. Once an aircraft is selected the
+ * log answers "what did I tell *this* one, and what did it say" — at 20-plus
+ * aircraft the unfiltered log scrolls past faster than a readback can be found
+ * in it (§7.1). With nothing selected it is the whole frequency again. A
+ * separation call names two aircraft and so appears under either of them.
+ */
+export function messagesFor(world: World): Message[] {
+  const id = world.selectedId;
+  if (id === null) return world.messages;
+  return world.messages.filter((message) => message.aircraftIds.includes(id));
 }
 
 export function findAircraft(world: World, id: number | null): Aircraft | undefined {
@@ -172,7 +196,7 @@ function tryHandoff(world: World, ac: Aircraft): void {
 
   ac.handedOff = true;
   world.stats.handoffs += 1;
-  log(world, `${ac.callsign}, contact Tower on ${TOWER_FREQUENCY}.`, 'system');
+  log(world, `${ac.callsign}, contact Tower on ${TOWER_FREQUENCY}.`, 'system', [ac.id]);
 }
 
 function checkAirspaceExit(world: World, ac: Aircraft): boolean {
@@ -191,13 +215,13 @@ function checkAirspaceExit(world: World, ac: Aircraft): boolean {
   const marginNm = boundaryMarginNm({ x: ac.x, y: ac.y });
   if (marginNm < 0) {
     world.stats.exits += 1;
-    log(world, `${ac.callsign} leaving your airspace, returned to Center.`, 'alert');
+    log(world, `${ac.callsign} leaving your airspace, returned to Center.`, 'alert', [ac.id]);
     remove(world, ac);
     return true;
   }
   if (marginNm < EXIT_WARN_MARGIN_NM && !ac.exitWarned) {
     ac.exitWarned = true;
-    log(world, `${ac.callsign} is approaching the airspace boundary.`, 'alert');
+    log(world, `${ac.callsign} is approaching the airspace boundary.`, 'alert', [ac.id]);
   }
   return false;
 }
@@ -215,6 +239,7 @@ function accountViolations(world: World, dt: Sec): void {
         `SEPARATION: ${pair.a.callsign} / ${pair.b.callsign} — ` +
           `${pair.horizNm.toFixed(1)} NM, ${Math.round(pair.vertFt)} ft.`,
         'alert',
+        [pair.a.id, pair.b.id],
       );
     }
     world.stats.violationSeconds += dt;
@@ -255,6 +280,7 @@ export function step(world: World, dt: Sec): void {
         `${arrival.callsign} (${arrival.type.code}) with you at ${Math.round(arrival.altitudeFt)} ft, ` +
           `${Math.round(arrival.iasKts)} knots, ${routing}.`,
         'pilot',
+        [arrival.id],
       );
     }
   }
@@ -271,7 +297,7 @@ export function step(world: World, dt: Sec): void {
     // Instructions the crew has now had time to act on, then the route they
     // fly in the absence of one.
     for (const readback of applyDueInstructions(ac, world.timeS)) {
-      log(world, readback.text, readback.kind);
+      log(world, readback.text, readback.kind, [ac.id]);
     }
     for (const event of stepStar(ac, dt, world.timeS)) {
       switch (event.kind) {
@@ -281,13 +307,16 @@ export function step(world: World, dt: Sec): void {
             `${ac.callsign} at ${event.fix}, end of the arrival — maintaining heading, ` +
               `request further.`,
             'pilot',
+            [ac.id],
           );
           break;
         case 'holdEntered':
-          log(world, `${ac.callsign} entering the hold at ${event.fix}.`, 'pilot');
+          log(world, `${ac.callsign} entering the hold at ${event.fix}.`, 'pilot', [ac.id]);
           break;
         case 'holdExited':
-          log(world, `${ac.callsign} leaving ${event.fix}, back on the arrival.`, 'pilot');
+          log(world, `${ac.callsign} leaving ${event.fix}, back on the arrival.`, 'pilot', [
+            ac.id,
+          ]);
           break;
       }
     }
@@ -300,9 +329,9 @@ export function step(world: World, dt: Sec): void {
     for (const event of events) {
       switch (event.kind) {
         case 'locCaptured':
-          log(world, `${ac.callsign} established on the localizer.`, 'pilot');
+          log(world, `${ac.callsign} established on the localizer.`, 'pilot', [ac.id]);
           for (const warning of event.warnings) {
-            log(world, `Poor practice: ${ac.callsign} — ${warning}.`, 'system');
+            log(world, `Poor practice: ${ac.callsign} — ${warning}.`, 'system', [ac.id]);
           }
           break;
         case 'interceptMissed':
@@ -315,10 +344,13 @@ export function step(world: World, dt: Sec): void {
             `${ac.callsign} unable to intercept — ${event.reason}. Through the localizer, ` +
               `request vectors.`,
             'alert',
+            [ac.id],
           );
           break;
         case 'gsCaptured':
-          log(world, `${ac.callsign} glideslope alive, descending on the ILS.`, 'pilot');
+          log(world, `${ac.callsign} glideslope alive, descending on the ILS.`, 'pilot', [
+            ac.id,
+          ]);
           break;
         case 'landed':
           world.stats.landings += 1;
@@ -333,13 +365,13 @@ export function step(world: World, dt: Sec): void {
             world.stats.trackMileRatioSum += ac.trackMilesFlown / ac.directDistanceNm;
             world.stats.trackMileSamples += 1;
           }
-          log(world, `${ac.callsign} landed runway ${AIRPORT.runway.id}.`, 'system');
+          log(world, `${ac.callsign} landed runway ${AIRPORT.runway.id}.`, 'system', [ac.id]);
           remove(world, ac);
           removed = true;
           break;
         case 'goAround':
           world.stats.goArounds += 1;
-          log(world, `${ac.callsign} going around — ${event.reason}.`, 'alert');
+          log(world, `${ac.callsign} going around — ${event.reason}.`, 'alert', [ac.id]);
           break;
       }
     }

@@ -12,7 +12,7 @@ import {
 import { adjustAltitude, toggleHold } from '../src/sim/commands.js';
 import { assignedAltitudeFt, assignedHeadingDeg, isPending } from '../src/sim/pilot.js';
 import { activeFix } from '../src/sim/star.js';
-import { createWorld, log, step, type World } from '../src/sim/world.js';
+import { createWorld, log, messagesFor, step, type World } from '../src/sim/world.js';
 import { createPlayback, pathFor, worldAtFrame } from '../src/replay/playback.js';
 import {
   createRecording,
@@ -241,6 +241,23 @@ describe('the session timeline', () => {
     expect(at(2)).toEqual([]);
     expect(at(7)).toEqual(['first']);
     expect(at(14)).toEqual(['first', 'second']);
+  });
+
+  it('filters the replayed log to the aircraft being reviewed', () => {
+    const ac = makeAircraft({ ...onFinalApproach(12) });
+    const world = quietWorld(ac);
+    const rec = createRecording();
+    log(world, 'about it', 'pilot', [ac.id]);
+    log(world, 'about nobody', 'system');
+    runRecorded(world, rec, 5);
+
+    const frame = frameAtTimeS(3);
+    const view = { paused: true, timeScale: 1 };
+    const at = (selectedId: number | null): string[] =>
+      messagesFor(worldAtFrame(rec, frame, { ...view, selectedId })).map((m) => m.text);
+
+    expect(at(null)).toEqual(['about it', 'about nobody']);
+    expect(at(ac.id)).toEqual(['about it']);
   });
 
   it('trims the replayed log the way the live log is capped', () => {
