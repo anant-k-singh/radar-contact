@@ -15,7 +15,7 @@ export default defineConfig({
       generateBundle(_options, bundle) {
         const notice =
           '/*! @license AGPL-3.0-or-later\n' +
-          ' * Approach Radar — Copyright (C) 2026 Anant Kumar Singh\n' +
+          ' * Radar Contact — Copyright (C) 2026 Anant Kumar Singh\n' +
           ' * Source: https://github.com/anant-k-singh/radar-contact\n' +
           ' * Running a modified version for users over a network obliges you to\n' +
           ' * offer them its complete corresponding source (AGPL §13).\n' +
