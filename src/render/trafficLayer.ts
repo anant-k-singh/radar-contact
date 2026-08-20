@@ -10,6 +10,7 @@ import { activeFix } from '../sim/star.js';
 import { displayHeading, headingDiff, headingVector } from '../sim/units.js';
 import type { World } from '../sim/world.js';
 import { screenX, screenY, type Projection } from './project.js';
+import type { RenderOptions } from './scope.js';
 import { THEME } from './theme.js';
 
 const LINE_HEIGHT = 12;
@@ -185,6 +186,7 @@ export function drawTraffic(
   ctx: CanvasRenderingContext2D,
   world: World,
   p: Projection,
+  options: RenderOptions,
 ): Map<number, Rect> {
   const placed: Rect[] = [];
   const blocks = new Map<number, Rect>();
@@ -224,7 +226,8 @@ export function drawTraffic(
       ctx.stroke();
     }
 
-    // Leader line: one minute of flight at the current ground speed.
+    // One minute of flight at the current ground speed — the length of the
+    // leader line, and the scale the heading hint is sized against.
     const minuteNm = ac.radar.groundSpeedKts / 60;
     const leaderPx = minuteNm * p.pxPerNm;
 
@@ -232,7 +235,7 @@ export function drawTraffic(
     // the nose is going, alongside the green leader line showing where it is.
     const assignedDeg = assignedHeadingDeg(ac);
     const hintLeftS = ac.headingHintUntilS - world.timeS;
-    if (hintLeftS > 0 && !ac.handedOff) {
+    if (options.headingHints && hintLeftS > 0 && !ac.handedOff) {
       const want = headingVector(assignedDeg);
       // Half again the leader line, and never so short that it hides under the
       // selection ring — this has to read at a glance from across the scope.
@@ -264,15 +267,20 @@ export function drawTraffic(
       ctx.globalAlpha = 1;
     }
 
-    const dir = headingVector(ac.headingDeg);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1;
-    ctx.globalAlpha = 0.55;
-    ctx.beginPath();
-    ctx.moveTo(sx, sy);
-    ctx.lineTo(sx + dir.x * leaderPx, sy - dir.y * leaderPx);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
+    // The leader line answers "where will this be in a minute" — a question
+    // only a controller with the authority to change the answer needs, so a
+    // replay leaves it off (§17.3).
+    if (options.leaderLines) {
+      const dir = headingVector(ac.headingDeg);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.55;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + dir.x * leaderPx, sy - dir.y * leaderPx);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
 
     // Blip.
     ctx.fillStyle = glyphColor(ac, selected);

@@ -34,6 +34,17 @@ export const THEME = {
   warning: '#ff9a9a',
   violation: '#ff2b2b',
 
+  /**
+   * The selected aircraft's whole path in replay. Both halves have to sit
+   * clearly above `starPath`, which the track spends most of its length lying
+   * exactly on top of: a path the same brightness as the chart underneath it is
+   * invisible for the whole part of the flight that was flown as published.
+   * What is still to come is one step down, enough to read the direction of
+   * travel without disappearing into the chart.
+   */
+  pathFlown: '#7fc4ff',
+  pathRemaining: '#4b7fa8',
+
   logPilot: '#74e874',
   logSystem: '#9fb4a8',
   logAlert: '#ffb020',

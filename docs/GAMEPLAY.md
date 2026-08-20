@@ -21,6 +21,7 @@ Procedures follow standard radar-control practice. Every number below is derived
 | `H` | Enter / leave the published hold |
 | `Tab` | Cycle selection, nearest the runway first |
 | `Space` | Pause · `1` `2` `4` `8` time rate · `Esc` deselect |
+| `←` / `→` | Skip 10 s back / forward — replay only (see below) |
 
 Click a blip or its data block to select it. **Flow −/+** in the sidebar sets arrivals per hour
 (5–50, default 25) — turn it down to learn the field, up when you want to be buried.
@@ -211,3 +212,29 @@ The gutter on the right keeps a running account:
 | `MISSED INT` | Aircraft that flew through the localizer, by which test failed |
 
 There is no win condition. There's a landing rate, and there's how honestly you got it.
+
+## Watching it back
+
+Your session is being recorded the whole time — the last **60 minutes of sim time**, so an hour at
+4× is still an hour of flying rather than fifteen minutes of it. **Stop session & watch replay**,
+bottom right of the scope, ends the session and plays it back from the beginning.
+
+| Control | Action |
+| --- | --- |
+| Scrub bar | Drag anywhere in the recording |
+| `−10s` / `+10s` | Or the left / right arrow keys |
+| `0.5×` … `8×` | Playback rate. `0.5×` is worth it for the ten seconds a sequence falls apart |
+| `⏸` / `▶` | Or `Space`. At the end the button becomes `↻` and starts over |
+| `New session` | Throw the recording away and fly a fresh field |
+
+The replay is the same scope with the controls taken off it. Aircraft still carry their data blocks,
+assigned altitudes, history dots, alert colours and stats, and the message log replays at the times
+things were said — but the leader line and the dashed assigned-heading vector are gone, because both
+of them exist to show an instruction you are in the middle of giving.
+
+What you get instead: **click an aircraft to see its whole path** — one line through the whole
+flight, a shade dimmer ahead of where you are watching. That is the one thing the live scope cannot show you,
+and it is usually where the answer is. A sequence that felt tight normally turns out to be a turn
+given fifteen seconds late, and the path is the shape of those fifteen seconds.
+
+Nothing is saved. A refresh loses the recording.

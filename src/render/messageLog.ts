@@ -43,7 +43,11 @@ export function drawMessages(ctx: CanvasRenderingContext2D, world: World, p: Pro
   ctx.globalAlpha = 1;
 }
 
-export function drawStatusLine(ctx: CanvasRenderingContext2D, world: World): void {
+export function drawStatusLine(
+  ctx: CanvasRenderingContext2D,
+  world: World,
+  mode: 'live' | 'replay' = 'live',
+): void {
   ctx.font = THEME.fontSmall;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
@@ -56,6 +60,9 @@ export function drawStatusLine(ctx: CanvasRenderingContext2D, world: World): voi
     `x${world.timeScale}`,
     `TFC ${world.aircraft.length}`,
   ];
-  if (world.paused) parts.push('— PAUSED');
+  // In replay the rate and the clock belong to the transport rather than to a
+  // running session, so the line has to say which it is.
+  if (mode === 'replay') parts.push('— REPLAY');
+  if (world.paused) parts.push(mode === 'replay' ? '— HELD' : '— PAUSED');
   ctx.fillText(parts.join('   ·   '), 14, 12);
 }

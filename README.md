@@ -66,6 +66,23 @@ is not controlling.
 
 ---
 
+**Every session records itself** — the last hour of flying, held in memory, no setup and nothing to
+manage. One button stops the session and plays it back: scrub bar, ±10 s, 0.5× to 8×, and clicking
+an aircraft draws its **whole path** rather than the last 100 seconds of history dots.
+
+![A session being played back](docs/screenshots/replay.png)
+
+*Held 14 minutes into a 48-minute session. AIC738 is selected, and the bright line is everything it
+flew: in from VANDA down the arrival, then the closed loop at ALVOR where it sat in the hold waiting
+for the sequence. Note what is missing — the leader lines, and the dashed assigned-heading vector
+from the shot further up. Nothing here can be instructed, so the display stops showing instructions
+and shows consequences instead.*
+
+A replay is where a bad sequence stops being bad luck: the turn you gave fifteen seconds late has a
+shape, and the path is that shape. Nothing is persisted — a refresh loses the recording.
+
+---
+
 **[Gameplay guide →](docs/GAMEPLAY.md)** — controls, how to read the scope, the airspace, and how
 each rule is enforced.
 
@@ -76,6 +93,7 @@ and what is still open.
 src/sim/       the simulation — pure, headless, no DOM. This is what the tests cover.
 src/render/    Canvas 2D scope and the DOM sidebar.
 src/scenario/  airport, gates, STARs, aircraft types. Swap airport.ts to fly a different field.
+src/replay/    the rolling recording and its playback. Reads the sim, never writes to it.
 ```
 
 ```bash

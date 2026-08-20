@@ -899,13 +899,19 @@ src/
     sidebar.ts         # selected-aircraft readout, live clearance preview, stats
     messageLog.ts      # readback log + status line
     theme.ts           # all colours
+    pathLayer.ts       # the selected aircraft's whole path, in replay (§17.3)
+  replay/              # reads the sim, never writes to it
+    recorder.ts        # rolling 60 min of sim time, sampled at 5 Hz into per-aircraft tracks
+    playback.ts        # rebuilds a World at any frame + the transport
+    replayBar.ts       # the stop-and-watch button, and the transport controls
   input/
+    controller.ts      # the one surface input drives — live session or playback
     keyboard.ts
     pointer.ts
   app/
-    main.ts            # loop, wiring, time accel, pause
+    main.ts            # loop, wiring, time accel, pause, live/replay switch
   style.css
-tests/                 # 52 tests, sim only — no DOM needed
+tests/                 # 135 tests, sim + replay, no DOM needed
 docs/
   REQUIREMENTS.md      # this file
 ```
@@ -925,6 +931,7 @@ Each milestone ends with something visible, so progress is never theoretical.
 | **M4** | ILS: `C` clearance gate with per-condition refusals, LOC + G/S capture, deceleration schedule, touchdown | ✅ done |
 | **M5** | Rules: separation violations, predicted-conflict halos, alert tiers, in-trail rule, auto go-around, auto handoff | ✅ done |
 | **M6** | Polish: session stats, pause + time accel, flow control, restart, live clearance preview, label de-clutter | ✅ done — **except the conflict alert sound**, which is not implemented (see §15) |
+| **M7** | Replay: always-on rolling recording, stop-and-watch transport with scrub / ±10 s / 0.5–8×, whole-path drawing, controls withheld (§17) | ✅ done |
 
 ---
 
@@ -995,6 +1002,16 @@ for the architecture.
 | Drawing the pattern | **No racetrack on the scope, just `HOLD` on the block.** The history trail already shows the shape, and four overlapping racetracks cost more legibility on a congested scope than they buy |
 | `C` while holding | **Refused.** A holding aircraft is not tracking towards final, so a clearance would be a prediction that cannot come true; take it out of the hold first (§6.1) |
 
+| Question | Decision (2026-08-20, replay) |
+| --- | --- |
+| When recording starts | **Always on, rolling.** A start button gets pressed after the interesting thing has happened; one button that stops the session and plays it back is the whole interface (§17.1) |
+| How long is kept | **The last 60 minutes of sim time**, in memory only, lost on refresh. Game time rather than wall-clock, so time acceleration records more session rather than the same hour of watching |
+| Sample rate | **5 Hz, replayed as sampled.** Fine enough that 20 fps motion reads as smooth without an interpolation layer, and coarse enough that an hour is a few MB. Replaying samples rather than interpolating means playback cannot show a state that was never flown |
+| Snapshots or inputs | **State samples, not a deterministic re-simulation.** Re-running the seed plus the player's keystrokes would be smaller and exact, but it makes rewind a re-simulation and couples playback to the sim staying bit-identical for ever. Samples are inert |
+| Snapshots or tracks | **Per-aircraft tracks** (the transpose of a frame list). An aircraft's whole path is then contiguous, which is what §17.3's path drawing and the rebuilt history dots both need |
+| What playback shows | **Everything the live scope showed except the instruction artefacts** — no leader line, no assigned-heading vector, no controls (§17.3). Stats, blocks, alert colours and the message log are unchanged, because reviewing them is the point |
+| What playback adds | **The selected aircraft's whole path**, one solid line, the part still to come a shade dimmer. A live scope cannot show it; a recording already contains it |
+
 ## 15. Still open
 
 None of these blocks play; each is a small, contained change.
@@ -1034,9 +1051,105 @@ None of these blocks play; each is a small, contained change.
 nvm use          # Node 24 LTS, pinned in .nvmrc — the system default is 18 (EOL)
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 112 sim tests, headless, ~0.8 s
+npm test         # 135 tests, headless, ~0.9 s
 npm run build    # typecheck + static bundle into dist/
 ```
 
 `?seed=1234` in the URL makes a session reproducible. In a dev build, `window.atc` exposes the live
-world for console poking.
+world for console poking and `window.atcRecording` the rolling recording behind it (§17).
+
+---
+
+## 17. Session replay
+
+A controller learns most from the sequence they have just flown, and the one thing a live scope
+cannot show is what a decision led to. Replay is that: the last hour of the session, playable back
+at the scope, with the controls taken away.
+
+### 17.1 What is recorded, and how much
+
+**Recording is always on.** There is no start button, because a start button only ever gets pressed
+*after* the interesting thing has happened. The recorder holds a rolling **60 minutes of sim time**
+— game time, not wall-clock, so a session flown at 8× keeps its last hour of *flying* rather than
+its last hour of watching — and it lives in memory only. A refresh loses it, which is the intended
+trade: nothing to manage, nothing to clean up, no storage permission.
+
+| Decision | Value | Why |
+| --- | --- | --- |
+| Sample rate | **5 Hz of sim time** | Four times coarser than physics, five times finer than a radar return. Motion at 20 fps redraw reads as smooth without an interpolation layer, and playback shows samples exactly as they were taken — no rebuilt state that can disagree with what was flown |
+| Window | **3600 s of sim time** | An hour is longer than any session anyone flies in one sitting; the cap exists so an unattended tab at 8× cannot grow without bound |
+| Prune batching | **60 s of slack** | Dropping old frames splices every channel of every track, so it is done once a minute rather than five times a second. A recording is therefore between 60 and 61 minutes long |
+| Storage | **Per aircraft, not per frame** | See below |
+
+**Tracks, not snapshots.** The obvious shape is a list of world snapshots. The recorder stores the
+transpose: one *track* per aircraft, each field a flat array indexed by frame. Two reasons, both of
+which playback needs anyway:
+
+- An aircraft's whole path is one contiguous array — which is exactly what §17.3's path drawing
+  asks for, and what the history dots are rebuilt from instead of being stored per frame.
+- It is a few numbers per aircraft-frame instead of an object per aircraft-frame. A busy hour is
+  ~180,000 samples: single-digit MB, at which point there is no memory problem to design around.
+
+What each sample holds is *what the display reads*: live position, altitude, heading and IAS; the
+1 Hz radar sample as its own set of figures (§5); the three assigned targets; and one packed
+integer for phase, alert level, handoff, route index and the manual/pending flags. Session stats
+and the message log are recorded on the side — stats only when they change, which is a handful of
+times a session.
+
+Everything derivable is **not** recorded and is recomputed at playback from the real sim functions:
+final-approach geometry, in-trail spacing, the clearance preview, the landing rate. A recording
+therefore cannot drift from the live readout, because the readout is computed the same way from the
+same numbers.
+
+### 17.2 Playing it back
+
+`worldAtFrame` rebuilds a `World` of the ordinary shape, so every existing renderer draws a replay
+without knowing it is one — the scope, the sidebar and the stats gutter are handed the same object
+they always get. Two things are rebuilt rather than stored:
+
+- **History dots**, from the track. The live scope lays a dot every 10 s on a grid anchored at zero
+  and the recorder samples on a 0.2 s grid anchored at the same zero, so every dot has a frame
+  sitting under it — within one physics tick, which is 0.007 NM at 250 kt. The one subtlety is that
+  `step` advances the clock *before* testing it, so the dot for a 10 s mark does not exist yet at a
+  frame landing exactly on that mark; counting dots off the frame alone draws one too many.
+- **Separation**, by running the real `analyzeSeparation` over the rebuilt traffic, which is what
+  gives the sidebar its in-trail figures. The per-aircraft *alert colour* still comes from the
+  recording: on the scope that colour is a 1 Hz sample, not an instantaneous truth.
+
+The transport is elapsed/total with a scrub bar, ±10 s, and 0.5×–8× — 0.5× being the one rate live
+play does not have, since watching a sequence unravel slowly is the point. Arrow keys skip, space
+holds, and the number keys set the rate, so the keyboard means the same things it did live.
+
+Selection is held by the *transport*, not written onto the world: a replay frame is rebuilt every
+redraw and anything written onto it is thrown away. It is also kept as an intent rather than a
+fact — an aircraft exists for only part of the recording, so scrubbing outside its life leaves the
+sidebar and the path quiet and brings them back rather than deselecting for good.
+
+### 17.3 What the replay deliberately does not show
+
+Stopping the session takes the controls away, so the display loses the parts of itself that only
+exist because there were controls:
+
+| Dropped | Why |
+| --- | --- |
+| The 1-minute leader line | It answers "where will this be in a minute" — a question only somebody who can change the answer needs to ask |
+| The dashed assigned-heading vector | It exists to show a turn that has just been instructed and not yet flown. Nothing is being instructed |
+| The sidebar's key list and session controls | None of them act on a recording, so they go rather than sit there refusing to work. Flow and restart belong to a live session |
+| "Press C to clear" | The clearance preview stays — it says whether the approach was makeable at that moment, which is the thing worth reviewing — but as a description rather than an offer |
+
+Everything else stays exactly as it was: data blocks with their assigned targets, history dots,
+violation rings and alert colours, the message log replaying at the times things were said, and the
+whole session stats block.
+
+The panel lives in the bottom-right corner of the scope, over the canvas. The stats gutter (§11.2)
+already keeps the airspace clear of the right-hand edge, so the overlap is a sliver of the boundary
+south-east of TEMBA — an aircraft can sit under the transport for a few seconds of its run in from
+that gate. Accepted rather than solved: the alternative is moving the transport off the corner it
+was asked for, or reserving a second gutter that costs every session some scale.
+
+**Added, because a replay can answer it and a live scope cannot:** clicking an aircraft draws its
+*whole* path through the recording — one solid line, a shade dimmer where it has not yet got to —
+rather than the last 100 s of dots. Both halves are drawn well above the STAR chart's own colour:
+the track lies exactly along a published leg for most of its length, and a path no brighter than
+the chart under it is invisible for every part of the flight that went to plan. "What did this one actually end up doing" is the
+question a review is for, and the answer is already in the track.

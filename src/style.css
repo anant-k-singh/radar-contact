@@ -259,3 +259,128 @@ button:hover {
   min-width: 36px;
   text-align: center;
 }
+
+/* ── Session replay (§17) ─────────────────────────────────────────────────
+   Bottom-right of the scope, over the canvas: the recorder's offer while the
+   session runs, and the transport once it is taken. The stats gutter owns the
+   top-right corner, so this sits under it rather than beside it. */
+
+#replay {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 2;
+  padding: 8px 10px;
+  border: 1px solid var(--panel-line);
+  border-radius: 4px;
+  /* Translucent, so the boundary and any traffic underneath still read. */
+  background: rgba(10, 16, 21, 0.92);
+  font-size: 11px;
+  user-select: none;
+}
+
+#replay[data-mode='replay'] {
+  min-width: 268px;
+}
+
+.replay-start {
+  width: 100%;
+  padding: 6px 10px;
+  color: var(--green);
+  border-color: #1e4a33;
+}
+
+.replay-note {
+  margin-top: 5px;
+  color: var(--dim);
+  font-size: 10px;
+  text-align: center;
+}
+
+.replay-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.replay-badge {
+  letter-spacing: 0.16em;
+  font-size: 10px;
+  color: var(--amber);
+}
+
+.replay-clock {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.replay-seek {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  margin: 0 0 8px;
+  border-radius: 2px;
+  background: #16241d;
+  cursor: pointer;
+}
+
+.replay-seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.replay-seek::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.replay-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.replay-row + .replay-row {
+  margin-top: 6px;
+}
+
+.replay-row .replay-note {
+  margin: 0;
+  text-align: left;
+}
+
+.replay-play {
+  min-width: 34px;
+}
+
+.replay-rates {
+  display: flex;
+  gap: 3px;
+  margin-left: auto;
+}
+
+.replay-rates button {
+  padding: 4px 5px;
+}
+
+/* The rate in force is held on, so the transport says what it is doing
+   without needing the status line read as well. */
+.replay-rates button[data-active='on'] {
+  border-color: var(--green);
+  color: var(--green);
+  background: #0c2116;
+}
+
+/* Nothing in these sections acts on a recording, so they go rather than sit
+   there refusing to work. */
+#sidebar[data-mode='replay'] .live-only {
+  display: none;
+}

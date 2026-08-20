@@ -4,23 +4,20 @@ import {
   adjustHeading,
   adjustSpeed,
   clearForIls,
-  selectNext,
+  nextSelectableId,
   toggleHold,
 } from '../sim/commands.js';
-import { selectedAircraft, type World } from '../sim/world.js';
+import { REPLAY_SKIP_S } from '../sim/constants.js';
+import { selectedAircraft } from '../sim/world.js';
+import type { SessionController } from './controller.js';
 
-export interface KeyboardHost {
-  world(): World;
-  togglePause(): void;
-  setTimeScale(scale: number): void;
-}
-
-export function bindKeyboard(host: KeyboardHost): void {
+export function bindKeyboard(controller: () => SessionController): void {
   window.addEventListener('keydown', (event) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const target = event.target as HTMLElement | null;
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
 
+    const host = controller();
     const world = host.world();
     const key = event.key.toLowerCase();
 
@@ -28,7 +25,7 @@ export function bindKeyboard(host: KeyboardHost): void {
     switch (key) {
       case 'tab':
         event.preventDefault();
-        selectNext(world);
+        host.select(nextSelectableId(world));
         return;
       case ' ':
         event.preventDefault();
@@ -46,12 +43,24 @@ export function bindKeyboard(host: KeyboardHost): void {
       case '8':
         host.setTimeScale(8);
         return;
+      // Scrubbing a recording. Live these do nothing: a session has no
+      // recorded future to jump to and no way to unfly the last ten seconds.
+      case 'arrowleft':
+        event.preventDefault();
+        host.skip(-REPLAY_SKIP_S);
+        return;
+      case 'arrowright':
+        event.preventDefault();
+        host.skip(REPLAY_SKIP_S);
+        return;
       case 'escape':
-        world.selectedId = null;
+        host.select(null);
         return;
       default:
         break;
     }
+
+    if (!host.acceptsInstructions) return;
 
     const ac = selectedAircraft(world);
     if (!ac) return;

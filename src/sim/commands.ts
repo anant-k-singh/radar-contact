@@ -148,12 +148,22 @@ export function clearForIls(world: World, ac: Aircraft): void {
   issue(world, ac, { kind: 'approach', warnings: result.warnings });
 }
 
-/** Cycle selection by distance to the threshold, nearest first. */
-export function selectNext(world: World): void {
+/**
+ * The next aircraft in the cycle, by distance to the threshold, nearest first.
+ * Returned rather than assigned, since replay holds the selection outside the
+ * world it is looking at (§17.2).
+ */
+export function nextSelectableId(world: World): number | null {
   const ordered = [...world.aircraft].sort(
     (a, b) => rangeToThresholdNm(a) - rangeToThresholdNm(b),
   );
-  if (ordered.length === 0) return;
+  if (ordered.length === 0) return null;
   const index = ordered.findIndex((ac) => ac.id === world.selectedId);
-  world.selectedId = ordered[(index + 1) % ordered.length]!.id;
+  return ordered[(index + 1) % ordered.length]!.id;
+}
+
+/** Cycle selection by distance to the threshold, nearest first. */
+export function selectNext(world: World): void {
+  const next = nextSelectableId(world);
+  if (next !== null) world.selectedId = next;
 }

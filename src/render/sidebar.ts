@@ -28,7 +28,13 @@ export interface SidebarHandlers {
 }
 
 export interface Sidebar {
-  update(world: World): void;
+  /**
+   * `replay` hides the session controls and the key list — none of them act on
+   * a recording — and drops the instruction prompts from the clearance
+   * preview, which becomes a description of what was happening rather than an
+   * offer to change it (docs §17.3).
+   */
+  update(world: World, mode?: 'live' | 'replay'): void;
 }
 
 const TEMPLATE = `
@@ -60,22 +66,22 @@ const TEMPLATE = `
     <div class="ils" data-field="ils"></div>
   </div>
 
-  <h2>Controls</h2>
-  <div class="keys">
+  <h2 class="live-only">Controls</h2>
+  <div class="keys live-only">
     <kbd>A</kbd><kbd>D</kbd> heading &nbsp; <kbd>W</kbd><kbd>S</kbd> altitude<br />
     <kbd>Q</kbd><kbd>E</kbd> speed &nbsp; <kbd>C</kbd> clear ILS &nbsp; <kbd>H</kbd> hold<br />
     <kbd>Tab</kbd> cycle &nbsp; <kbd>Space</kbd> pause &nbsp; <kbd>1</kbd><kbd>2</kbd><kbd>4</kbd><kbd>8</kbd> rate
   </div>
 
-  <h2>Session controls</h2>
-  <div class="buttons">
+  <h2 class="live-only">Session controls</h2>
+  <div class="buttons live-only">
     <button data-action="pause">Pause</button>
     <button data-action="rate1">1x</button>
     <button data-action="rate2">2x</button>
     <button data-action="rate4">4x</button>
     <button data-action="rate8">8x</button>
   </div>
-  <div class="buttons">
+  <div class="buttons live-only">
     <button data-action="flow-down">Flow −</button>
     <span class="flow" data-field="flow"></span>
     <button data-action="flow-up">Flow +</button>
@@ -142,7 +148,9 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
   });
 
   return {
-    update(world: World): void {
+    update(world: World, mode: 'live' | 'replay' = 'live'): void {
+      if (root.dataset.mode !== mode) root.dataset.mode = mode;
+      const replay = mode === 'replay';
       set('airport', `${AIRPORT.icao} · RWY ${AIRPORT.runway.id}`);
       set('clock', clockText(world.timeS));
       set('flow', `${world.flowPerHour}/h`);
@@ -262,12 +270,19 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
             intercept.ok ? 'ils ok' : 'ils bad',
           );
         } else if (ac.phase === 'goAround') {
-          set('ils', 'Going around — re-vector for another approach.', 'ils bad');
-        } else {
-          const result = evaluateClearance(ac, geo);
           set(
             'ils',
-            result.ok ? 'ILS ready — press C to clear.' : `Cannot clear: ${result.reason}.`,
+            replay
+              ? 'Going around — off the approach and climbing.'
+              : 'Going around — re-vector for another approach.',
+            'ils bad',
+          );
+        } else {
+          const result = evaluateClearance(ac, geo);
+          const ready = replay ? 'ILS available — inside the clearance gate.' : 'ILS ready — press C to clear.';
+          set(
+            'ils',
+            result.ok ? ready : `Cannot clear: ${result.reason}.`,
             result.ok ? 'ils ok' : 'ils bad',
           );
         }

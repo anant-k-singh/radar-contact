@@ -198,3 +198,35 @@ export const VS_DISPLAY_STEP_FPM = 50;
 export function energyFtPerKnot(tasKts: number): number {
   return (tasKts * KTS_TO_FT_PER_SEC * KTS_TO_FT_PER_SEC) / G_FT_PER_SEC2;
 }
+
+// ── Session replay (§17) ────────────────────────────────────────────────────
+/**
+ * The recorder samples flight state at 5 Hz of *sim* time — four times coarser
+ * than physics and five times finer than a radar return. Playback replays the
+ * samples as they were taken rather than interpolating between them, so the
+ * sample period is also the finest step the transport can land on.
+ */
+export const REPLAY_SAMPLE_HZ = 5;
+export const REPLAY_SAMPLE_PERIOD_S = 1 / REPLAY_SAMPLE_HZ;
+/**
+ * Rolling window held in memory: the last 60 minutes of sim time, so a session
+ * flown at 8× still keeps its last hour of *flying* rather than of watching.
+ * Nothing is persisted — a refresh loses the recording.
+ */
+export const REPLAY_WINDOW_S = 3600;
+/**
+ * How far past the window the recording is allowed to grow before old frames
+ * are dropped. Pruning splices every channel of every track, so it is done in
+ * one batch a minute instead of five times a second.
+ */
+export const REPLAY_PRUNE_SLACK_S = 60;
+/** Step for the transport's rewind and forward buttons. */
+export const REPLAY_SKIP_S = 10;
+/** Playback rates the transport offers; 0.5× is the one live play does not have. */
+export const REPLAY_RATES: readonly number[] = [0.5, 1, 2, 4, 8];
+/**
+ * The selected aircraft's path is drawn from one sample a second rather than
+ * all five: at 250 kt the samples are 0.07 NM apart, so four in five land
+ * inside the same pixel.
+ */
+export const REPLAY_PATH_STRIDE = REPLAY_SAMPLE_HZ;
