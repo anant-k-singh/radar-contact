@@ -168,19 +168,42 @@ export const DEPARTURE_FLOW_STEP_PER_HOUR = 5;
  */
 export const DEPARTURE_FLOW_IDLE_RECHECK_S = 10;
 /**
- * Wake-turbulence and runway separation between consecutive departures. Two
- * minutes is the ICAO Doc 4444 medium-behind-heavy interval, and it is the
- * binding constraint on the departure rate long before the Poisson stream is.
+ * Runway separation between consecutive departures, roll to roll. It is the
+ * interval that applies when nothing lands in between; an arrival between the
+ * two adds its own rolling-out interval on top.
+ *
+ * 90 s covers the wake-turbulence minimum behind a medium and the time the
+ * first departure needs to be airborne and clear of the far end. It caps the
+ * runway at 40 departures an hour, which is comfortably above the 20/h the
+ * player can ask for — so a queue that grows is the *arrivals* eating the
+ * runway, never the interval itself.
  */
-export const DEPARTURE_MIN_INTERVAL_S = 120;
+export const DEPARTURE_MIN_INTERVAL_S = 90;
 /**
  * The runway is shared (§4.7). No departure is released while an arrival is
  * inside this far on final, or for this long after one has landed and is still
  * rolling out. A saturated final therefore starves the departures, which is the
  * coupling that makes one runway feel like one runway.
+ *
+ * 3 NM is the real rule expressed as a distance: the departure has to be
+ * airborne before the arrival crosses the threshold. An arrival is at its
+ * approach speed inside `FINAL_SPEED_NM`, so 3 NM is 75 s or so of flying,
+ * against a take-off roll of 36 s for a medium and 49 s for the slowest heavy —
+ * the margin holds for every type in the fleet, and `tests/departure.test.ts`
+ * asserts it rather than trusting the arithmetic.
  */
-export const DEPARTURE_HOLD_FINAL_NM = 4.0;
+export const DEPARTURE_HOLD_FINAL_NM = 3.0;
 export const DEPARTURE_HOLD_AFTER_LANDING_S = 60;
+/**
+ * Where the hold-short queue turns amber and then red (§8.2).
+ *
+ * The queue length is the one number that tells the player their *arrivals* are
+ * starving the runway — they have no authority over a departure, but the gaps
+ * they leave on final are what releases one. Three deep is a final that is
+ * working the runway hard; six deep is one that has stopped giving it back.
+ */
+export const DEPARTURE_QUEUE_WARN = 3;
+export const DEPARTURE_QUEUE_ALERT = 6;
 
 /**
  * Take-off acceleration on the ground, before `budgetScale`. Chosen so a medium

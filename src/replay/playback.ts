@@ -218,7 +218,7 @@ function aircraftAt(track: Track, frame: number): Aircraft {
 function sessionAt(
   rec: Recording,
   frame: number,
-): { flowPerHour: number; departureFlowPerHour: number; stats: Stats } {
+): { flowPerHour: number; departureFlowPerHour: number; departureQueue: number; stats: Stats } {
   let lo = 0;
   let hi = rec.session.length - 1;
   let found = -1;
@@ -232,10 +232,13 @@ function sessionAt(
     }
   }
   const snapshot = found >= 0 ? rec.session[found] : rec.session[0];
-  if (!snapshot) return { flowPerHour: 0, departureFlowPerHour: 0, stats: EMPTY_STATS };
+  if (!snapshot) {
+    return { flowPerHour: 0, departureFlowPerHour: 0, departureQueue: 0, stats: EMPTY_STATS };
+  }
   return {
     flowPerHour: snapshot.flowPerHour,
     departureFlowPerHour: snapshot.departureFlowPerHour,
+    departureQueue: snapshot.departureQueue,
     stats: snapshot.stats,
   };
 }
@@ -263,7 +266,7 @@ export function worldAtFrame(
     if (trackCoversFrame(track, frame)) aircraft.push(aircraftAt(track, frame));
   }
   const timeS = frameTimeS(frame);
-  const { flowPerHour, departureFlowPerHour, stats } = sessionAt(rec, frame);
+  const { flowPerHour, departureFlowPerHour, departureQueue, stats } = sessionAt(rec, frame);
 
   return {
     timeS,
@@ -282,6 +285,7 @@ export function worldAtFrame(
       gateLastSpawnS: new Map(),
       nextId: 0,
       nextDepartureAtS: Infinity,
+      departureQueue,
       lastDepartureS: null,
       lastLandingS: null,
     },

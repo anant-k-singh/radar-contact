@@ -6,8 +6,9 @@
  * colours and DPR handling — and so the gutter they live in is the same number
  * the projection reserved for them.
  */
+import { DEPARTURE_QUEUE_ALERT, DEPARTURE_QUEUE_WARN } from '../sim/constants.js';
 import type { World } from '../sim/world.js';
-import { departureRatePerHour, landingRatePerHour } from '../sim/world.js';
+import { departureQueueLength, departureRatePerHour, landingRatePerHour } from '../sim/world.js';
 import { STATS_GUTTER_PX, type Projection } from './project.js';
 import { THEME } from './theme.js';
 
@@ -36,6 +37,7 @@ function rows(world: World): Row[] {
   const stats = world.stats;
   const rate = landingRatePerHour(world);
   const depRate = departureRatePerHour(world);
+  const queued = departureQueueLength(world);
   const missed = tally(stats.missedIntercepts);
   // On final is a live sequence count rather than a session tally, but it is the
   // number looked at most often, so it leads the block instead of sitting alone
@@ -51,6 +53,16 @@ function rows(world: World): Row[] {
     // tight final starving them (§4.7).
     { label: 'DEPARTURES', value: String(stats.departures) },
     { label: 'DEP RATE', value: depRate === null ? '—' : `${depRate.toFixed(1)}/h` },
+    // The queue holding short. It is the only stat here that is *caused* by the
+    // player without being about them: they cannot move a departure, but the
+    // gaps they leave on final are what lets one go, so a queue that keeps
+    // growing is arrival spacing read from the runway's side (§8.2).
+    {
+      label: 'DEP QUEUE',
+      value: String(queued),
+      tone:
+        queued > DEPARTURE_QUEUE_ALERT ? 'bad' : queued > DEPARTURE_QUEUE_WARN ? 'warn' : undefined,
+    },
     { label: 'HANDED OFF', value: String(stats.handoffs) },
     {
       label: 'VIOLATIONS',

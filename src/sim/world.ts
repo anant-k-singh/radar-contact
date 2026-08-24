@@ -234,6 +234,17 @@ export function departureRatePerHour(world: World): number | null {
   return ratePerHour(world, world.stats.departureTimesS);
 }
 
+/**
+ * How many departures are holding short waiting for the runway (§8.2).
+ *
+ * Read alongside `DEP RATE`: the rate says what the runway got away, and this
+ * says what it owes. A queue that only grows is a final that never gives the
+ * runway back.
+ */
+export function departureQueueLength(world: World): number {
+  return world.traffic.departureQueue;
+}
+
 /** Projected in-trail spacing when the aircraft ahead reaches the threshold (§9.3). */
 export function projectedSpacingNm(follower: Aircraft, leader: Aircraft): Nm {
   const followerAlong = finalGeometry(follower).alongNm;
@@ -390,42 +401,41 @@ export function step(world: World, dt: Sec): void {
   }
 
   // ── Departures ───────────────────────────────────────────────────────────
-  // Released off the runway rather than handed over at a gate, and only when the
-  // runway is free (§4.7). A release blocked by traffic stays pending: the
-  // departure still goes, just behind whatever is using the runway.
+  // Two separate things, and keeping them apart is the point (§4.7). The flow
+  // decides how often a departure turns up at the holding point; the *runway*
+  // decides when one rolls. What sits between the two is a queue, and its
+  // length is the player's arrival spacing measured from the other side.
   if (world.timeS >= world.traffic.nextDepartureAtS) {
-    if (world.departureFlowPerHour <= 0) {
-      scheduleNextDeparture(world.traffic, world.departureRng, world.timeS, 0);
-    } else {
-      const departure = tryDeparture(
-        world.departureRng,
-        world.traffic,
-        world.aircraft,
-        world.timeS,
+    if (world.departureFlowPerHour > 0) world.traffic.departureQueue += 1;
+    scheduleNextDeparture(world.traffic, world.timeS, world.departureFlowPerHour);
+  }
+
+  // The head of the queue takes the runway the moment it is free, which is any
+  // tick at all rather than only the ones the flow lands on — a departure held
+  // for landing traffic goes as soon as that traffic is out of the way, not at
+  // the next scheduled release. A queue built while the flow was on still
+  // drains after it is turned off: those aircraft are already at the threshold.
+  if (world.traffic.departureQueue > 0) {
+    const departure = tryDeparture(world.departureRng, world.traffic, world.aircraft, world.timeS);
+    if (departure) {
+      world.traffic.departureQueue -= 1;
+      world.aircraft.push(departure);
+      world.stats.departureTimesS.push(world.timeS);
+      trimToRateWindow(world.stats.departureTimesS, world.timeS);
+      const route = departure.sid!.route;
+      // The turn is worth saying while the aircraft is still on the ground:
+      // it is the one moment the player can see a departure coming before it
+      // is anywhere, and which way it goes is what they plan around.
+      const out = route.turn === 'straight' ? 'straight out' : `${route.turn} turn out`;
+      const waiting =
+        world.traffic.departureQueue > 0 ? ` ${world.traffic.departureQueue} more holding.` : '';
+      log(
+        world,
+        `${departure.callsign} (${departure.type.code}) rolling runway ${AIRPORT.runway.id}, ` +
+          `${route.name} departure — ${out}.${waiting}`,
+        'system',
+        [departure.id],
       );
-      if (departure) {
-        world.aircraft.push(departure);
-        world.stats.departureTimesS.push(world.timeS);
-        trimToRateWindow(world.stats.departureTimesS, world.timeS);
-        scheduleNextDeparture(
-          world.traffic,
-          world.departureRng,
-          world.timeS,
-          world.departureFlowPerHour,
-        );
-        const route = departure.sid!.route;
-        // The turn is worth saying while the aircraft is still on the ground:
-        // it is the one moment the player can see a departure coming before it
-        // is anywhere, and which way it goes is what they plan around.
-        const out = route.turn === 'straight' ? 'straight out' : `${route.turn} turn out`;
-        log(
-          world,
-          `${departure.callsign} (${departure.type.code}) rolling runway ${AIRPORT.runway.id}, ` +
-            `${route.name} departure — ${out}.`,
-          'system',
-          [departure.id],
-        );
-      }
     }
   }
 

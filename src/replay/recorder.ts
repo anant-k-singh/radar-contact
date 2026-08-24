@@ -98,6 +98,8 @@ export interface SessionSnapshot {
   frame: number;
   flowPerHour: number;
   departureFlowPerHour: number;
+  /** Departures holding short — a live gauge, not a tally, so it is recorded. */
+  departureQueue: number;
   stats: Stats;
 }
 
@@ -353,6 +355,7 @@ function sessionChanged(last: SessionSnapshot, world: World): boolean {
   return (
     last.flowPerHour !== world.flowPerHour ||
     last.departureFlowPerHour !== world.departureFlowPerHour ||
+    last.departureQueue !== world.traffic.departureQueue ||
     a.landings !== b.landings ||
     a.departures !== b.departures ||
     a.departureTimesS.length !== b.departureTimesS.length ||
@@ -379,6 +382,7 @@ function recordSession(rec: Recording, world: World, frame: number): void {
     frame,
     flowPerHour: world.flowPerHour,
     departureFlowPerHour: world.departureFlowPerHour,
+    departureQueue: world.traffic.departureQueue,
     stats: cloneStats(world.stats),
   });
 }

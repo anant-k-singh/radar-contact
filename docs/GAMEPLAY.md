@@ -55,8 +55,15 @@ against you exactly like any other, because the arrival is the half you could ha
 lines on the scope are the thing to keep the base turn clear of.
 
 You cannot help a departure and you cannot delay one. What you *do* control is the runway: no
-departure rolls while you have an arrival inside 4 NM on final, so a tight sequence quietly starves
-them, and a gap lets one go.
+departure rolls while you have an arrival inside 3 NM on final, or for a minute after one lands, and
+two departures are never less than 90 seconds apart. A tight sequence quietly starves them; a gap
+lets one go.
+
+**They queue.** A departure that cannot roll does not disappear — it waits at the holding point, and
+the next one lines up behind it. `DEP QUEUE` in the stats gutter is how many are stacked up there.
+It goes **amber above three** and **red above six**, and that is the only feedback you get on the
+half of the runway you are not looking at. Nothing scores it, but a queue that climbs all session is
+an arrival sequence that has taken the runway over.
 
 ## Reading the scope
 
@@ -235,6 +242,7 @@ The gutter on the right keeps a running account:
 | `RATE` | Landings per hour over the last 10 minutes of sim time |
 | `DEPARTURES` | Departures that got airborne and away on their SID |
 | `DEP RATE` | Departures off the runway per hour, over the same 10 minutes. Compare it with the `DEP` figure in the status line: the gap is what your final approach is costing them |
+| `DEP QUEUE` | How many are holding short waiting for the runway right now. Amber above 3, red above 6 |
 | `HANDED OFF` | Transferred to Tower |
 | `VIOLATIONS` | Separation losses, and the total seconds spent inside one |
 | `GO-AROUNDS` | Approaches that broke off inside 5 NM |

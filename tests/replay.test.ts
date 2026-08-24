@@ -17,7 +17,14 @@ import { activeSidFix } from '../src/sim/departure.js';
 import { createDeparture, createTrafficState } from '../src/sim/traffic.js';
 import { createRng } from '../src/sim/rng.js';
 import { activeFix } from '../src/sim/star.js';
-import { createWorld, log, messagesFor, step, type World } from '../src/sim/world.js';
+import {
+  createWorld,
+  departureQueueLength,
+  log,
+  messagesFor,
+  step,
+  type World,
+} from '../src/sim/world.js';
 import { createPlayback, pathFor, worldAtFrame } from '../src/replay/playback.js';
 import {
   createRecording,
@@ -533,5 +540,21 @@ describe('replaying a departure', () => {
     });
     expect(early.departureFlowPerHour).toBe(15);
     expect(late.departureFlowPerHour).toBe(5);
+  });
+
+  it('carries the hold-short queue, which has no aircraft to rebuild it from', () => {
+    // The queue is a live gauge rather than a tally, and the aircraft in it are
+    // not on the scope, so nothing in a rebuilt frame could recompute it — it
+    // has to be in the snapshot or the replay's stats gutter reads zero (§4.7).
+    const world = createWorld(11, 25, 20);
+    const rec = recorded(world, 10);
+    world.traffic.departureQueue = 4;
+    // Hold the runway so the queue is still four deep when the frame is taken.
+    world.traffic.lastLandingS = world.timeS;
+    runRecorded(world, rec, 10);
+
+    const view = { selectedId: null, paused: true, timeScale: 1 };
+    expect(departureQueueLength(worldAtFrame(rec, frameAtTimeS(5), view))).toBe(0);
+    expect(departureQueueLength(worldAtFrame(rec, frameAtTimeS(19), view))).toBe(4);
   });
 });

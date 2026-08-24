@@ -661,26 +661,62 @@ aircraft on the ground must not turn, climb or gain TAS with altitude. It rotate
 35 s and 0.7 NM for a medium, 50 s and 1.1 NM for a heavy — both comfortably inside the 1.6 NM
 runway.
 
-#### One runway, shared
+#### One runway, shared, and the hold-short queue
 
-The runway is shared with the arrivals, so a departure is held while:
+**The flow and the runway are two separate things, and keeping them apart is the model.** The flow
+decides how often a departure turns up at the holding point; the runway decides when one rolls.
+Between them sits a **queue**, and its length is the player's arrival spacing read from the other
+side.
 
-- an arrival is inside **4 NM on final**, or
+A departure joins the queue on the flow interval whatever the runway is doing, and never gives up
+its place. The one at the head takes the runway on *any* tick it is free — not on the next scheduled
+release — so a departure held for landing traffic goes the moment that traffic is out of the way. A
+queue built while the flow was on still drains after it is turned back off: those aircraft are
+already at the threshold.
+
+The queue is a **count**, not a list of aircraft. Nothing observes a departure before it rolls — it
+is not on the scope, not on a frequency, and has no callsign anyone can read — so the type, callsign
+and SID are drawn at the release instead, and the state is exactly as large as it needs to be. It is
+also the one *live* number in the stats gutter that no rebuilt replay frame could recompute, so it
+is recorded in the session snapshot alongside the flow settings (§17).
+
+The head of the queue is held while:
+
+- an arrival is inside **3 NM on final**, or
 - a landing aircraft is still rolling out — **60 s** after touchdown, or
-- the previous departure went less than **2 minutes** ago (the ICAO Doc 4444
-  medium-behind-heavy interval, which binds long before the Poisson stream does), or
+- the previous departure rolled less than **90 s** ago, or
 - anything is still on the runway.
 
-A blocked release stays *pending* rather than being skipped: the departure still goes, just behind
-whatever is using the runway. This is what makes the departure flow a request rather than a promise
-— run a tight arrival sequence and the departures back up behind it, exactly as they do in life.
+**Why 3 NM.** The real rule is not a distance at all: the departure has to be *airborne before the
+landing aircraft crosses the threshold*. Expressing it as a distance works because an arrival is at
+its approach speed inside `FINAL_SPEED_NM` — 140 kt for a medium, 145 for a heavy — so 3 NM is 73 to
+76 s of flying, against a take-off roll of 34–36 s for a medium and 43–49 s for a heavy. Measured
+over every departure type against every arrival type, the departure is off the ground with **24 to
+42 s** in hand; the worst case is a B77W rolling under a heavy arrival. `tests/departure.test.ts`
+flies all 36 combinations and asserts both that the arrival has not landed and that the margin is
+comfortably positive, rather than trusting the arithmetic.
+
+**Why 90 s between departures.** It covers the wake-turbulence minimum behind a medium and the time
+the first aircraft needs to be airborne and clear. It caps the runway at 40 departures an hour,
+comfortably above the 20/h the player can ask for — which is deliberate: it means a growing queue is
+always the *arrivals* eating the runway, never the release interval itself. An arrival landing
+between two departures adds its own 60 s rolling-out interval on top.
+
+This is what makes the departure flow a request rather than a promise — run a tight arrival sequence
+and the departures back up behind it, exactly as they do in life.
 
 #### Flow, and what the player can and cannot do
 
 Departure flow is set separately from the arrival flow, **0–20/h in steps of 5**, default 10/h; zero
-switches departures off entirely. It draws on a **third** seeded stream (`world.departureRng`)
-alongside the traffic and pilot streams (§4.4), so `?seed=` reproduces the same *arrival* problem
-whatever the departure flow is set to — asserted in `tests/departure.test.ts`.
+switches departures off entirely. Unlike the arrivals it is **not** a Poisson stream: 20/h means one
+joining the queue every three minutes, exactly. The arrivals are random because Center's delivery is
+the problem the player is given; the departures are an airline schedule. It also makes the queue
+mean something — it grows because the runway is not releasing, never because the generator happened
+to clump.
+
+The type, callsign and SID still come from a **third** seeded stream (`world.departureRng`) drawn at
+the release, alongside the traffic and pilot streams (§4.4), so `?seed=` reproduces the same
+*arrival* problem whatever the departure flow is set to — asserted in `tests/departure.test.ts`.
 
 The player has no authority over a departure at all. `isControllable` is false for one, every
 command refuses with "is with Departure — not on your frequency", and Tab skips them: Tab is how
@@ -944,6 +980,9 @@ The session is endless; the score is a running quality report, not a life counte
 | Track-mile efficiency | Actual track miles flown ÷ straight-line distance from gate to threshold, averaged |
 | Clearance rejections | Failed `C` attempts, by reason — the learning signal |
 | Missed intercepts | Clearances accepted that then failed the §6.1a window at the localizer, by reason |
+| Departures | Departures that got airborne and left the area on their SID (§4.7) |
+| Departure rate | Departures per hour off the runway, over the same trailing 12 minutes (§8.2) |
+| Departure queue | How many are holding short right now — amber above **3**, red above **6** (§8.2) |
 
 ### 8.2 Landing rate
 
@@ -955,6 +994,18 @@ Landings inside the window are counted and extrapolated over however much of it 
 minute 5 three landings read as 36/h rather than 18/h. Below **2 minutes** elapsed the sample is too
 short to extrapolate honestly and the field reads `—`. A quiet twelve minutes decays the rate to 0/h
 while the `Landings` total stands, which is the point of having both.
+
+The **departure rate** is the same measure on the other movement, and is timed at the take-off
+*roll* rather than at the airspace exit that the `Departures` total counts — the rate is about what
+the runway got away, and an exit happens eight minutes downstream of the runway decision that caused
+it.
+
+The **departure queue** is neither: it is a live gauge, not a windowed rate. It is the one number
+here that is caused by the player without being about them — they have no authority over a
+departure, but the gaps they leave on final are what releases one, so a queue that only grows is a
+final that has stopped giving the runway back. It turns **amber above 3** and **red above 6**: three
+deep is a final working the runway hard, six deep is one that has taken it over. Neither tier costs
+anything — nothing scores a departure yet (§15.11) — they are there to be noticed.
 
 ---
 
@@ -1216,7 +1267,7 @@ for the architecture.
 | What a SID publishes | **Restrictions, not a profile.** A STAR is a descent profile the aircraft is flown onto; a SID is a set of crossings with the aircraft's own performance in between. Modelling it as a profile would have meant inventing climb gradients that no chart carries (§4.7) |
 | Where the crossing restriction ends | **Five miles past the crossing, not at it.** Releasing the climb at the crossing puts the departure back inside 1000 ft of the arrival route three miles later, which is a violation by our own rule — measured at 980 ft. No crossing altitude fixes it either, since the downwind tops out at 7000: the geometry decides, so the `at or below` is carried by a fix beyond the conflict (§4.7) |
 | Departures and separation | **Full radar separation, and violations count.** Advisory-only alerts were the alternative, on the grounds that the player cannot instruct a departure — but that is exactly why it counts: the arrival is the half they *can* move (§9.4) |
-| The runway | **Shared, and it holds departures.** Arrival inside 4 NM on final, or a landing rolling out, blocks the release; the departure goes late rather than not at all. The set flow is therefore an upper bound that a busy final eats into (§4.7) |
+| The runway | **Shared, and it holds departures.** Arrival inside 3 NM on final, or a landing rolling out, blocks the release; the departure joins a hold-short queue and goes late rather than not at all. The set flow is therefore an upper bound that a busy final eats into, and the queue length is what shows it (§4.7) |
 | Climb performance | **Per type, from the EUROCONTROL APD.** Everything else in the model is two performance classes, and stays that way — but the whole airspace sits inside the APD's initial-climb band, so for departures there is real per-type data covering exactly the regime flown (§4.7) |
 | A third random stream | **Yes**, alongside traffic and pilot reaction. `?seed=` has to mean the same arrival problem whatever the departure flow is set to (§4.4) |
 
@@ -1260,17 +1311,19 @@ None of these blocks play; each is a small, contained change.
 8. **The two north routes end pointing at each other** at the same level, 4 NM apart. Deliberate —
    it is the sequencing problem — but if it proves unfair rather than hard, staggering ARDIS and
    BOXAR by 1000 ft is a one-line change.
-11. **Departures are still unscored** (§4.7). The `DEP RATE` row now *shows* what the runway got
-    away against what was asked for, so starving the departures is at least visible — but nothing
-    counts it. Folding the shortfall into the session's quality figures would make the runway a
+11. **Departures are still unscored** (§4.7). The `DEP RATE` and `DEP QUEUE` rows now *show* what
+    the runway got away against what was asked for, and what is stacked up behind it, so starving
+    the departures is visible and colour-coded — but nothing counts it. Folding the shortfall into the session's quality figures would make the runway a
     resource to balance rather than one to monopolise.
 12. **A departure is never re-routed** (A12). Real departures get level stops, radar vectors and
     "climb unrestricted" from Departure Control as the arrival picture changes. Modelling any of
     that would make the amber lines a prediction rather than a promise — which is more realistic
     and considerably less learnable.
 13. **Both turning SIDs share NORVU**, so a west and an east departure fly the same 3 NM of track.
-    The two-minute release interval means they are never close, but if the departure flow is ever
-    raised past 20/h that stops being true and each SID needs its own initial fix.
+    The 90 s release interval means they are never close — at the 165–200 kt of an initial climb
+    that is 4 NM or more of in-trail spacing, and the two-hour saturated soak finds no departure
+    pair at all — but the margin is smaller than it was at two minutes, and if the release interval
+    is ever shortened again each SID needs its own initial fix.
 14. **The conflict predictor takes its two minima independently** (§9.2): the closest horizontal
     approach in the look-ahead window and the closest vertical approach, whether or not they happen
     at the same moment. That was harmless while everything in the airspace was descending inbound,
@@ -1336,7 +1389,9 @@ What each sample holds is *what the display reads*: live position, altitude, hea
 1 Hz radar sample as its own set of figures (§5); the three assigned targets; and one packed
 integer for phase, alert level, handoff, route index and the manual/pending flags. Session stats
 and the message log are recorded on the side — stats only when they change, which is a handful of
-times a session.
+times a session. The two flow settings and the **hold-short queue length** ride along in the same
+snapshot: the queue is displayed but has no aircraft anywhere in the recording to be rebuilt from
+(§4.7), so it is stored rather than recomputed.
 
 Everything derivable is **not** recorded and is recomputed at playback from the real sim functions:
 final-approach geometry, in-trail spacing, the clearance preview, the landing rate. A recording

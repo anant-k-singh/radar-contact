@@ -1,8 +1,9 @@
 /**
  * Traffic generation (docs §4.4, §4.7). Poisson arrivals at the entry gates,
  * with a per-gate cooldown and a conflict veto so Center never hands over a
- * problem — and Poisson departures off the runway, gated by whether the runway
- * is free rather than by anything to do with the gates.
+ * problem — and departures off the runway on a fixed schedule, queued at the
+ * holding point and released by whether the runway is free rather than by
+ * anything to do with the gates.
  */
 import { AIRCRAFT_TYPES } from '../scenario/aircraftTypes.js';
 import { AIRLINES } from '../scenario/airlines.js';
@@ -31,8 +32,17 @@ export interface TrafficState {
   nextSpawnAtS: Sec;
   gateLastSpawnS: Map<string, Sec>;
   nextId: number;
-  /** When the next departure may be released, subject to the runway being free. */
+  /** When the next departure joins the hold-short queue. */
   nextDepartureAtS: Sec;
+  /**
+   * Departures holding short, waiting for the runway (§4.7).
+   *
+   * A count rather than a list of aircraft: nothing observes a departure before
+   * it rolls — it is not on the scope, not on a frequency and has no callsign
+   * anyone can read — so the type, callsign and SID are drawn at the release
+   * instead, and the queue is exactly as much state as it needs to be.
+   */
+  departureQueue: number;
   /** Sim time the last departure began its roll, for the wake-turbulence interval. */
   lastDepartureS: Sec | null;
   /** Sim time of the last landing, for the runway-vacated interval. */
@@ -45,6 +55,7 @@ export function createTrafficState(): TrafficState {
     gateLastSpawnS: new Map(),
     nextId: 1,
     nextDepartureAtS: 0,
+    departureQueue: 0,
     lastDepartureS: null,
     lastLandingS: null,
   };
@@ -179,30 +190,34 @@ export function trySpawn(
 
 // ── Departures (§4.7) ───────────────────────────────────────────────────────
 
-/** Exponential inter-departure interval, floored at the wake-turbulence minimum. */
-export function scheduleNextDeparture(
-  state: TrafficState,
-  rng: Rng,
-  timeS: Sec,
-  flowPerHour: number,
-): void {
+/**
+ * When the next departure joins the queue — the flow interval exactly, not a
+ * Poisson draw.
+ *
+ * The arrivals are random because Center's delivery is the problem the player
+ * is given; the departures are an airline schedule, and 20 an hour means one
+ * every three minutes. It also makes the queue mean something: it grows because
+ * the runway is not releasing, never because the generator happened to clump.
+ */
+export function scheduleNextDeparture(state: TrafficState, timeS: Sec, flowPerHour: number): void {
   if (flowPerHour <= 0) {
     // Nothing is scheduled while the flow is off, but the spawner still has to
     // be woken periodically or turning the flow back up would do nothing.
     state.nextDepartureAtS = timeS + DEPARTURE_FLOW_IDLE_RECHECK_S;
     return;
   }
-  const mean = 3600 / flowPerHour;
-  state.nextDepartureAtS = timeS + Math.max(DEPARTURE_MIN_INTERVAL_S, rng.exponential(mean));
+  state.nextDepartureAtS = timeS + 3600 / flowPerHour;
 }
 
 /**
- * Why a departure cannot roll right now, or null when the runway is free.
+ * Why the departure at the head of the queue cannot roll right now, or null
+ * when the runway is free.
  *
  * One runway, shared with the arrivals (§4.7): an aircraft on short final owns
  * it, and a landing one owns it until it has vacated. This is the coupling that
  * makes the departure flow a request rather than a promise — run a tight
- * arrival sequence and the departures back up behind it.
+ * arrival sequence and the departures back up behind it, which is what the
+ * queue length in the stats gutter is showing.
  */
 export function runwayBlockedBy(
   state: TrafficState,
@@ -292,9 +307,12 @@ export function createDeparture(
 }
 
 /**
- * Release one departure if the runway is free. Returns null when it is not, in
- * which case the caller keeps the release pending rather than skipping it — a
- * departure held for traffic still goes, just later.
+ * Release the departure at the head of the queue if the runway is free. Returns
+ * null when it is not, and the caller leaves it in the queue: a departure held
+ * for traffic still goes, just later.
+ *
+ * The random stream is only drawn on once the release is certain, so a hundred
+ * blocked ticks do not shift the type or the SID the departure ends up with.
  */
 export function tryDeparture(
   rng: Rng,

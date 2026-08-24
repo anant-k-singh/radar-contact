@@ -11,15 +11,24 @@ import {
   DEPARTURE_TOP_FT,
   DEPARTURE_HOLD_FINAL_NM,
   DEPARTURE_MIN_INTERVAL_S,
+  GS_FT_PER_NM,
   MOVEMENT_RATE_WINDOW_S,
   PHYSICS_DT,
   SEP_HORIZ_NM,
   SEP_VERT_FT,
 } from '../src/sim/constants.js';
+import { groundSpeed } from '../src/sim/dynamics.js';
+import { finalGeometry } from '../src/sim/ils.js';
 import { createRng } from '../src/sim/rng.js';
 import { createDeparture, createTrafficState, runwayBlockedBy } from '../src/sim/traffic.js';
 import { distance, type Point } from '../src/sim/units.js';
-import { createWorld, departureRatePerHour, step, type World } from '../src/sim/world.js';
+import {
+  createWorld,
+  departureQueueLength,
+  departureRatePerHour,
+  step,
+  type World,
+} from '../src/sim/world.js';
 import { makeAircraft, onFinalApproach, quietWorld, run } from './helpers.js';
 
 const sidNamed = (name: string): Sid => SIDS.find((sid) => sid.name === name)!;
@@ -414,6 +423,52 @@ describe('the shared runway', () => {
     expect(runwayBlockedBy(world.traffic, world.aircraft, 0)).toBe('runway occupied');
   });
 
+  it('gets every type airborne before an arrival released at 3 NM reaches the threshold', () => {
+    // The rule the 3 NM is standing in for: a departure has to be off the ground
+    // before the landing aircraft crosses the threshold behind it (§4.7). The
+    // arrival is placed at exactly the release distance, on the glideslope at
+    // its approach speed — the limiting case, since one an inch further out is
+    // what actually unblocks the runway.
+    let worstMarginS = Infinity;
+    let worstCase = '';
+    for (const depType of AIRCRAFT_TYPES) {
+      for (const arrType of AIRCRAFT_TYPES) {
+        const arrival = makeAircraft({
+          ...onFinalApproach(DEPARTURE_HOLD_FINAL_NM),
+          type: arrType,
+          phase: 'gs',
+          altitudeFt: DEPARTURE_HOLD_FINAL_NM * GS_FT_PER_NM,
+          headingDeg: AIRPORT.runway.courseDeg,
+          iasKts: arrType.vappKts,
+        });
+        const { ac: dep } = departure(sidNamed('RAMOX1A'), depType);
+        const world = quietWorld(arrival, dep);
+
+        while (dep.phase === 'roll' && world.timeS < 300) step(world, PHYSICS_DT);
+        expect(dep.phase, `${depType.code} never rotated`).toBe('climb');
+
+        // Still airborne itself, so it has not reached the threshold: the
+        // landing is what removes it from the scope.
+        expect(
+          world.aircraft,
+          `${arrType.code} landed over ${depType.code} while it was still rolling`,
+        ).toContain(arrival);
+
+        const marginS = finalGeometry(arrival).alongNm / (groundSpeed(arrival) / 3600);
+        expect(marginS).toBeGreaterThan(0);
+        if (marginS < worstMarginS) {
+          worstMarginS = marginS;
+          worstCase = `${depType.code} rolling under a ${arrType.code}`;
+        }
+      }
+    }
+    // Not just positive but comfortable, so a retune of either the distance or
+    // the take-off acceleration cannot quietly eat the margin down to nothing.
+    expect(worstMarginS, `worst case ${worstCase}: ${worstMarginS.toFixed(1)} s`).toBeGreaterThan(
+      10,
+    );
+  });
+
   it('is not a radar separation problem while the departure is on the runway', () => {
     // An arrival landing over an aircraft that is still rolling is the tower's
     // business, not ours (§9.4) — it must not be logged as a violation.
@@ -453,6 +508,61 @@ describe('departure flow', () => {
     run(world, 120);
     expect(world.aircraft.length).toBeGreaterThan(0);
     expect(world.aircraft.every(isDeparture)).toBe(true);
+  });
+
+  it('joins the queue on the flow interval whatever the runway is doing', () => {
+    const world = quietWorld();
+    world.departureFlowPerHour = 20;
+    world.traffic.nextDepartureAtS = 0;
+
+    // Hold the runway for the whole ten minutes: something has always just
+    // landed on it. Nothing rolls, and the departures stack up at the threshold
+    // rather than being skipped.
+    for (let i = 0; i < 600 / PHYSICS_DT; i += 1) {
+      world.traffic.lastLandingS = world.timeS;
+      step(world, PHYSICS_DT);
+    }
+    expect(world.aircraft).toHaveLength(0);
+    // 20/h is one every three minutes, exactly — the first at the opening tick.
+    expect(departureQueueLength(world)).toBe(4);
+
+    // Give the runway back and the queue drains at the *departure* interval,
+    // which is faster than the flow that filled it.
+    const queued = departureQueueLength(world);
+    run(world, 400);
+    expect(world.aircraft.length).toBeGreaterThanOrEqual(3);
+    expect(world.aircraft.every(isDeparture)).toBe(true);
+    expect(departureQueueLength(world)).toBeLessThan(queued);
+  });
+
+  it('keeps 90 s between rolls when nothing lands in between', () => {
+    const world = quietWorld();
+    world.departureFlowPerHour = 20;
+    world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
+    // A queue deep enough that the flow interval is never what is limiting.
+    world.traffic.departureQueue = 10;
+
+    run(world, 600);
+    const rolls = world.stats.departureTimesS;
+    expect(rolls.length).toBeGreaterThan(4);
+    for (let i = 1; i < rolls.length; i += 1) {
+      expect(rolls[i]! - rolls[i - 1]!).toBeGreaterThanOrEqual(DEPARTURE_MIN_INTERVAL_S - PHYSICS_DT);
+    }
+    // And the queue really was the source of them.
+    expect(departureQueueLength(world)).toBe(10 - rolls.length);
+  });
+
+  it('drains a queue that was built before the flow was turned off', () => {
+    const world = quietWorld();
+    world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
+    world.traffic.departureQueue = 2;
+    world.departureFlowPerHour = 0;
+
+    run(world, 200);
+    // Already at the holding point, so they still go — the flow only decides
+    // whether anyone new turns up.
+    expect(world.aircraft).toHaveLength(2);
+    expect(departureQueueLength(world)).toBe(0);
   });
 
   it('reports a departure rate against what the runway actually released', () => {
