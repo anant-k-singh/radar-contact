@@ -4,7 +4,7 @@
  * happens here is limited to the refusals the controller hears immediately.
  */
 import type { Aircraft } from './aircraft.js';
-import { isControllable } from './aircraft.js';
+import { isControllable, isDeparture } from './aircraft.js';
 import {
   ALTITUDE_STEP_FT,
   CEILING_FT,
@@ -41,6 +41,12 @@ export function speedFloorKts(ac: Aircraft): number {
 }
 
 function guard(world: World, ac: Aircraft): boolean {
+  if (isDeparture(ac)) {
+    // Not ours and never was: a departure is worked by Departure Control from
+    // the moment it rolls (§4.7).
+    log(world, `${ac.callsign} is with Departure — not on your frequency.`, 'system', [ac.id]);
+    return false;
+  }
   if (!isControllable(ac)) {
     log(world, `${ac.callsign} is on Tower frequency now.`, 'system', [ac.id]);
     return false;
@@ -157,11 +163,16 @@ export function clearForIls(world: World, ac: Aircraft): void {
  * The next aircraft in the cycle, by distance to the threshold, nearest first.
  * Returned rather than assigned, since replay holds the selection outside the
  * world it is looking at (§17.2).
+ *
+ * Departures are skipped. Tab is how the player reaches the aircraft they are
+ * about to instruct, and stepping through traffic that takes no instructions is
+ * a key press wasted every time — at 20 departures an hour, often. They are
+ * still selectable by clicking, which is how you read one's altitude.
  */
 export function nextSelectableId(world: World): number | null {
-  const ordered = [...world.aircraft].sort(
-    (a, b) => rangeToThresholdNm(a) - rangeToThresholdNm(b),
-  );
+  const ordered = world.aircraft
+    .filter((ac) => !isDeparture(ac))
+    .sort((a, b) => rangeToThresholdNm(a) - rangeToThresholdNm(b));
   if (ordered.length === 0) return null;
   const index = ordered.findIndex((ac) => ac.id === world.selectedId);
   return ordered[(index + 1) % ordered.length]!.id;

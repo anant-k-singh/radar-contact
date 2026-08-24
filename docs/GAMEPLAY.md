@@ -23,10 +23,37 @@ Procedures follow standard radar-control practice. Every number below is derived
 | `Space` | Pause · `1` `2` `4` `8` time rate · `Esc` deselect |
 | `←` / `→` | Skip 10 s back / forward — replay only (see below) |
 
-Click a blip or its data block to select it. **Flow −/+** in the sidebar sets arrivals per hour
-(5–50, default 25) — turn it down to learn the field, up when you want to be buried.
+Click a blip or its data block to select it. **Arr −/+** in the sidebar sets arrivals per hour
+(5–50, default 25) — turn it down to learn the field, up when you want to be buried. **Dep −/+**
+sets departures per hour (0–20, default 10); `off` gives you the arrivals-only field.
 
 `?seed=1234` in the URL reproduces a session exactly, down to the pilot reaction times.
+
+## The departures
+
+Runway 18 departs as well as lands, and those aircraft are **not yours**. They belong to Departure
+Control: they are drawn in the muted grey the scope uses for anything you cannot instruct, tagged
+`DEP`, and they ignore you completely.
+
+They fly one of three published SIDs, drawn on the scope in amber:
+
+| SID | Where it goes | The restriction |
+| --- | --- | --- |
+| `SABAR1A` | Turns right, out to the west | At or below **3500** until VELSA, then 12,000 |
+| `KIROS1A` | Turns left, out to the east | At or below **3500** until ZANDU, then 12,000 |
+| `RAMOX1A` | Straight ahead, out to the south | None — it just climbs |
+
+The two turning departures cross the RIMOL and TEMBA downwinds, which is why they are held at 3500:
+underneath your arrivals, which are at 5800 or so at that point. As published, the two never touch.
+
+**But your arrivals are only where you left them.** Vector one south of the field and the departure
+corridor is waiting there, at 3500 climbing to 12,000 — and a bust against a departure counts
+against you exactly like any other, because the arrival is the half you could have moved. The amber
+lines on the scope are the thing to keep the base turn clear of.
+
+You cannot help a departure and you cannot delay one. What you *do* control is the runway: no
+departure rolls while you have an arrival inside 4 NM on final, so a tight sequence quietly starves
+them, and a gap lets one go.
 
 ## Reading the scope
 
@@ -203,6 +230,7 @@ The gutter on the right keeps a running account:
 | `ON FINAL` | Aircraft currently established on the localizer or glideslope |
 | `LANDINGS` | Completed landings |
 | `RATE` | Landings per hour over the last 10 minutes of sim time |
+| `DEPARTURES` | Departures that got airborne and away on their SID |
 | `HANDED OFF` | Transferred to Tower |
 | `VIOLATIONS` | Separation losses, and the total seconds spent inside one |
 | `GO-AROUNDS` | Approaches that broke off inside 5 NM |

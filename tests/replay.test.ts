@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { SIDS } from '../src/scenario/sids.js';
 import { STARS } from '../src/scenario/stars.js';
 import {
   HISTORY_PERIOD_S,
@@ -11,6 +12,10 @@ import {
 } from '../src/sim/constants.js';
 import { adjustAltitude, toggleHold } from '../src/sim/commands.js';
 import { assignedAltitudeFt, assignedHeadingDeg, isPending } from '../src/sim/pilot.js';
+import { isDeparture } from '../src/sim/aircraft.js';
+import { activeSidFix } from '../src/sim/departure.js';
+import { createDeparture, createTrafficState } from '../src/sim/traffic.js';
+import { createRng } from '../src/sim/rng.js';
 import { activeFix } from '../src/sim/star.js';
 import { createWorld, log, messagesFor, step, type World } from '../src/sim/world.js';
 import { createPlayback, pathFor, worldAtFrame } from '../src/replay/playback.js';
@@ -462,5 +467,71 @@ describe('frame arithmetic', () => {
     // The nearest frame, so a scrub lands on a sample rather than between two.
     expect(frameAtTimeS(1.09)).toBe(5);
     expect(frameAtTimeS(1.11)).toBe(6);
+  });
+});
+
+describe('replaying a departure', () => {
+  /** A world holding exactly one departure, rolling from the threshold. */
+  function departingWorld() {
+    const world = quietWorld();
+    const ac = createDeparture(createRng(3), createTrafficState(), SIDS[0]!, [], 0);
+    world.aircraft = [ac];
+    return { world, ac };
+  }
+
+  it('rebuilds it as a departure, on its SID, at the fix it was tracking', () => {
+    const { world, ac } = departingWorld();
+    const rec = recorded(world, 240);
+
+    const frame = frameAtTimeS(240);
+    const rebuilt = worldAtFrame(rec, frame, { selectedId: null, paused: true, timeScale: 1 });
+    const copy = rebuilt.aircraft.find((other) => other.id === ac.id)!;
+
+    // A departure has to come back *as* a departure: `sid` is what makes it
+    // uncontrollable, muted and tagged DEP everywhere downstream (§4.7).
+    expect(isDeparture(copy)).toBe(true);
+    expect(copy.sid!.route.name).toBe(ac.sid!.route.name);
+    expect(activeSidFix(copy.sid!).name).toBe(activeSidFix(ac.sid!).name);
+    expect(copy.sid!.complete).toBe(ac.sid!.complete);
+    expect(copy.phase).toBe(ac.phase);
+    expect(copy.altitudeFt).toBeCloseTo(ac.altitudeFt, 6);
+    expect(copy.x).toBeCloseTo(ac.x, 6);
+    expect(copy.y).toBeCloseTo(ac.y, 6);
+  });
+
+  it('rebuilds the take-off roll, ground speed and all', () => {
+    const { world, ac } = departingWorld();
+    const rec = recorded(world, 10);
+    const rebuilt = worldAtFrame(rec, frameAtTimeS(10), {
+      selectedId: null,
+      paused: true,
+      timeScale: 1,
+    });
+    const copy = rebuilt.aircraft[0]!;
+
+    expect(ac.phase).toBe('roll');
+    expect(copy.phase).toBe('roll');
+    expect(copy.altitudeFt).toBe(0);
+    expect(copy.iasKts).toBeCloseTo(ac.iasKts, 6);
+  });
+
+  it('carries the departure flow through the session snapshots', () => {
+    const world = createWorld(11, 25, 15);
+    const rec = recorded(world, 30);
+    world.departureFlowPerHour = 5;
+    runRecorded(world, rec, 30);
+
+    const early = worldAtFrame(rec, frameAtTimeS(20), {
+      selectedId: null,
+      paused: true,
+      timeScale: 1,
+    });
+    const late = worldAtFrame(rec, frameAtTimeS(55), {
+      selectedId: null,
+      paused: true,
+      timeScale: 1,
+    });
+    expect(early.departureFlowPerHour).toBe(15);
+    expect(late.departureFlowPerHour).toBe(5);
   });
 });

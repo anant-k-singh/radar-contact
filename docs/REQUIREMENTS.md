@@ -21,13 +21,13 @@ Inspiration: *Endless ATC* (mobile) for the scope look and control feel.
 - Heading / altitude / speed vectoring via keyboard; ILS clearance via keyboard.
 - Separation monitoring with conflict alerts.
 - Automatic handoff to Tower when established; aircraft despawns at touchdown.
-- Endless play at a configurable arrival flow rate, with a session stats panel.
+- Endless play at configurable arrival and departure flow rates, with a session stats panel.
 
 ### 1.2 Explicitly out of scope (v1) — parked for later
 
 | Deferred | Why parked |
 | --- | --- |
-| Departures / mixed traffic | Doubles the state machine and the conflict logic |
+| ~~Departures / mixed traffic~~ | **Now in scope** — three SIDs off runway 18, flown by Departure Control rather than by the player (§4.7) |
 | ~~Holding patterns~~ | **Now in scope** — added as a simplified direct-entry racetrack on the STAR (§4.6) |
 | Wind (and therefore IAS vs GS divergence from wind) | Big complexity driver in intercept geometry; altitude-based TAS is modelled, wind is not |
 | Terrain / MVA map | Single flat MVA constant instead |
@@ -254,6 +254,9 @@ interface Aircraft {
 
   star: StarNav | null;           // route being flown, null once vectored (§4.5)
                                   // carries the holding pattern, if any (§4.6)
+  sid: SidNav | null;             // the SID, on a departure; null on every
+                                  // arrival. Non-null *is* what makes an
+                                  // aircraft a departure (§4.7)
 
   // Approach state
   phase: Phase;
@@ -271,7 +274,11 @@ interface Aircraft {
 ```
 
 `handedOff` is deliberately *not* a phase: an aircraft handed to Tower keeps
-flying its approach, it just stops accepting instructions.
+flying its approach, it just stops accepting instructions. `sid` is the same idea
+from the other end — a departure was never on the frequency to be taken off it.
+`Phase` carries the two departure states (`roll`, `climb`) alongside the five
+approach ones, so everything that switches on a phase has one field to read
+(§4.7).
 
 ### 4.2 Types and performance
 
@@ -517,6 +524,147 @@ platform faster than the aeroplane can follow.
 that fix rather than tracking to it, and that is the thing the controller has to see at a glance.
 The racetrack itself is **not drawn**: the trail dots already show it, and four overlapping
 racetracks on a congested scope cost more legibility than they buy.
+
+### 4.7 SIDs — standard instrument departures
+
+Arrivals are not the only traffic in the airspace. Runway 18 also departs, and those departures are
+**not the player's aircraft**: they are worked by Departure Control from the moment they roll, they
+fly a published SID, and they leave. Defined in [`src/scenario/sids.ts`](../src/scenario/sids.ts),
+flown by [`src/sim/departure.ts`](../src/sim/departure.ts).
+
+What they are *for* is separation. A departure is a moving obstacle on a known track at a known
+altitude, and the arrivals have to be worked around it — which is the same thing a real approach
+controller spends the shift doing. Everything below follows from that.
+
+#### A SID is a set of restrictions, not a profile
+
+This is the one structural difference from a STAR and it is deliberate. A STAR publishes a
+continuous descent profile that the autopilot is *flown onto* (§4.5); a SID publishes crossing
+restrictions, and between them the aircraft climbs at whatever its own performance gives. So a SID
+fix carries an `at or below` or an `at or above`, never a level to sit on, and the target altitude
+is simply **the lowest `at or below` still in force, or the airspace ceiling once they are all
+behind**. Two consequences worth keeping:
+
+- Nothing writes `ac.altitudeFt` directly. There is no chart to sit on, so kinematics own the
+  vertical for the whole climb and the `controlVertical: false` seam of §4.5 and §6.2 does not
+  apply here. The level-off at a restriction falls out of the ordinary capture taper.
+- The restriction is released **by position, not by the route sequencer**. Sequencing moves to the
+  next fix early so the turn is flown as a fly-by, and starting the climb half a mile before the
+  crossing fix would start it while still underneath the arrival.
+
+#### The three routes
+
+| SID | Turn off 18 | Fixes | Restrictions |
+| --- | --- | --- | --- |
+| `SABAR1A` | Right (west) | NORVU → MORVA → VELSA → SABAR | ≤3500 to VELSA; 12,000+ at SABAR |
+| `KIROS1A` | Left (east) | NORVU → TELMU → ZANDU → KIROS | ≤3500 to ZANDU; 12,000+ at KIROS |
+| `RAMOX1A` | Straight (south) | NORVU → RAMOX | none — unrestricted climb |
+
+All three climb runway heading to NORVU, 3.2 NM off the departure end, so the turn happens at a
+realistic thousand feet or so rather than at the wheels-up point.
+
+**The turning SIDs cross the south STARs' downwind legs at x = ±8.** Those legs descend 6000 → 4000
+as they run north, and the crossing is placed at y = −5, where an arrival on the published profile
+is still at about **5800 ft**. A departure held at or below **3500 ft** therefore passes about
+2300 ft underneath it.
+
+**The restriction runs five miles past the crossing, to x = ±13.** This is the part that is easy to
+get wrong, and it was: releasing the climb at the crossing itself leaves the departure within 3 NM
+of the arrival route for the next three miles, and three miles of climb is 1500 ft — enough to eat
+the entire gap it was just held under. Measured, a medium climbing away from the crossing came back
+to within 980 ft of the downwind profile at 2.4 NM, which is a separation violation by our own rule
+(§9.1). So the `at or below` is republished at a fix beyond the conflict, which is what a real SID
+does, and the climb begins where the geometry allows it rather than where the conflict happens to
+end. `tests/departure.test.ts` asserts the property directly: flying every type down every SID,
+**no departure is ever within 3 NM of a STAR without 1000 ft of vertical between them**.
+
+Beyond the release fix they climb to 12,000 ft — the airspace ceiling, the same one the player is
+held to (§3.3) — and leave due west and due east, through the middle of the gaps between the arrival
+gates. The straight SID runs down the extended departure centreline, the one direction with no
+arrival traffic in it at all: the nearest STAR fix is 8 NM abeam.
+
+#### Climb performance
+
+Departure figures are **per type**, not per performance class, because for once there is real
+per-type data covering exactly the regime flown here: the whole airspace (0–12,000 ft) sits inside
+the EUROCONTROL Aircraft Performance Database's *initial climb* and *climb to FL150* bands.
+
+| Type | V2 | Initial-climb IAS | Initial-climb ROC |
+| --- | --- | --- | --- |
+| A320 | 145 | 175 | 2500 |
+| B738 | 145 | 165 | 3000 |
+| E190 | 138 | 190 | 3400 |
+| A332 | 145 | 175 | 2000 |
+| B77W | 168 | 200 | 3000 |
+| B788 | 165 | 190 | 2700 |
+
+The profile is the real one: rotate at V2, hold the initial-climb IAS until the flaps are up at
+3000 ft AGL, then accelerate to **250 kt** — the below-10,000 speed limit, and our ceiling is lower
+than that, so 250 is the climb speed the whole way.
+
+`departureClimbFpm` is the *pure-climb* rate, quoted at a fixed climb speed, so the acceleration
+segment is paid for out of what is left of a larger `DEPARTURE_THRUST_BUDGET_FPM` (4200 fpm) —
+which is the real trade a crew makes, and reuses the energy-budget coupling of §4.3 unchanged. The
+number matters: below about 4000, the steepest climber in the fleet is left with only the
+`MIN_SPEED_RATE_KTS_S` floor and spends six minutes crawling to 250 kt, which is not what a
+departure does. The arrival `climbFpm` is untouched — it is the gentler rate of a level change, not
+of a departure at climb thrust.
+
+**Are the published numbers achievable?** Yes, with margin, and the tests assert it for every type:
+
+- **3500 by the crossing.** A medium reaches it in about 1.3 minutes and 5 NM of track; the
+  crossing is 11 NM out. So it levels off and cruises the last few miles — the restriction is a
+  ceiling being *held*, not a performance limit being hit.
+- **12,000 by the exit fix.** 8500 ft of climb needs about 21 NM for the slowest climber in the
+  fleet; the exit fix is 28 NM past the release. The straight SID makes 12,000 by about 23 NM,
+  against a 33 NM leg.
+
+#### The take-off roll
+
+A departure appears **stationary on the threshold** and rolls — the one aircraft in the simulation
+that is not flying. It has its own integration in `departure.ts` and `stepKinematics` is skipped
+entirely for it: takeoff acceleration is an order of magnitude above `MAX_ACCEL_KTS_S`, and an
+aircraft on the ground must not turn, climb or gain TAS with altitude. It rotates at V2, after about
+35 s and 0.7 NM for a medium, 50 s and 1.1 NM for a heavy — both comfortably inside the 1.6 NM
+runway.
+
+#### One runway, shared
+
+The runway is shared with the arrivals, so a departure is held while:
+
+- an arrival is inside **4 NM on final**, or
+- a landing aircraft is still rolling out — **60 s** after touchdown, or
+- the previous departure went less than **2 minutes** ago (the ICAO Doc 4444
+  medium-behind-heavy interval, which binds long before the Poisson stream does), or
+- anything is still on the runway.
+
+A blocked release stays *pending* rather than being skipped: the departure still goes, just behind
+whatever is using the runway. This is what makes the departure flow a request rather than a promise
+— run a tight arrival sequence and the departures back up behind it, exactly as they do in life.
+
+#### Flow, and what the player can and cannot do
+
+Departure flow is set separately from the arrival flow, **0–20/h in steps of 5**, default 10/h; zero
+switches departures off entirely. It draws on a **third** seeded stream (`world.departureRng`)
+alongside the traffic and pilot streams (§4.4), so `?seed=` reproduces the same *arrival* problem
+whatever the departure flow is set to — asserted in `tests/departure.test.ts`.
+
+The player has no authority over a departure at all. `isControllable` is false for one, every
+command refuses with "is with Departure — not on your frequency", and Tab skips them: Tab is how
+you reach the aircraft you are about to instruct, and at 20 departures an hour stepping through
+traffic that takes no instructions is a key press wasted every time. They stay clickable, which is
+how you read one's altitude.
+
+**Display.** Drawn in the muted shade already used for aircraft handed to Tower — the shade means
+"not yours to instruct", and the reason it is not yours is not worth a second colour. The data block
+tag is `DEP`, and the assigned-altitude field shows the SID's own ceiling, so the departure's plan
+is readable off the scope without a chart. The SID charts themselves are drawn in a warm amber
+against the STARs' cool blue-grey: the two chart layers cross, and the one question asked of them
+is which traffic is the player's.
+
+Leaving the airspace on a SID is the *point* of a departure, not the failure an arrival's exit is
+(§3.4): it counts in its own `DEPARTURES` tally, gets no boundary warning, and says so in the
+ordinary voice rather than the alert one.
 
 ---
 
@@ -817,6 +965,21 @@ Practically this makes speed control on final the core skill: 4 NM at a common 1
 landing interval, i.e. a ceiling of about 40 movements an hour, which is what the flow-rate slider
 is being measured against.
 
+### 9.4 The runway environment
+
+Radar separation does not apply to a departure that is still on or just off the runway. An arrival
+landing over an aircraft that is still rolling is not a radar problem — it is the tower's, and
+*runway* separation is what governs it. So a pair is skipped while either aircraft is a departure
+that is either still rolling, or below **1000 ft AGL and within 5 NM of the threshold**.
+
+Both halves of that test matter: the height alone would carry the exemption with an aircraft the
+player has managed to get in front of somewhere else, and the distance alone would exempt one still
+sitting on the runway at 5 NM. It is the same kind of exemption two aircraft on one localizer
+already get (§9.3) — a different rule applies there, not no rule.
+
+Everywhere else a departure is ordinary traffic: it raises warnings and violations against arrivals
+like anything else on the scope, which is the whole reason it is worth having on the scope.
+
 ## 10. Handoff to Tower
 
 Automatic, when **all** hold (§2.3):
@@ -962,6 +1125,7 @@ for the architecture.
 | A9 | 4 gates, 90° apart, offset 40° from the cardinals |
 | A10 | Endless session, no win/lose state; quality is reported, not enforced |
 | A11 | One STAR per gate, never rejoined once vectored off; no route changes. Holding is the one way back onto a route, and only because the aircraft never leaves it (§4.6) |
+| A12 | Departures always fly their SID exactly and are never re-routed, delayed airborne or given a level change by Departure Control. What the player sees is the published route, every time (§4.7) |
 
 ---
 
@@ -1011,6 +1175,17 @@ for the architecture.
 | Drawing the pattern | **No racetrack on the scope, just `HOLD` on the block.** The history trail already shows the shape, and four overlapping racetracks cost more legibility on a congested scope than they buy |
 | `C` while holding | **Refused.** A holding aircraft is not tracking towards final, so a clearance would be a prediction that cannot come true; take it out of the hold first (§6.1) |
 
+| Question | Decision (2026-08-25, departures) |
+| --- | --- |
+| Whose aircraft a departure is | **Departure Control's, never the player's.** The player has no authority over one at all — it is traffic to be worked around, not traffic to be worked. Giving them away is what keeps the workload the arrival problem it already is, while still doubling the things in the way (§4.7) |
+| How a departure appears | **Stationary on the threshold, and it rolls.** The alternative — materialising airborne off the departure end, the way an arrival materialises at a gate — is cheaper, but a take-off roll is what makes the shared runway legible: you can see why the next one is waiting (§4.7) |
+| What a SID publishes | **Restrictions, not a profile.** A STAR is a descent profile the aircraft is flown onto; a SID is a set of crossings with the aircraft's own performance in between. Modelling it as a profile would have meant inventing climb gradients that no chart carries (§4.7) |
+| Where the crossing restriction ends | **Five miles past the crossing, not at it.** Releasing the climb at the fix puts the departure back inside 1000 ft of the arrival route three miles later, which is a violation by our own rule. Measured at 980 ft before the fix was moved (§4.7) |
+| Departures and separation | **Full radar separation, and violations count.** Advisory-only alerts were the alternative, on the grounds that the player cannot instruct a departure — but that is exactly why it counts: the arrival is the half they *can* move (§9.4) |
+| The runway | **Shared, and it holds departures.** Arrival inside 4 NM on final, or a landing rolling out, blocks the release; the departure goes late rather than not at all. The set flow is therefore an upper bound that a busy final eats into (§4.7) |
+| Climb performance | **Per type, from the EUROCONTROL APD.** Everything else in the model is two performance classes, and stays that way — but the whole airspace sits inside the APD's initial-climb band, so for departures there is real per-type data covering exactly the regime flown (§4.7) |
+| A third random stream | **Yes**, alongside traffic and pilot reaction. `?seed=` has to mean the same arrival problem whatever the departure flow is set to (§4.4) |
+
 | Question | Decision (2026-08-20, replay) |
 | --- | --- |
 | When recording starts | **Always on, rolling.** A start button gets pressed after the interesting thing has happened; one button that stops the session and plays it back is the whole interface (§17.1) |
@@ -1051,6 +1226,17 @@ None of these blocks play; each is a small, contained change.
 8. **The two north routes end pointing at each other** at the same level, 4 NM apart. Deliberate —
    it is the sequencing problem — but if it proves unfair rather than hard, staggering ARDIS and
    BOXAR by 1000 ft is a one-line change.
+11. **Departures are unscored** (§4.7). The `DEPARTURES` tally counts them, but nothing measures
+    whether the runway kept up: a player who holds a permanent 4 NM final starves the departure
+    flow completely and pays nothing for it. A departure-delay figure alongside the landing rate
+    would make the runway a resource to balance rather than one to monopolise.
+12. **A departure is never re-routed** (A12). Real departures get level stops, radar vectors and
+    "climb unrestricted" from Departure Control as the arrival picture changes. Modelling any of
+    that would make the amber lines a prediction rather than a promise — which is more realistic
+    and considerably less learnable.
+13. **Both turning SIDs share NORVU**, so a west and an east departure fly the same 3 NM of track.
+    The two-minute release interval means they are never close, but if the departure flow is ever
+    raised past 20/h that stops being true and each SID needs its own initial fix.
 
 ---
 
@@ -1060,7 +1246,7 @@ None of these blocks play; each is a small, contained change.
 nvm use          # Node 24 LTS, pinned in .nvmrc — the system default is 18 (EOL)
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 135 tests, headless, ~0.9 s
+npm test         # 161 tests, headless, ~1.5 s
 npm run build    # typecheck + static bundle into dist/
 ```
 
@@ -1089,6 +1275,12 @@ trade: nothing to manage, nothing to clean up, no storage permission.
 | Window | **3600 s of sim time** | An hour is longer than any session anyone flies in one sitting; the cap exists so an unattended tab at 8× cannot grow without bound |
 | Prune batching | **60 s of slack** | Dropping old frames splices every channel of every track, so it is done once a minute rather than five times a second. A recording is therefore between 60 and 61 minutes long |
 | Storage | **Per aircraft, not per frame** | See below |
+
+A departure track carries two extra channels — the SID's chart name and the index of the fix being
+tracked — for exactly the reason an arrival's carries the STAR's. `sid` being non-null is what makes
+an aircraft read as a departure everywhere downstream (muted, `DEP`, uncontrollable), so playback
+has to rebuild it or a replay would show a departure as ordinary traffic. `phase` gained the two
+departure states and still packs into its three bits (§4.7).
 
 **Tracks, not snapshots.** The obvious shape is a list of world snapshots. The recorder stores the
 transpose: one *track* per aircraft, each field a flat array indexed by frame. Two reasons, both of

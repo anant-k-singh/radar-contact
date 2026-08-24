@@ -15,6 +15,17 @@ export const THEME = {
   starLabel: '#4f7c92',
   starConstraint: '#8a763f',
 
+  /**
+   * The SIDs, in a warm amber against the STARs' cool blue-grey. The two chart
+   * layers cross, and the one question the player asks looking at them is which
+   * traffic is theirs — so the departure routes are the other temperature
+   * entirely rather than another shade of the same one.
+   */
+  sidPath: '#5c4a2a',
+  sidFix: '#7d6b45',
+  sidLabel: '#94804f',
+  sidConstraint: '#b08a3c',
+
   /** Data block and leader line: the cool near-white of a radar block. */
   traffic: '#cfdae6',
   trafficDim: '#5f7183',

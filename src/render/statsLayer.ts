@@ -44,6 +44,9 @@ function rows(world: World): Row[] {
     { label: 'ON FINAL', value: String(onFinal) },
     { label: 'LANDINGS', value: String(stats.landings) },
     { label: 'RATE', value: rate === null ? '—' : `${rate.toFixed(1)}/h` },
+    // Departures that got away cleanly. Not a score — the player has no
+    // authority over them — but it says whether the runway is keeping up (§4.7).
+    { label: 'DEPARTURES', value: String(stats.departures) },
     { label: 'HANDED OFF', value: String(stats.handoffs) },
     {
       label: 'VIOLATIONS',

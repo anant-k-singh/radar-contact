@@ -6,6 +6,7 @@
 import {
   ALT_CAPTURE_FT,
   ALT_CAPTURE_MIN_FRACTION,
+  DEPARTURE_THRUST_BUDGET_FPM,
   ENERGY_BUDGET_FPM,
   MAX_ACCEL_KTS_S,
   MAX_DECEL_KTS_S,
@@ -16,12 +17,13 @@ import {
   TURN_COEFF,
   energyFtPerKnot,
 } from './constants.js';
-import type { Aircraft } from './aircraft.js';
+import { isDeparture, type Aircraft } from './aircraft.js';
 import {
   clamp,
   headingDelta,
   headingVector,
   normalizeHeading,
+  toRad,
   trueAirspeed,
   type Deg,
   type Fpm,
@@ -42,6 +44,23 @@ export function turnRadiusNm(tasKts: number): number {
   return (tasKts / 3600) / (rate * (Math.PI / 180));
 }
 
+/**
+ * How far before a fix to start the turn onto the next leg, so the track is
+ * flown as a fly-by rather than an overshoot and a correction back.
+ * `d = R·tan(θ/2)` is the tangent distance of the turn arc.
+ *
+ * Shared by the STARs and the SIDs; they differ only in the bounds they clamp
+ * it to, which are their own published tolerances.
+ */
+export function flyByAnticipationNm(
+  turnDeg: Deg,
+  tasKts: number,
+  minNm: number,
+  maxNm: number,
+): number {
+  return clamp(turnRadiusNm(tasKts) * Math.tan(toRad(Math.abs(turnDeg) / 2)), minNm, maxNm);
+}
+
 export interface RatePlanInput {
   tasKts: number;
   /** target − current. Positive means climb wanted. */
@@ -51,6 +70,13 @@ export interface RatePlanInput {
   descentFpm: Fpm;
   climbFpm: Fpm;
   budgetScale: number;
+  /**
+   * Energy available for climbing *and* accelerating, before `budgetScale`.
+   * Defaults to the arrival-stream figure; a departure at take-off thrust has
+   * far more of it (§4.7), which is what lets it accelerate to 250 kt without
+   * giving up the climb it needs to make the 12,000 ft crossing.
+   */
+  thrustBudgetFpm?: Fpm;
   /**
    * Vertical rate imposed from outside (following the glideslope). Its energy
    * cost is still charged against the budget, so an aircraft descending on the
@@ -106,7 +132,8 @@ export function planRates(input: RatePlanInput): RatePlan {
   let speedMagnitude = speedDemandKtsS;
 
   if (coupled) {
-    const budgetFpm = (dissipating ? ENERGY_BUDGET_FPM : THRUST_BUDGET_FPM) * budgetScale;
+    const thrustFpm = input.thrustBudgetFpm ?? THRUST_BUDGET_FPM;
+    const budgetFpm = (dissipating ? ENERGY_BUDGET_FPM : thrustFpm) * budgetScale;
     const ftPerKnot = energyFtPerKnot(tasKts);
 
     // Altitude has priority; speed gets what is left over.
@@ -141,6 +168,9 @@ export function planRates(input: RatePlanInput): RatePlan {
  */
 export function stepKinematics(ac: Aircraft, dt: Sec, controlVertical = true): void {
   const tasKts = trueAirspeed(ac.iasKts, ac.altitudeFt);
+  // A departure is at take-off/climb thrust and climbs on its own performance
+  // figures, not on the gentler rate an arrival uses for a level change (§4.7).
+  const departing = isDeparture(ac);
 
   // Heading: turn the short way, unless a direction has been forced — a 180°
   // reversal has no short way, so the holding pattern states its own (§4.6).
@@ -160,8 +190,9 @@ export function stepKinematics(ac: Aircraft, dt: Sec, controlVertical = true): v
     altErrorFt: ac.targetAltitudeFt - ac.altitudeFt,
     speedErrorKts: ac.targetIasKts - ac.iasKts,
     descentFpm: ac.type.descentFpm,
-    climbFpm: ac.type.climbFpm,
+    climbFpm: departing ? ac.type.departureClimbFpm : ac.type.climbFpm,
     budgetScale: ac.type.budgetScale,
+    thrustBudgetFpm: departing ? DEPARTURE_THRUST_BUDGET_FPM : THRUST_BUDGET_FPM,
     // On the glideslope the vertical profile comes from the geometry, but its
     // energy still has to be paid for.
     imposedVsFpm: controlVertical ? null : ac.vsFpm,

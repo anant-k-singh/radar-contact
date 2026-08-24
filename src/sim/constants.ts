@@ -109,6 +109,15 @@ export const IN_TRAIL_MIN_NM = 3.0;
  */
 export const IN_TRAIL_SEQUENCING_MIN_NM = 4.0;
 export const IN_TRAIL_SEQUENCING_RANGE_NM = 10.0;
+/**
+ * The runway environment (§9.4). A departure inside both of these is separated
+ * from the arrivals by the tower's runway rules rather than by radar minima, so
+ * radar separation is not applied to it — the same exemption two aircraft on one
+ * localizer already get. 1000 ft AGL is where a departure is clear of the
+ * runway and its own wake; 5 NM covers the roll and the initial climb.
+ */
+export const RUNWAY_SEP_EXEMPT_FT = 1000;
+export const RUNWAY_SEP_EXEMPT_NM = 5.0;
 
 // ── Go-around (§6.2) ────────────────────────────────────────────────────────
 export const GO_AROUND_GATE_NM = 5.0; // stability is enforced inside this
@@ -141,6 +150,72 @@ export const ENTRY_SPEED_KTS = 250;
 export const STAR_FIX_CAPTURE_NM = 0.5;
 /** Cap on fly-by turn anticipation, so a near-reversal cannot cut half the route. */
 export const STAR_MAX_ANTICIPATION_NM = 6;
+
+// ── Departures and SIDs (§4.7) ──────────────────────────────────────────────
+/**
+ * The published crossing altitudes are *not* here — like the STARs', they are
+ * per-fix and declared alongside the geometry in scenario/sids.ts. Only what is
+ * global to every departure lives in this file.
+ */
+export const DEPARTURE_FLOW_DEFAULT_PER_HOUR = 10;
+export const DEPARTURE_FLOW_MIN_PER_HOUR = 0;
+export const DEPARTURE_FLOW_MAX_PER_HOUR = 20;
+export const DEPARTURE_FLOW_STEP_PER_HOUR = 5;
+/**
+ * How often the spawner reconsiders a departure while the flow is set to zero.
+ * With no scheduled release there is nothing to bring forward, so turning the
+ * flow back up would otherwise do nothing until the session was restarted.
+ */
+export const DEPARTURE_FLOW_IDLE_RECHECK_S = 10;
+/**
+ * Wake-turbulence and runway separation between consecutive departures. Two
+ * minutes is the ICAO Doc 4444 medium-behind-heavy interval, and it is the
+ * binding constraint on the departure rate long before the Poisson stream is.
+ */
+export const DEPARTURE_MIN_INTERVAL_S = 120;
+/**
+ * The runway is shared (§4.7). No departure is released while an arrival is
+ * inside this far on final, or for this long after one has landed and is still
+ * rolling out. A saturated final therefore starves the departures, which is the
+ * coupling that makes one runway feel like one runway.
+ */
+export const DEPARTURE_HOLD_FINAL_NM = 4.0;
+export const DEPARTURE_HOLD_AFTER_LANDING_S = 60;
+
+/**
+ * Take-off acceleration on the ground, before `budgetScale`. Chosen so a medium
+ * reaches V2 in about 35 s over 0.7 NM and a heavy in about 50 s over 1.1 NM —
+ * both inside the 1.6 NM runway, which is what the ground roll is drawn against.
+ */
+export const TAKEOFF_ACCEL_KTS_S = 4.0;
+/**
+ * Height above the field at which the flaps come up and the aircraft accelerates
+ * from its initial-climb IAS to the 250 kt climb speed. 3000 ft AGL is the
+ * ordinary acceleration altitude for a noise-abatement departure.
+ */
+export const DEPARTURE_ACCEL_ALT_FT = 3000;
+/** Climb speed once clean: the 250 kt limit below 10,000 ft, and our ceiling is lower. */
+export const DEPARTURE_CLIMB_SPEED_KTS = 250;
+/**
+ * Total energy available to an aircraft climbing away on a departure, replacing
+ * `THRUST_BUDGET_FPM`. A jet at take-off thrust at low level has far more excess
+ * energy than one levelling off in the arrival stream.
+ *
+ * This is the *combined* climb-and-accelerate figure, and the per-type
+ * `departureClimbFpm` is the pure-climb half of it — the APD quotes rate of
+ * climb at a fixed climb speed, so the acceleration segment has to be paid for
+ * out of what is left. 4200 fpm is what makes that remainder realistic: it
+ * leaves every type between 0.5 and 0.8 kt/s to accelerate with while still
+ * climbing at its published rate. Below about 4000 the steepest climber in the
+ * fleet (E190, 3400 fpm) is left with only the `MIN_SPEED_RATE_KTS_S` floor and
+ * spends six minutes crawling up to 250 kt, which is not what a departure does.
+ */
+export const DEPARTURE_THRUST_BUDGET_FPM = 4200;
+/** Sequencing tolerance at a SID fix — the same job `STAR_FIX_CAPTURE_NM` does. */
+export const SID_FIX_CAPTURE_NM = 0.5;
+export const SID_MAX_ANTICIPATION_NM = 6;
+/** Frequency the departures are already working, for the handover line. */
+export const DEPARTURE_FREQUENCY = '124.7';
 
 // ── Holding (§4.6) ──────────────────────────────────────────────────────────
 /**

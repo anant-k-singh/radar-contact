@@ -46,10 +46,16 @@ export function onFinalApproach(alongNm: number, eastOffsetNm = 0): { x: number;
   };
 }
 
-/** A world with traffic generation switched off, holding exactly these aircraft. */
+/**
+ * A world with traffic generation switched off, holding exactly these aircraft.
+ * Both streams are off: several tests detect a landing by the scope going empty,
+ * which a departure rolling in the background would quietly break.
+ */
 export function quietWorld(...aircraft: Aircraft[]): World {
   const world = createWorld(42);
   world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+  world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
+  world.departureFlowPerHour = 0;
   world.aircraft = aircraft;
   world.messages = [];
   return world;

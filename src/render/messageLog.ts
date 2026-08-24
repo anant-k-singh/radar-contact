@@ -55,7 +55,8 @@ export function drawStatusLine(
 
   const parts = [
     `${AIRPORT.icao} RWY ${AIRPORT.runway.id} ILS`,
-    `FLOW ${world.flowPerHour}/h`,
+    `ARR ${world.flowPerHour}/h`,
+    `DEP ${world.departureFlowPerHour === 0 ? 'off' : `${world.departureFlowPerHour}/h`}`,
     `${clockText(world.timeS)}`,
     `x${world.timeScale}`,
     `TFC ${world.aircraft.length}`,

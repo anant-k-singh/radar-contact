@@ -52,6 +52,12 @@ export interface Track {
   entryGate: string;
   /** Chart name of the STAR it was handed over on, for reconstructing the route. */
   starName: string | null;
+  /**
+   * Chart name of the SID it departed on, or null on an arrival. This is also
+   * what marks the track as a departure: `sid` being set is what makes an
+   * aircraft one, so the name is enough to rebuild that (§4.7).
+   */
+  sidName: string | null;
   /** Frame index of `[0]` in every channel below. */
   startFrame: number;
 
@@ -77,6 +83,8 @@ export interface Track {
 
   /** Index of the STAR waypoint being tracked, or −1 when off the route. */
   starIndex: number[];
+  /** Index of the SID waypoint being tracked, or −1 once the route is complete. */
+  sidIndex: number[];
   /** Everything boolean or enumerated, packed — see the `F_*` bits below. */
   flags: number[];
 }
@@ -89,6 +97,7 @@ export interface Track {
 export interface SessionSnapshot {
   frame: number;
   flowPerHour: number;
+  departureFlowPerHour: number;
   stats: Stats;
 }
 
@@ -128,7 +137,17 @@ const PHASE_MASK = 0b111 << PHASE_SHIFT;
 const ALERT_SHIFT = 13;
 const ALERT_MASK = 0b11 << ALERT_SHIFT;
 
-const PHASES: readonly Phase[] = ['inbound', 'cleared', 'loc', 'gs', 'goAround'];
+// Seven states in three bits, with one spare. The two departure phases are in
+// the same enumeration as the approach ones (§4.7).
+const PHASES: readonly Phase[] = [
+  'inbound',
+  'cleared',
+  'loc',
+  'gs',
+  'goAround',
+  'roll',
+  'climb',
+];
 const ALERTS: readonly AlertLevel[] = ['none', 'warning', 'violation'];
 
 export interface DecodedFlags {
@@ -234,6 +253,7 @@ function newTrack(ac: Aircraft, frame: number): Track {
     type: ac.type,
     entryGate: ac.entryGate,
     starName: ac.star?.route.name ?? null,
+    sidName: ac.sid?.route.name ?? null,
     startFrame: frame,
     x: [],
     y: [],
@@ -250,6 +270,7 @@ function newTrack(ac: Aircraft, frame: number): Track {
     assignedHeadingDeg: [],
     assignedIasKts: [],
     starIndex: [],
+    sidIndex: [],
     flags: [],
   };
 }
@@ -270,6 +291,9 @@ function appendSample(track: Track, ac: Aircraft): void {
   track.assignedHeadingDeg.push(assignedHeadingDeg(ac));
   track.assignedIasKts.push(assignedIasKts(ac));
   track.starIndex.push(ac.star ? ac.star.index : -1);
+  // −1 once the route is complete, which is what tells playback the aircraft is
+  // flying its exit heading rather than tracking a fix.
+  track.sidIndex.push(ac.sid && !ac.sid.complete ? ac.sid.index : -1);
   track.flags.push(encodeFlags(ac));
 }
 
@@ -289,6 +313,7 @@ const CHANNELS: ReadonlyArray<keyof Track> = [
   'assignedHeadingDeg',
   'assignedIasKts',
   'starIndex',
+  'sidIndex',
   'flags',
 ];
 
@@ -320,7 +345,9 @@ function sessionChanged(last: SessionSnapshot, world: World): boolean {
   const b = world.stats;
   return (
     last.flowPerHour !== world.flowPerHour ||
+    last.departureFlowPerHour !== world.departureFlowPerHour ||
     a.landings !== b.landings ||
+    a.departures !== b.departures ||
     a.handoffs !== b.handoffs ||
     a.violations !== b.violations ||
     a.goArounds !== b.goArounds ||
@@ -340,7 +367,12 @@ function sessionChanged(last: SessionSnapshot, world: World): boolean {
 function recordSession(rec: Recording, world: World, frame: number): void {
   const last = rec.session[rec.session.length - 1];
   if (last && !sessionChanged(last, world)) return;
-  rec.session.push({ frame, flowPerHour: world.flowPerHour, stats: cloneStats(world.stats) });
+  rec.session.push({
+    frame,
+    flowPerHour: world.flowPerHour,
+    departureFlowPerHour: world.departureFlowPerHour,
+    stats: cloneStats(world.stats),
+  });
 }
 
 function recordMessages(rec: Recording, world: World): void {

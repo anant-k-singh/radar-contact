@@ -27,6 +27,8 @@ import { createPlayback, type Playback } from '../replay/playback.js';
 import { createRecording, hasFrames, sample } from '../replay/recorder.js';
 import { createReplayBar } from '../replay/replayBar.js';
 import {
+  DEPARTURE_FLOW_MAX_PER_HOUR,
+  DEPARTURE_FLOW_MIN_PER_HOUR,
   FLOW_MAX_PER_HOUR,
   FLOW_MIN_PER_HOUR,
   PHYSICS_DT,
@@ -49,8 +51,8 @@ function initialSeed(): number {
   return Number.isFinite(parsed) ? parsed : Math.floor(Math.random() * 2 ** 31);
 }
 
-function start(seed: number, flowPerHour?: number): World {
-  const created = createWorld(seed, flowPerHour);
+function start(seed: number, flowPerHour?: number, departureFlowPerHour?: number): World {
+  const created = createWorld(seed, flowPerHour, departureFlowPerHour);
   log(created, `Session seed ${seed}. Arrivals inbound — good luck.`, 'system');
   return created;
 }
@@ -77,7 +79,7 @@ const REPLAY_RENDER: RenderOptions = {
 function newSession(): void {
   playback = null;
   recording = createRecording();
-  world = start(Math.floor(Math.random() * 2 ** 31), world.flowPerHour);
+  world = start(Math.floor(Math.random() * 2 ** 31), world.flowPerHour, world.departureFlowPerHour);
   viewWorld = world;
 }
 
@@ -90,6 +92,13 @@ const sidebar = createSidebar(sidebarRoot, {
   },
   adjustFlow: (delta) => {
     world.flowPerHour = clamp(world.flowPerHour + delta, FLOW_MIN_PER_HOUR, FLOW_MAX_PER_HOUR);
+  },
+  adjustDepartureFlow: (delta) => {
+    world.departureFlowPerHour = clamp(
+      world.departureFlowPerHour + delta,
+      DEPARTURE_FLOW_MIN_PER_HOUR,
+      DEPARTURE_FLOW_MAX_PER_HOUR,
+    );
   },
   restart: newSession,
 });

@@ -1,19 +1,28 @@
 /**
- * Traffic generation (docs §4.4). Poisson arrivals at the entry gates, with a
- * per-gate cooldown and a conflict veto so Center never hands over a problem.
+ * Traffic generation (docs §4.4, §4.7). Poisson arrivals at the entry gates,
+ * with a per-gate cooldown and a conflict veto so Center never hands over a
+ * problem — and Poisson departures off the runway, gated by whether the runway
+ * is free rather than by anything to do with the gates.
  */
 import { AIRCRAFT_TYPES } from '../scenario/aircraftTypes.js';
 import { AIRLINES } from '../scenario/airlines.js';
 import { AIRPORT, type EntryGate } from '../scenario/airport.js';
+import { SIDS, type Sid } from '../scenario/sids.js';
 import { starForGate } from '../scenario/stars.js';
 import type { Aircraft } from './aircraft.js';
 import {
+  DEPARTURE_FLOW_IDLE_RECHECK_S,
+  DEPARTURE_HOLD_AFTER_LANDING_S,
+  DEPARTURE_HOLD_FINAL_NM,
+  DEPARTURE_MIN_INTERVAL_S,
   ENTRY_SPEED_KTS,
   GATE_COOLDOWN_S,
   MIN_SPAWN_INTERVAL_S,
   SPAWN_VETO_FT,
   SPAWN_VETO_NM,
 } from './constants.js';
+import { joinSid } from './departure.js';
+import { finalGeometry } from './ils.js';
 import type { Rng } from './rng.js';
 import { joinStar } from './star.js';
 import { bearing, distance, type Sec } from './units.js';
@@ -22,10 +31,23 @@ export interface TrafficState {
   nextSpawnAtS: Sec;
   gateLastSpawnS: Map<string, Sec>;
   nextId: number;
+  /** When the next departure may be released, subject to the runway being free. */
+  nextDepartureAtS: Sec;
+  /** Sim time the last departure began its roll, for the wake-turbulence interval. */
+  lastDepartureS: Sec | null;
+  /** Sim time of the last landing, for the runway-vacated interval. */
+  lastLandingS: Sec | null;
 }
 
 export function createTrafficState(): TrafficState {
-  return { nextSpawnAtS: 0, gateLastSpawnS: new Map(), nextId: 1 };
+  return {
+    nextSpawnAtS: 0,
+    gateLastSpawnS: new Map(),
+    nextId: 1,
+    nextDepartureAtS: 0,
+    lastDepartureS: null,
+    lastLandingS: null,
+  };
 }
 
 /** Exponential inter-arrival interval, floored so the queue cannot clump absurdly. */
@@ -111,6 +133,7 @@ export function createArrival(
     pending: [],
     turnDirection: null,
     star,
+    sid: null,
     phase: 'inbound',
     handedOff: false,
     speedAssignedAfterClearance: false,
@@ -152,4 +175,135 @@ export function trySpawn(
   const gate = rng.pick(candidates);
   state.gateLastSpawnS.set(gate.name, timeS);
   return createArrival(rng, state, gate, existing, timeS);
+}
+
+// ── Departures (§4.7) ───────────────────────────────────────────────────────
+
+/** Exponential inter-departure interval, floored at the wake-turbulence minimum. */
+export function scheduleNextDeparture(
+  state: TrafficState,
+  rng: Rng,
+  timeS: Sec,
+  flowPerHour: number,
+): void {
+  if (flowPerHour <= 0) {
+    // Nothing is scheduled while the flow is off, but the spawner still has to
+    // be woken periodically or turning the flow back up would do nothing.
+    state.nextDepartureAtS = timeS + DEPARTURE_FLOW_IDLE_RECHECK_S;
+    return;
+  }
+  const mean = 3600 / flowPerHour;
+  state.nextDepartureAtS = timeS + Math.max(DEPARTURE_MIN_INTERVAL_S, rng.exponential(mean));
+}
+
+/**
+ * Why a departure cannot roll right now, or null when the runway is free.
+ *
+ * One runway, shared with the arrivals (§4.7): an aircraft on short final owns
+ * it, and a landing one owns it until it has vacated. This is the coupling that
+ * makes the departure flow a request rather than a promise — run a tight
+ * arrival sequence and the departures back up behind it.
+ */
+export function runwayBlockedBy(
+  state: TrafficState,
+  existing: readonly Aircraft[],
+  timeS: Sec,
+): string | null {
+  if (state.lastDepartureS !== null && timeS - state.lastDepartureS < DEPARTURE_MIN_INTERVAL_S) {
+    return 'departure spacing';
+  }
+  if (state.lastLandingS !== null && timeS - state.lastLandingS < DEPARTURE_HOLD_AFTER_LANDING_S) {
+    return 'landing traffic rolling out';
+  }
+  // Anything already on the runway — the previous departure has not lifted off.
+  if (existing.some((ac) => ac.phase === 'roll')) return 'runway occupied';
+
+  const shortFinal = existing.find((ac) => {
+    if (ac.phase !== 'loc' && ac.phase !== 'gs') return false;
+    const alongNm = finalGeometry(ac).alongNm;
+    return alongNm > 0 && alongNm <= DEPARTURE_HOLD_FINAL_NM;
+  });
+  return shortFinal ? `arrival on short final` : null;
+}
+
+/**
+ * Build a departure at the holding point, ready to roll. It starts stationary on
+ * the threshold at field elevation — the one aircraft in the simulation that is
+ * not flying — and everything about it comes from the type and the route rather
+ * than from a gate.
+ */
+export function createDeparture(
+  rng: Rng,
+  state: TrafficState,
+  route: Sid,
+  existing: readonly Aircraft[],
+  timeS: Sec,
+): Aircraft {
+  const type = rng.pick(AIRCRAFT_TYPES);
+  const { airline, text } = callsign(rng, existing);
+  const id = state.nextId;
+  state.nextId += 1;
+
+  const runway = AIRPORT.runway;
+  const altitudeFt = AIRPORT.elevationFt;
+
+  return {
+    id,
+    callsign: text,
+    airline,
+    type,
+    x: runway.threshold.x,
+    y: runway.threshold.y,
+    altitudeFt,
+    headingDeg: runway.courseDeg,
+    iasKts: 0,
+    vsFpm: 0,
+    targetHeadingDeg: runway.courseDeg,
+    targetAltitudeFt: altitudeFt,
+    targetIasKts: type.v2Kts,
+    pending: [],
+    turnDirection: null,
+    star: null,
+    sid: joinSid(route),
+    phase: 'roll',
+    handedOff: false,
+    speedAssignedAfterClearance: false,
+    // The runway is where it entered the airspace, in the sense the entry gate
+    // is for an arrival: the one place its track can be said to start.
+    entryGate: `RWY${runway.id}`,
+    spawnedAtS: timeS,
+    trackMilesFlown: 0,
+    // The track-mile ratio is an arrival efficiency measure and a departure
+    // never lands, so it has no shortest route to be compared against.
+    directDistanceNm: 0,
+    goArounds: 0,
+    exitWarned: false,
+    headingHintUntilS: 0,
+    trail: [],
+    radar: {
+      altitudeFt,
+      iasKts: 0,
+      headingDeg: runway.courseDeg,
+      groundSpeedKts: 0,
+      vsFpm: 0,
+    },
+    alert: 'none',
+  };
+}
+
+/**
+ * Release one departure if the runway is free. Returns null when it is not, in
+ * which case the caller keeps the release pending rather than skipping it — a
+ * departure held for traffic still goes, just later.
+ */
+export function tryDeparture(
+  rng: Rng,
+  state: TrafficState,
+  existing: readonly Aircraft[],
+  timeS: Sec,
+): Aircraft | null {
+  if (runwayBlockedBy(state, existing, timeS) !== null) return null;
+  const route = rng.pick(SIDS);
+  state.lastDepartureS = timeS;
+  return createDeparture(rng, state, route, existing, timeS);
 }

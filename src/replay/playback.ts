@@ -18,8 +18,10 @@
  *   alert level still comes from the recording: on the scope that colour is a
  *   1 Hz radar sample, not an instantaneous truth (§5).
  */
+import { sidByName } from '../scenario/sids.js';
 import { STARS } from '../scenario/stars.js';
 import type { Aircraft } from '../sim/aircraft.js';
+import type { SidNav } from '../sim/departure.js';
 import {
   HISTORY_PERIOD_S,
   MESSAGE_LOG_MAX,
@@ -51,6 +53,7 @@ const TRAIL_STRIDE = Math.round(HISTORY_PERIOD_S / REPLAY_SAMPLE_PERIOD_S);
 const EMPTY_STATS: Stats = {
   landings: 0,
   landingTimesS: [],
+  departures: 0,
   handoffs: 0,
   violations: 0,
   violationSeconds: 0,
@@ -129,6 +132,21 @@ function aircraftAt(track: Track, frame: number): Aircraft {
     if (flags.holding) star.hold = displayHold(star, track.altitudeFt[i]!);
   }
 
+  // A departure is rebuilt from its chart name and the fix it was tracking.
+  // Nothing in playback flies a SID, but `sid` being non-null is what makes the
+  // aircraft read as a departure everywhere else — muted on the scope,
+  // uncontrollable, tagged DEP (§4.7).
+  const sidRoute = track.sidName === null ? undefined : sidByName(track.sidName);
+  let sid: SidNav | null = null;
+  if (sidRoute) {
+    const index = track.sidIndex[i]!;
+    sid = {
+      route: sidRoute,
+      index: index < 0 ? sidRoute.waypoints.length - 1 : index,
+      complete: index < 0,
+    };
+  }
+
   const assignedAltitudeFt = track.assignedAltitudeFt[i]!;
   const assignedHeadingDeg = track.assignedHeadingDeg[i]!;
   const assignedIasKts = track.assignedIasKts[i]!;
@@ -168,6 +186,7 @@ function aircraftAt(track: Track, frame: number): Aircraft {
     pending,
     turnDirection: null,
     star,
+    sid,
     phase: flags.phase,
     handedOff: flags.handedOff,
     speedAssignedAfterClearance: flags.speedAssignedAfterClearance,
@@ -195,7 +214,10 @@ function aircraftAt(track: Track, frame: number): Aircraft {
 }
 
 /** The last session snapshot taken at or before `frame`. */
-function sessionAt(rec: Recording, frame: number): { flowPerHour: number; stats: Stats } {
+function sessionAt(
+  rec: Recording,
+  frame: number,
+): { flowPerHour: number; departureFlowPerHour: number; stats: Stats } {
   let lo = 0;
   let hi = rec.session.length - 1;
   let found = -1;
@@ -209,8 +231,12 @@ function sessionAt(rec: Recording, frame: number): { flowPerHour: number; stats:
     }
   }
   const snapshot = found >= 0 ? rec.session[found] : rec.session[0];
-  if (!snapshot) return { flowPerHour: 0, stats: EMPTY_STATS };
-  return { flowPerHour: snapshot.flowPerHour, stats: snapshot.stats };
+  if (!snapshot) return { flowPerHour: 0, departureFlowPerHour: 0, stats: EMPTY_STATS };
+  return {
+    flowPerHour: snapshot.flowPerHour,
+    departureFlowPerHour: snapshot.departureFlowPerHour,
+    stats: snapshot.stats,
+  };
 }
 
 /** Everything said up to this instant, trimmed the way the live log trims. */
@@ -236,7 +262,7 @@ export function worldAtFrame(
     if (trackCoversFrame(track, frame)) aircraft.push(aircraftAt(track, frame));
   }
   const timeS = frameTimeS(frame);
-  const { flowPerHour, stats } = sessionAt(rec, frame);
+  const { flowPerHour, departureFlowPerHour, stats } = sessionAt(rec, frame);
 
   return {
     timeS,
@@ -244,11 +270,20 @@ export function worldAtFrame(
     messages: messagesAt(rec, timeS),
     stats,
     flowPerHour,
+    departureFlowPerHour,
     // A replay has no future to generate: the streams and the spawner exist
     // only to satisfy the type, and `step` is never called on this world.
     rng: createRng(0),
     pilotRng: createRng(0),
-    traffic: { nextSpawnAtS: Infinity, gateLastSpawnS: new Map(), nextId: 0 },
+    departureRng: createRng(0),
+    traffic: {
+      nextSpawnAtS: Infinity,
+      gateLastSpawnS: new Map(),
+      nextId: 0,
+      nextDepartureAtS: Infinity,
+      lastDepartureS: null,
+      lastLandingS: null,
+    },
     separation: analyzeSeparation(aircraft),
     selectedId: aircraft.some((ac) => ac.id === view.selectedId) ? view.selectedId : null,
     paused: view.paused,

@@ -2,7 +2,9 @@
  * Separation monitoring (docs §9). IF ATC manual 6.2.2: no closer than 3 NM
  * laterally *or* 1000 ft vertically — so a violation needs both to be breached.
  */
+import { AIRPORT } from '../scenario/airport.js';
 import type { Aircraft, AlertLevel } from './aircraft.js';
+import { isDeparture } from './aircraft.js';
 import { groundSpeed } from './dynamics.js';
 import { finalGeometry } from './ils.js';
 import {
@@ -12,6 +14,8 @@ import {
   IN_TRAIL_MIN_NM,
   IN_TRAIL_SEQUENCING_MIN_NM,
   IN_TRAIL_SEQUENCING_RANGE_NM,
+  RUNWAY_SEP_EXEMPT_FT,
+  RUNWAY_SEP_EXEMPT_NM,
   SEP_HORIZ_NM,
   SEP_VERT_FT,
 } from './constants.js';
@@ -45,6 +49,29 @@ const pairKey = (a: Aircraft, b: Aircraft): string =>
 /** True while the aircraft is tracking the final approach course. */
 function onFinal(ac: Aircraft): boolean {
   return ac.phase === 'loc' || ac.phase === 'gs';
+}
+
+/**
+ * True while a departure is still in the runway environment (§9.4).
+ *
+ * A departure rolling underneath an aircraft on short final is not a radar
+ * separation problem — it is the tower's, and runway separation is what governs
+ * it. Radar minima only begin to apply once the departure is airborne and away
+ * from the runway, so until then the pair is skipped, exactly as two aircraft on
+ * the same localizer are.
+ *
+ * Both halves of the test matter: the height alone would carry the exemption
+ * with an aircraft the player has managed to get in front of somewhere else, and
+ * the distance alone would exempt one still sitting on the runway at 5 NM.
+ */
+function inRunwayEnvironment(ac: Aircraft): boolean {
+  if (!isDeparture(ac)) return false;
+  if (ac.phase === 'roll') return true;
+  return (
+    ac.altitudeFt - AIRPORT.elevationFt < RUNWAY_SEP_EXEMPT_FT &&
+    Math.hypot(ac.x - AIRPORT.runway.threshold.x, ac.y - AIRPORT.runway.threshold.y) <
+      RUNWAY_SEP_EXEMPT_NM
+  );
 }
 
 /**
@@ -140,6 +167,9 @@ export function analyzeSeparation(aircraft: readonly Aircraft[]): SeparationRepo
 
       // Both on the localizer: in-trail spacing applies instead (§9.3).
       if (onFinal(a) && onFinal(b)) continue;
+      // One of them is still on or just off the runway: runway separation
+      // applies instead, and it is the tower's to apply (§9.4).
+      if (inRunwayEnvironment(a) || inRunwayEnvironment(b)) continue;
 
       const horizNm = horizontalDistance(a, b);
       const vertFt = Math.abs(a.altitudeFt - b.altitudeFt);

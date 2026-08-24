@@ -5,6 +5,7 @@
  */
 import type { WakeCategory } from '../scenario/aircraftTypes.js';
 import type { Aircraft } from '../sim/aircraft.js';
+import { isDeparture, isDimmed } from '../sim/aircraft.js';
 import { assignedAltitudeFt, assignedHeadingDeg, isPending } from '../sim/pilot.js';
 import { activeFix } from '../sim/star.js';
 import { displayHeading, headingDiff, headingVector } from '../sim/units.js';
@@ -35,6 +36,9 @@ const CANDIDATES: ReadonlyArray<{ dx: number; dy: number; align: 'left' | 'right
 
 function stateTag(ac: Aircraft): string {
   if (ac.handedOff) return 'TWR';
+  // A departure is never ours, so the tag says whose it is rather than where it
+  // is on a route the player cannot change (§4.7).
+  if (isDeparture(ac)) return 'DEP';
   // Holding outranks the fix name: the aircraft is circling that fix rather
   // than tracking to it, and that is the thing the controller has to see (§4.6).
   if (ac.star?.hold) return 'HOLD';
@@ -58,7 +62,7 @@ function primaryColor(ac: Aircraft, selected: boolean): string {
   if (ac.alert === 'violation') return THEME.violation;
   if (ac.alert === 'warning') return THEME.warning;
   if (selected) return THEME.selected;
-  if (ac.handedOff) return THEME.handedOff;
+  if (isDimmed(ac)) return THEME.handedOff;
   return THEME.traffic;
 }
 
@@ -71,7 +75,7 @@ function glyphColor(ac: Aircraft, selected: boolean): string {
   // climbing, and the selection ring already says which one is selected.
   if (ac.phase === 'goAround') return THEME.glyphGoAround;
   if (selected) return THEME.selected;
-  if (ac.handedOff) return THEME.handedOff;
+  if (isDimmed(ac)) return THEME.handedOff;
   return THEME.glyph;
 }
 
@@ -208,7 +212,7 @@ export function drawTraffic(
     for (let i = 0; i < ac.trail.length; i += 1) {
       const point = ac.trail[i]!;
       ctx.globalAlpha = 0.2 + (i / ac.trail.length) * 0.45;
-      ctx.fillStyle = ac.handedOff ? THEME.handedOff : THEME.trafficDim;
+      ctx.fillStyle = isDimmed(ac) ? THEME.handedOff : THEME.trafficDim;
       ctx.beginPath();
       ctx.arc(screenX(p, point.x), screenY(p, point.y), 1.7, 0, Math.PI * 2);
       ctx.fill();
@@ -235,7 +239,7 @@ export function drawTraffic(
     // the nose is going, alongside the green leader line showing where it is.
     const assignedDeg = assignedHeadingDeg(ac);
     const hintLeftS = ac.headingHintUntilS - world.timeS;
-    if (options.headingHints && hintLeftS > 0 && !ac.handedOff) {
+    if (options.headingHints && hintLeftS > 0 && !isDimmed(ac)) {
       const want = headingVector(assignedDeg);
       // Half again the leader line, and never so short that it hides under the
       // selection ring — this has to read at a glance from across the scope.
@@ -314,7 +318,7 @@ export function drawTraffic(
     // outstanding — an aircraft turning to follow its STAR was not vectored.
     const vectored = !ac.star || isPending(ac, 'heading');
     const turning = headingDiff(ac.headingDeg, assignedDeg) > 1.5;
-    if (turning && vectored && !ac.handedOff) {
+    if (turning && vectored && !isDimmed(ac)) {
       ctx.fillStyle = THEME.assigned;
       ctx.fillText(displayHeading(assignedDeg), rect.x + rect.w + 6, rect.y);
     }

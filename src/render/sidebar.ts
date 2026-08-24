@@ -6,7 +6,14 @@
  */
 import { AIRPORT } from '../scenario/airport.js';
 import { speedFloorKts } from '../sim/commands.js';
-import { GS_CAPTURE_WINDOW_FT, VS_DISPLAY_STEP_FPM } from '../sim/constants.js';
+import { isDeparture } from '../sim/aircraft.js';
+import { activeSidFix } from '../sim/departure.js';
+import {
+  DEPARTURE_FLOW_STEP_PER_HOUR,
+  DEPARTURE_FREQUENCY,
+  GS_CAPTURE_WINDOW_FT,
+  VS_DISPLAY_STEP_FPM,
+} from '../sim/constants.js';
 import {
   evaluateClearance,
   evaluateIntercept,
@@ -24,6 +31,7 @@ export interface SidebarHandlers {
   togglePause(): void;
   setTimeScale(scale: number): void;
   adjustFlow(delta: number): void;
+  adjustDepartureFlow(delta: number): void;
   restart(): void;
 }
 
@@ -54,7 +62,7 @@ const TEMPLATE = `
     </div>
     <dl class="detail">
       <dt>Ground speed</dt><dd data-field="gspd"></dd>
-      <dt>Arrival</dt><dd data-field="star"></dd>
+      <dt>Route</dt><dd data-field="star"></dd>
       <dt>Next fix</dt><dd data-field="nextfix"></dd>
       <dt>Range</dt><dd data-field="range"></dd>
       <dt>Cross-track</dt><dd data-field="xtk"></dd>
@@ -82,9 +90,14 @@ const TEMPLATE = `
     <button data-action="rate8">8x</button>
   </div>
   <div class="buttons live-only">
-    <button data-action="flow-down">Flow −</button>
+    <button data-action="flow-down">Arr −</button>
     <span class="flow" data-field="flow"></span>
-    <button data-action="flow-up">Flow +</button>
+    <button data-action="flow-up">Arr +</button>
+  </div>
+  <div class="buttons live-only">
+    <button data-action="dep-flow-down">Dep −</button>
+    <span class="flow" data-field="depflow"></span>
+    <button data-action="dep-flow-up">Dep +</button>
     <button data-action="restart">Restart</button>
   </div>
 `;
@@ -139,6 +152,12 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
       case 'flow-up':
         handlers.adjustFlow(5);
         break;
+      case 'dep-flow-down':
+        handlers.adjustDepartureFlow(-DEPARTURE_FLOW_STEP_PER_HOUR);
+        break;
+      case 'dep-flow-up':
+        handlers.adjustDepartureFlow(DEPARTURE_FLOW_STEP_PER_HOUR);
+        break;
       case 'restart':
         handlers.restart();
         break;
@@ -154,6 +173,7 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
       set('airport', `${AIRPORT.icao} · RWY ${AIRPORT.runway.id}`);
       set('clock', clockText(world.timeS));
       set('flow', `${world.flowPerHour}/h`);
+      set('depflow', world.departureFlowPerHour === 0 ? 'off' : `${world.departureFlowPerHour}/h`);
 
       const ac = selectedAircraft(world);
       if (!ac) {
@@ -196,13 +216,44 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
         set('spdTarget', `→ ${Math.round(starTargetSpeedKts(ac) ?? assignedIasKts(ac))}`);
         set('hdg', displayHeading(ac.radar.headingDeg));
         const onRoute = ac.star !== null && !isPending(ac, 'heading');
-        set('hdgTarget', onRoute ? '→ route' : `→ ${displayHeading(assignedHeadingDeg(ac))}`);
+        set(
+          'hdgTarget',
+          isDeparture(ac) || onRoute ? '→ route' : `→ ${displayHeading(assignedHeadingDeg(ac))}`,
+        );
 
         // Ground speed is what the block and the spacing run on; the gap to the
         // IAS above is the altitude effect (§4.4), and printing it is the only
         // place the two numbers can be compared side by side.
         const gainKts = Math.round(ac.radar.groundSpeedKts - ac.radar.iasKts);
         set('gspd', `${Math.round(ac.radar.groundSpeedKts)} kt  (IAS +${gainKts})`);
+
+        // A departure has no approach to report on. Everything below the route
+        // is a question about final — cross-track, glideslope, intercept angle,
+        // in-trail spacing — and none of them mean anything for an aircraft
+        // going the other way, so they are blanked rather than filled with
+        // numbers that happen to compute (§4.7).
+        if (isDeparture(ac)) {
+          const nav = ac.sid!;
+          set('star', nav.route.name);
+          set(
+            'nextfix',
+            nav.complete
+              ? 'route complete'
+              : `${activeSidFix(nav).name} · ` +
+                `${distance({ x: ac.x, y: ac.y }, activeSidFix(nav).position).toFixed(1)} NM`,
+          );
+          for (const name of ['range', 'xtk', 'gs', 'intercept', 'intrail', 'minspd']) {
+            set(name, '—');
+          }
+          set(
+            'ils',
+            ac.phase === 'roll'
+              ? `Rolling runway ${AIRPORT.runway.id} — with Departure.`
+              : `With Departure on ${DEPARTURE_FREQUENCY} — not on your frequency.`,
+            'ils done',
+          );
+          return;
+        }
 
         // Which published arrival it came in on, and how it is being flown now.
         if (ac.star) {

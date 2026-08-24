@@ -6,11 +6,13 @@
  * when the window is resized.
  */
 import { AIRPORT } from '../scenario/airport.js';
+import { SIDS, type Sid } from '../scenario/sids.js';
 import { STARS } from '../scenario/stars.js';
 import {
   AIRSPACE_ARC_HALF_ANGLE_RAD,
   AIRSPACE_CHORD_HALF_WIDTH_NM,
   boundaryRangeAtBearing,
+  isInsideAirspace,
 } from '../sim/airspace.js';
 import {
   AIRSPACE_HALF_HEIGHT_NM,
@@ -20,7 +22,7 @@ import {
   RANGE_RINGS_NM,
 } from '../sim/constants.js';
 import { centerlinePoint } from '../sim/ils.js';
-import { headingVector, magnitude } from '../sim/units.js';
+import { bearing, headingVector, magnitude, type Point } from '../sim/units.js';
 import { screenX, screenY, toScreen, type Projection } from './project.js';
 import { THEME } from './theme.js';
 
@@ -49,9 +51,124 @@ function draw(ctx: CanvasRenderingContext2D, p: Projection): void {
   drawRings(ctx, p);
   drawCompassTicks(ctx, p);
   drawStars(ctx, p);
+  // After the STARs, so where a SID passes under one the departure track is the
+  // line drawn on top — which is the one carrying the restriction that matters.
+  drawSids(ctx, p);
   drawCenterline(ctx, p);
   drawRunway(ctx, p);
   drawGates(ctx, p);
+}
+
+/**
+ * The three SIDs (§4.7). Drawn in the departure amber rather than the STARs'
+ * blue-grey, because the two chart layers cross and the whole question the
+ * player asks of them is "which of these is the one I do not control".
+ *
+ * A SID publishes restrictions rather than a profile, so the labels read as
+ * restrictions: `≤3500` under the arrival downwind, `12000+` at the exit fix.
+ * Past the last fix the track continues to the boundary with an arrowhead —
+ * that leg is flown on the exit heading and is the aircraft's way out.
+ */
+function drawSids(ctx: CanvasRenderingContext2D, p: Projection): void {
+  ctx.font = THEME.fontLabel;
+  ctx.textBaseline = 'middle';
+
+  for (const sid of SIDS) {
+    const last = sid.waypoints[sid.waypoints.length - 1]!;
+    const exit = boundaryExitPoint(sid);
+
+    ctx.strokeStyle = THEME.sidPath;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    sid.waypoints.forEach((wpt, index) => {
+      const point = toScreen(p, wpt.position);
+      if (index === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    });
+    const exitPoint = toScreen(p, exit);
+    ctx.lineTo(exitPoint.x, exitPoint.y);
+    ctx.stroke();
+    drawArrowHead(ctx, toScreen(p, last.position), exitPoint);
+
+    let maxAltitudeFt: number | undefined;
+    for (const [index, wpt] of sid.waypoints.entries()) {
+      // A ceiling republished at the next fix is the *same* restriction carried
+      // on (§4.7), so it is labelled only where it changes — otherwise the level
+      // segment reads as two separate constraints instead of one that runs
+      // through both fixes. Same trick `drawStars` uses for a level leg.
+      const crossing =
+        wpt.maxAltitudeFt !== undefined && wpt.maxAltitudeFt !== maxAltitudeFt
+          ? `≤${wpt.maxAltitudeFt}`
+          : wpt.minAltitudeFt !== undefined
+            ? `${wpt.minAltitudeFt}+`
+            : undefined;
+      maxAltitudeFt = wpt.maxAltitudeFt;
+
+      // Index 0 is the runway itself, which is already drawn and labelled.
+      if (index === 0) continue;
+
+      const point = toScreen(p, wpt.position);
+      ctx.strokeStyle = THEME.sidFix;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 2.5, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Labels go *above* the fix, stacked away from the track. Every SID fix
+      // sits south of or abeam the field, and the STAR labels are placed
+      // outward from the airport — which for the two downwind fixes the SIDs
+      // pass under is downward, right where a SID label would land. Pushing
+      // these the other way keeps the two chart layers apart at the one place
+      // they come close, which is also the only place either label matters.
+      ctx.textAlign = 'center';
+      ctx.fillStyle = THEME.sidLabel;
+      ctx.fillText(wpt.name, point.x, point.y - 10);
+      if (crossing !== undefined) {
+        ctx.fillStyle = THEME.sidConstraint;
+        ctx.fillText(crossing, point.x, point.y - 22);
+      }
+    }
+  }
+}
+
+/**
+ * Where a SID's exit leg meets the boundary: the last fix's own outbound track
+ * continued until it runs out of airspace, which is the leg the aircraft
+ * actually flies once the route is complete.
+ */
+function boundaryExitPoint(sid: Sid): Point {
+  const waypoints = sid.waypoints;
+  const last = waypoints[waypoints.length - 1]!;
+  const previous = waypoints[waypoints.length - 2]!;
+  const courseDeg = bearing(previous.position, last.position);
+  const track = headingVector(courseDeg);
+  // Step out along the track until the boundary is behind us, then take that
+  // point: the shape is not a circle (§3.1), so there is no closed form worth
+  // writing for a line drawn once per resize.
+  let distNm = 0;
+  while (distNm < AIRSPACE_RADIUS_NM * 2) {
+    const next = distNm + 0.25;
+    const point = { x: last.position.x + track.x * next, y: last.position.y + track.y * next };
+    if (!isInsideAirspace(point)) break;
+    distNm = next;
+  }
+  return { x: last.position.x + track.x * distNm, y: last.position.y + track.y * distNm };
+}
+
+function drawArrowHead(
+  ctx: CanvasRenderingContext2D,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+): void {
+  const angle = Math.atan2(to.y - from.y, to.x - from.x);
+  const size = 7;
+  ctx.fillStyle = THEME.sidPath;
+  ctx.beginPath();
+  ctx.moveTo(to.x, to.y);
+  ctx.lineTo(to.x - size * Math.cos(angle - 0.4), to.y - size * Math.sin(angle - 0.4));
+  ctx.lineTo(to.x - size * Math.cos(angle + 0.4), to.y - size * Math.sin(angle + 0.4));
+  ctx.closePath();
+  ctx.fill();
 }
 
 /**
