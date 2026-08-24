@@ -20,17 +20,14 @@
  *   arrival above is descending 7000 → 3000 on its way north. At the crossing
  *   latitude it is still at about 6700 ft, so a departure held at or below
  *   **4000** passes some 2700 ft underneath it.
- * - **The restriction ends at MORVA / TELMU, five miles beyond the crossing —
- *   not at the crossing itself.** This is the part that is easy to get wrong.
- *   Release the climb where the tracks cross and the departure is still within
- *   3 NM of the arrival route for the next three miles, and three miles of climb
- *   is 1500 ft or more: it climbs straight back into the gap it was just held
- *   under. There is no crossing altitude that fixes it, either — the downwind
- *   tops out at 7000, so even 4000 leaves less than the 1000 ft the rule wants
- *   by the time the departure is laterally clear. So the fix carrying the
- *   `at or below` is placed past the conflict, which is what a real SID does,
- *   and the crossing itself is left unlabelled: it is visible where the amber
- *   line passes under the blue one.
+ * - **The restriction ends at MORVA / TELMU, two miles beyond the crossing —
+ *   not at the crossing itself.** Release the climb where the tracks cross and
+ *   the departure is still inside 3 NM of the arrival route as it goes, so the
+ *   `at or below` has to be carried past the conflict, which is what a real SID
+ *   does. The crossing itself is left unlabelled: it is visible where the amber
+ *   line passes under the blue one. Two miles is the shortest hold-down the
+ *   geometry allows, and no more than that on purpose — a departure cruising
+ *   level at 4000 ft any longer reads as one that has forgotten to climb.
  * - **The straight SID** runs down the extended departure centreline, the one
  *   direction with no arrival traffic in it at all: the nearest STAR fix is 6 NM
  *   abeam. It is an unrestricted climb the whole way.
@@ -88,11 +85,19 @@ export interface Sid {
 const TURN_LEG_NM = 4;
 /**
  * Where the crossing restriction ends, in NM abeam the field. The downwind legs
- * are at x = ±6, so this is five miles beyond the crossing — far enough that the
- * departure is outside radar minima of the arrival route before it starts to
- * climb, which is the whole reason the fix is here rather than on the crossing.
+ * are at x = ±6, so this is two miles beyond the crossing — the whole reason the
+ * fix is past the crossing rather than on it is that a departure released at the
+ * crossing climbs straight back into the gap it was just held under.
+ *
+ * Two miles is as close in as the geometry allows, and it is deliberately no
+ * further: every mile of restriction is another 20 seconds of a departure
+ * cruising level at 4000 ft in plain view, which reads as an aircraft that has
+ * forgotten to climb. The margin that makes it work is vertical rather than
+ * lateral — the arrival above is on 7000 ft at the corner and higher on the leg
+ * in from the gate, so the departure is still 2000 ft or more below it over the
+ * mile or two it takes to get outside 3 NM of the arrival route.
  */
-const RESTRICTION_END_NM = 11;
+const RESTRICTION_END_NM = 8;
 /**
  * How far past the restriction fix the exit fix sits. A heavy leaving 4000 ft
  * needs about 22 NM to make 13,000 (docs §4.7), so 28 NM is the requirement plus

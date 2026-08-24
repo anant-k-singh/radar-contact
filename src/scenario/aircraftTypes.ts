@@ -28,6 +28,11 @@ export interface AircraftType {
    * It is the *nominal* rate: while the aircraft is still accelerating to 250 kt
    * the thrust budget splits between the two, which is the real trade a crew
    * makes in the acceleration segment rather than an artefact of the model.
+   *
+   * 3000 fpm is the ceiling used here. The APD figure is what the type can do
+   * at a light weight; a loaded airliner does not use all of it, and anything
+   * steeper reads on the scope as a fighter rather than as traffic — so the one
+   * type the database puts above it (E190, 3400) is entered at 3000.
    */
   departureClimbFpm: Fpm;
 }
@@ -64,7 +69,7 @@ const HEAVY = {
 export const AIRCRAFT_TYPES: readonly AircraftType[] = [
   { code: 'A320', ...MEDIUM, v2Kts: 145, initialClimbKts: 175, departureClimbFpm: 2500 },
   { code: 'B738', ...MEDIUM, v2Kts: 145, initialClimbKts: 165, departureClimbFpm: 3000 },
-  { code: 'E190', ...MEDIUM, v2Kts: 138, initialClimbKts: 190, departureClimbFpm: 3400 },
+  { code: 'E190', ...MEDIUM, v2Kts: 138, initialClimbKts: 190, departureClimbFpm: 3000 },
   { code: 'A332', ...HEAVY, v2Kts: 145, initialClimbKts: 175, departureClimbFpm: 2000 },
   { code: 'B77W', ...HEAVY, v2Kts: 168, initialClimbKts: 200, departureClimbFpm: 3000 },
   { code: 'B788', ...HEAVY, v2Kts: 165, initialClimbKts: 190, departureClimbFpm: 2700 },

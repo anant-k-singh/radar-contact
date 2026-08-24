@@ -572,12 +572,21 @@ as they run north, and at the crossing latitude an arrival on the published prof
 about **6700 ft**. A departure held at or below **4000 ft** therefore passes some 2700 ft
 underneath it.
 
-**The restriction ends five miles past the crossing, at MORVA / TELMU — not at the crossing
+**The restriction ends two miles past the crossing, at MORVA / TELMU — not at the crossing
 itself.** This is the part that is easy to get wrong, and it was got wrong first time round.
 Releasing the climb where the tracks cross leaves the departure within 3 NM of the arrival route for
 the next three miles, and three miles of climb is 1500 ft or more: it climbs straight back into the
 gap it was just held under. Measured on the first attempt, a medium came back to within **980 ft**
 of the downwind profile at 2.4 NM, which is a separation violation by our own rule (§9.1).
+
+Two miles is the *shortest* hold-down that works, and it is short on purpose: every extra mile is
+another twenty seconds of a departure cruising level at 4000 ft in plain view of the player, which
+reads as an aircraft that has forgotten to climb rather than one being held down. What carries the
+margin is the vertical, not the lateral — the arrival above is on 7000 at the corner and higher
+still on the leg in from the gate, so the departure climbs away from 4000 with 3000 ft over its head
+and is outside 3 NM before it has used a third of it. Measured across the fleet, the worst case
+inside 3 NM of any STAR is **2329 ft** of vertical (E190, at exactly 3.00 NM, 4952 against 7281).
+The level segment lasts 51 s for the slowest climber and 104 s for the one that reaches 4000 soonest.
 
 No crossing altitude fixes that, either. The downwind tops out at 7000 ft, so the gap available at
 the crossing is at most 7000 − *R*, and by the time the departure is laterally clear it has climbed
@@ -605,10 +614,16 @@ the EUROCONTROL Aircraft Performance Database's *initial climb* and *climb to FL
 | --- | --- | --- | --- |
 | A320 | 145 | 175 | 2500 |
 | B738 | 145 | 165 | 3000 |
-| E190 | 138 | 190 | 3400 |
+| E190 | 138 | 190 | 3000 |
 | A332 | 145 | 175 | 2000 |
 | B77W | 168 | 200 | 3000 |
 | B788 | 165 | 190 | 2700 |
+
+**3000 fpm is the ceiling on the table.** The APD quotes what the type can do at a light weight;
+a loaded airliner does not use all of it, and a target winding up the scope faster than that reads
+as a fighter rather than as traffic. Only the E190 is affected — the database gives it 3400, and it
+is entered here at 3000. The limit is in the numbers rather than in a clamp in `dynamics.ts`: the
+table is the one place a climb rate is decided, so there is nothing for a second rule to add.
 
 The profile is the real one: rotate at V2, hold the initial-climb IAS until the flaps are up at
 3000 ft AGL, then accelerate to **250 kt** — the below-10,000 speed limit, and our airspace is
@@ -631,7 +646,7 @@ of a departure at climb thrust.
 
 - **4000 across the downwind.** Even the slowest climber in the fleet is level at 4000 about 9 NM
   after the brakes come off, with the crossing 10 NM out and the fix that ends the restriction
-  another 5 NM beyond — so the aircraft levels off and cruises the restricted segment. The
+  another 2 NM beyond — so the aircraft levels off and cruises the restricted segment. The
   restriction is a ceiling being *held*, not a performance limit being hit.
 - **13,000 by the exit fix.** 9000 ft of climb needs about 22 NM for the slowest climber; the exit
   fix is 28 NM past the restriction. The straight SID climbs the full 13,000 ft in about 32 NM,

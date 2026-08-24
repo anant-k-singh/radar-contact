@@ -44,10 +44,10 @@ They fly one of three published SIDs, drawn on the scope in amber:
 | `RAMOX1A` | Straight ahead, out to the south | None — it just climbs |
 
 The two turning departures cross the RIMOL and TEMBA downwinds, which is why they are held at 4,000:
-underneath your arrivals, which are at 6,700 or so at that point. MORVA and TELMU sit five miles
+underneath your arrivals, which are at 6,700 or so at that point. MORVA and TELMU sit two miles
 *past* the crossing, not on it — a departure that started climbing the moment it was clear would be
-back in your arrival's level before it was laterally clear of the route. As published, the two never
-touch.
+back in your arrival's level before it was laterally clear of the route. Two miles is a minute or so
+of level flight, and then it is climbing again. As published, the two never touch.
 
 **But your arrivals are only where you left them.** Vector one south of the field and the departure
 corridor is waiting there, at 4,000 climbing to 13,000 — and a bust against a departure counts

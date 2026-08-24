@@ -225,9 +225,9 @@ export const DEPARTURE_TOP_FT = 13_000;
  * climb at a fixed climb speed, so the acceleration segment has to be paid for
  * out of what is left. 4200 fpm is what makes that remainder realistic: it
  * leaves every type between 0.5 and 0.8 kt/s to accelerate with while still
- * climbing at its published rate. Below about 4000 the steepest climber in the
- * fleet (E190, 3400 fpm) is left with only the `MIN_SPEED_RATE_KTS_S` floor and
- * spends six minutes crawling up to 250 kt, which is not what a departure does.
+ * climbing at its published rate. Below about 4000 the steepest climbers in the
+ * fleet (3000 fpm) are left with only the `MIN_SPEED_RATE_KTS_S` floor and
+ * spend six minutes crawling up to 250 kt, which is not what a departure does.
  */
 export const DEPARTURE_THRUST_BUDGET_FPM = 4200;
 /** Sequencing tolerance at a SID fix — the same job `STAR_FIX_CAPTURE_NM` does. */

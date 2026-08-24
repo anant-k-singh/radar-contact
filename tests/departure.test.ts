@@ -208,10 +208,16 @@ describe('SID crossing restrictions', () => {
       const beyond = { x: fix.position.x * 1.2, y: fix.position.y };
       expect(ceilingAtFt(sid, beyond)).toBe(DEPARTURE_TOP_FT);
 
-      // The point of putting the fix out here rather than on the crossing: by
-      // the time the climb is released the track is clear of every arrival
-      // route, so the climb cannot eat the gap it was just held under (§4.7).
-      expect(nearestStar(fix.position).distNm).toBeGreaterThan(SEP_HORIZ_NM);
+      // The point of putting the fix out here rather than on the crossing: at
+      // the release the track is already diverging from the arrival route, and
+      // the arrival above is high enough that the climb cannot eat the gap it
+      // was just held under before the two are 3 NM apart (§4.7). That the
+      // margin actually survives the climb is what `flyOut` proves, type by
+      // type; this is the chart-geometry half of it.
+      const release = nearestStar(fix.position);
+      expect(release.distNm).toBeGreaterThan(nearestStar(crossing).distNm);
+      expect(nearestStar(beyond).distNm).toBeGreaterThan(release.distNm);
+      expect(release.altitudeFt - fix.maxAltitudeFt!).toBeGreaterThanOrEqual(SEP_VERT_FT);
     }
   });
 
