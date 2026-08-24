@@ -321,6 +321,7 @@ function cloneStats(stats: Stats): Stats {
   return {
     ...stats,
     landingTimesS: [...stats.landingTimesS],
+    departureTimesS: [...stats.departureTimesS],
     rejections: new Map(stats.rejections),
     missedIntercepts: new Map(stats.missedIntercepts),
   };
@@ -335,10 +336,16 @@ function sumCounts(counts: Map<string, number>): number {
 /**
  * Whether anything a snapshot carries has moved.
  *
- * Only the counters are compared, not `landingTimesS`, whose contents also
- * change when the live code trims landings out of the rate window. That trim is
- * invisible to playback: `landingRatePerHour` filters by the *displayed* time
- * anyway, so a snapshot holding a few extra old landings reads identically.
+ * `landingTimesS` is not compared: its contents also change when the live code
+ * trims landings out of the rate window, and that trim is invisible to playback
+ * because `landingRatePerHour` filters by the *displayed* time anyway. The
+ * landing counter moves at the same instant, so nothing is missed.
+ *
+ * `departureTimesS` has to be compared, by length, because nothing else moves
+ * with it: `departures` counts airspace exits while a departure time is stamped
+ * at the take-off roll, minutes earlier (§8.2). Comparing the length also fires
+ * on a trim, which costs one extra snapshot every few minutes and is cheaper
+ * than a second counter to keep in step.
  */
 function sessionChanged(last: SessionSnapshot, world: World): boolean {
   const a = last.stats;
@@ -348,6 +355,7 @@ function sessionChanged(last: SessionSnapshot, world: World): boolean {
     last.departureFlowPerHour !== world.departureFlowPerHour ||
     a.landings !== b.landings ||
     a.departures !== b.departures ||
+    a.departureTimesS.length !== b.departureTimesS.length ||
     a.handoffs !== b.handoffs ||
     a.violations !== b.violations ||
     a.goArounds !== b.goArounds ||

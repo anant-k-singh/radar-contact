@@ -11,6 +11,7 @@ import {
   DEPARTURE_TOP_FT,
   DEPARTURE_HOLD_FINAL_NM,
   DEPARTURE_MIN_INTERVAL_S,
+  MOVEMENT_RATE_WINDOW_S,
   PHYSICS_DT,
   SEP_HORIZ_NM,
   SEP_VERT_FT,
@@ -18,7 +19,7 @@ import {
 import { createRng } from '../src/sim/rng.js';
 import { createDeparture, createTrafficState, runwayBlockedBy } from '../src/sim/traffic.js';
 import { distance, type Point } from '../src/sim/units.js';
-import { createWorld, step, type World } from '../src/sim/world.js';
+import { createWorld, departureRatePerHour, step, type World } from '../src/sim/world.js';
 import { makeAircraft, onFinalApproach, quietWorld, run } from './helpers.js';
 
 const sidNamed = (name: string): Sid => SIDS.find((sid) => sid.name === name)!;
@@ -446,6 +447,38 @@ describe('departure flow', () => {
     run(world, 120);
     expect(world.aircraft.length).toBeGreaterThan(0);
     expect(world.aircraft.every(isDeparture)).toBe(true);
+  });
+
+  it('reports a departure rate against what the runway actually released', () => {
+    const world = quietWorld();
+    world.departureFlowPerHour = 20;
+    world.traffic.nextDepartureAtS = 0;
+
+    // Too young to extrapolate from.
+    run(world, 60);
+    expect(departureRatePerHour(world)).toBeNull();
+
+    // Timed at the roll rather than at the airspace exit, so the rate is a real
+    // number well before the first departure has even finished its SID (§8.2) —
+    // which is the whole reason it is not counted off `stats.departures`.
+    run(world, 240);
+    expect(world.stats.departures).toBe(0);
+    expect(departureRatePerHour(world)!).toBeGreaterThan(0);
+
+    run(world, MOVEMENT_RATE_WINDOW_S);
+    const rate = departureRatePerHour(world)!;
+    // Nothing is landing to hold the runway, so it should track the flow set —
+    // within the wake-turbulence interval, which caps it at 30/h.
+    expect(rate).toBeGreaterThan(10);
+    expect(rate).toBeLessThanOrEqual(3600 / DEPARTURE_MIN_INTERVAL_S);
+  });
+
+  it('reports no departure rate at all when the flow is off', () => {
+    const world = quietWorld();
+    world.departureFlowPerHour = 0;
+    world.traffic.nextDepartureAtS = 0;
+    run(world, MOVEMENT_RATE_WINDOW_S);
+    expect(departureRatePerHour(world)).toBe(0);
   });
 
   it('leaves the arrival sequence a seed produces untouched', () => {

@@ -1245,10 +1245,10 @@ None of these blocks play; each is a small, contained change.
 8. **The two north routes end pointing at each other** at the same level, 4 NM apart. Deliberate —
    it is the sequencing problem — but if it proves unfair rather than hard, staggering ARDIS and
    BOXAR by 1000 ft is a one-line change.
-11. **Departures are unscored** (§4.7). The `DEPARTURES` tally counts them, but nothing measures
-    whether the runway kept up: a player who holds a permanent 4 NM final starves the departure
-    flow completely and pays nothing for it. A departure-delay figure alongside the landing rate
-    would make the runway a resource to balance rather than one to monopolise.
+11. **Departures are still unscored** (§4.7). The `DEP RATE` row now *shows* what the runway got
+    away against what was asked for, so starving the departures is at least visible — but nothing
+    counts it. Folding the shortfall into the session's quality figures would make the runway a
+    resource to balance rather than one to monopolise.
 12. **A departure is never re-routed** (A12). Real departures get level stops, radar vectors and
     "climb unrestricted" from Departure Control as the arrival picture changes. Modelling any of
     that would make the amber lines a prediction rather than a promise — which is more realistic

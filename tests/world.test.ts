@@ -8,8 +8,8 @@ import {
   ENTRY_ALTITUDE_NEAR_FT,
   ENTRY_SPEED_KTS,
   IN_TRAIL_SEQUENCING_MIN_NM,
-  LANDING_RATE_MIN_ELAPSED_S,
-  LANDING_RATE_WINDOW_S,
+  MOVEMENT_RATE_MIN_ELAPSED_S,
+  MOVEMENT_RATE_WINDOW_S,
   MIN_SPAWN_INTERVAL_S,
   PILOT_DELAY_MAX_S,
   PHYSICS_DT,
@@ -297,7 +297,7 @@ describe('landing rate', () => {
   it('is withheld until the sample is long enough to mean anything', () => {
     const world = quietWorld();
     expect(landingRatePerHour(world)).toBeNull();
-    run(world, LANDING_RATE_MIN_ELAPSED_S - 5);
+    run(world, MOVEMENT_RATE_MIN_ELAPSED_S - 5);
     expect(landingRatePerHour(world)).toBeNull();
   });
 
@@ -313,12 +313,12 @@ describe('landing rate', () => {
   it('counts only the trailing window, so an earlier rush stops flattering it', () => {
     const world = quietWorld();
     world.timeS = 1800;
-    const since = world.timeS - LANDING_RATE_WINDOW_S;
+    const since = world.timeS - MOVEMENT_RATE_WINDOW_S;
     // Six landings early in the session, two inside the window.
     world.stats.landingTimesS = [60, 120, 180, 240, 300, 360, since + 100, since + 300];
 
     // 2 across the window — well under the 16/h the whole session would suggest.
-    expect(landingRatePerHour(world)).toBeCloseTo((2 / LANDING_RATE_WINDOW_S) * 3600, 6);
+    expect(landingRatePerHour(world)).toBeCloseTo((2 / MOVEMENT_RATE_WINDOW_S) * 3600, 6);
   });
 
   it('drops landings out of the window as the session runs on', () => {
@@ -331,12 +331,12 @@ describe('landing rate', () => {
         phase: 'gs',
       }),
     );
-    run(world, LANDING_RATE_MIN_ELAPSED_S + 10);
+    run(world, MOVEMENT_RATE_MIN_ELAPSED_S + 10);
     expect(world.stats.landings).toBe(1);
     expect(landingRatePerHour(world)).toBeGreaterThan(0);
 
     // A full window more with nothing landing: the rate decays to zero.
-    run(world, LANDING_RATE_WINDOW_S);
+    run(world, MOVEMENT_RATE_WINDOW_S);
     expect(world.stats.landings).toBe(1); // the total is untouched
     expect(landingRatePerHour(world)).toBe(0);
   });

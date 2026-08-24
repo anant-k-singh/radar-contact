@@ -234,6 +234,7 @@ The gutter on the right keeps a running account:
 | `LANDINGS` | Completed landings |
 | `RATE` | Landings per hour over the last 10 minutes of sim time |
 | `DEPARTURES` | Departures that got airborne and away on their SID |
+| `DEP RATE` | Departures off the runway per hour, over the same 10 minutes. Compare it with the `DEP` figure in the status line: the gap is what your final approach is costing them |
 | `HANDED OFF` | Transferred to Tower |
 | `VIOLATIONS` | Separation losses, and the total seconds spent inside one |
 | `GO-AROUNDS` | Approaches that broke off inside 5 NM |

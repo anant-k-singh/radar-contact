@@ -7,7 +7,7 @@
  * the projection reserved for them.
  */
 import type { World } from '../sim/world.js';
-import { landingRatePerHour } from '../sim/world.js';
+import { departureRatePerHour, landingRatePerHour } from '../sim/world.js';
 import { STATS_GUTTER_PX, type Projection } from './project.js';
 import { THEME } from './theme.js';
 
@@ -35,6 +35,7 @@ function tally(counts: Map<string, number>): string {
 function rows(world: World): Row[] {
   const stats = world.stats;
   const rate = landingRatePerHour(world);
+  const depRate = departureRatePerHour(world);
   const missed = tally(stats.missedIntercepts);
   // On final is a live sequence count rather than a session tally, but it is the
   // number looked at most often, so it leads the block instead of sitting alone
@@ -44,9 +45,12 @@ function rows(world: World): Row[] {
     { label: 'ON FINAL', value: String(onFinal) },
     { label: 'LANDINGS', value: String(stats.landings) },
     { label: 'RATE', value: rate === null ? '—' : `${rate.toFixed(1)}/h` },
-    // Departures that got away cleanly. Not a score — the player has no
-    // authority over them — but it says whether the runway is keeping up (§4.7).
+    // Departures that got away cleanly, and how fast the runway is releasing
+    // them. Neither is a score — the player has no authority over a departure —
+    // but the rate against the DEP flow in the status line is how you see a
+    // tight final starving them (§4.7).
     { label: 'DEPARTURES', value: String(stats.departures) },
+    { label: 'DEP RATE', value: depRate === null ? '—' : `${depRate.toFixed(1)}/h` },
     { label: 'HANDED OFF', value: String(stats.handoffs) },
     {
       label: 'VIOLATIONS',

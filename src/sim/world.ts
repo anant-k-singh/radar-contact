@@ -13,8 +13,8 @@ import {
   FLOW_DEFAULT_PER_HOUR,
   HISTORY_PERIOD_S,
   IN_TRAIL_MIN_NM,
-  LANDING_RATE_MIN_ELAPSED_S,
-  LANDING_RATE_WINDOW_S,
+  MOVEMENT_RATE_MIN_ELAPSED_S,
+  MOVEMENT_RATE_WINDOW_S,
   MESSAGE_LOG_MAX,
   RADAR_PERIOD_S,
   TOWER_FREQUENCY,
@@ -57,6 +57,15 @@ export interface Stats {
   landingTimesS: Sec[];
   /** Departures that got airborne and left the area on their SID (§4.7). */
   departures: number;
+  /**
+   * Sim time each departure began its take-off roll, inside the rate window.
+   *
+   * Timed at the *roll*, not at the airspace exit that `departures` counts —
+   * the departure rate is a measure of what the runway is getting away, and an
+   * exit happens eight minutes downstream of the runway decision that caused it
+   * (§8.2). Older entries are dropped, exactly as the landing times are.
+   */
+  departureTimesS: Sec[];
   handoffs: number;
   violations: number;
   violationSeconds: number;
@@ -118,6 +127,7 @@ export function createWorld(
       landings: 0,
       landingTimesS: [],
       departures: 0,
+      departureTimesS: [],
       handoffs: 0,
       violations: 0,
       violationSeconds: 0,
@@ -184,6 +194,13 @@ export function selectedAircraft(world: World): Aircraft | undefined {
   return findAircraft(world, world.selectedId);
 }
 
+/** Only the window is ever read, so a movement list never grows past it. */
+function trimToRateWindow(timesS: Sec[], nowS: Sec): void {
+  const since = nowS - MOVEMENT_RATE_WINDOW_S;
+  const stale = timesS.findIndex((timeS) => timeS >= since);
+  if (stale > 0) timesS.splice(0, stale);
+}
+
 function remove(world: World, ac: Aircraft): void {
   const index = world.aircraft.indexOf(ac);
   if (index >= 0) world.aircraft.splice(index, 1);
@@ -191,16 +208,30 @@ function remove(world: World, ac: Aircraft): void {
 }
 
 /**
- * Landings per hour over the trailing window (§8.2), or null while the session
+ * Movements per hour over the trailing window (§8.2), or null while the session
  * is too young for the sample to mean anything. Extrapolated from however much
  * of the window has actually elapsed, so it settles rather than ramping up.
  */
+function ratePerHour(world: World, timesS: readonly Sec[]): number | null {
+  const elapsedS = Math.min(MOVEMENT_RATE_WINDOW_S, world.timeS);
+  if (elapsedS < MOVEMENT_RATE_MIN_ELAPSED_S) return null;
+  const since = world.timeS - MOVEMENT_RATE_WINDOW_S;
+  const count = timesS.filter((timeS) => timeS >= since).length;
+  return (count / elapsedS) * 3600;
+}
+
 export function landingRatePerHour(world: World): number | null {
-  const elapsedS = Math.min(LANDING_RATE_WINDOW_S, world.timeS);
-  if (elapsedS < LANDING_RATE_MIN_ELAPSED_S) return null;
-  const since = world.timeS - LANDING_RATE_WINDOW_S;
-  const landings = world.stats.landingTimesS.filter((timeS) => timeS >= since).length;
-  return (landings / elapsedS) * 3600;
+  return ratePerHour(world, world.stats.landingTimesS);
+}
+
+/**
+ * Departures per hour off the runway. Read next to the landing rate, it is the
+ * other half of what the one runway actually achieved — and next to the
+ * departure flow setting, it is how much of what was asked for got away, which
+ * a busy final quietly eats into (§4.7).
+ */
+export function departureRatePerHour(world: World): number | null {
+  return ratePerHour(world, world.stats.departureTimesS);
 }
 
 /** Projected in-trail spacing when the aircraft ahead reaches the threshold (§9.3). */
@@ -374,6 +405,8 @@ export function step(world: World, dt: Sec): void {
       );
       if (departure) {
         world.aircraft.push(departure);
+        world.stats.departureTimesS.push(world.timeS);
+        trimToRateWindow(world.stats.departureTimesS, world.timeS);
         scheduleNextDeparture(
           world.traffic,
           world.departureRng,
@@ -474,15 +507,10 @@ export function step(world: World, dt: Sec): void {
         case 'landed':
           world.stats.landings += 1;
           world.stats.landingTimesS.push(world.timeS);
+          trimToRateWindow(world.stats.landingTimesS, world.timeS);
           // The runway is now occupied by an aircraft rolling out, which is what
           // holds the next departure (§4.7).
           world.traffic.lastLandingS = world.timeS;
-          // Only the window is ever read, so the list never grows past it.
-          {
-            const since = world.timeS - LANDING_RATE_WINDOW_S;
-            const stale = world.stats.landingTimesS.findIndex((timeS) => timeS >= since);
-            if (stale > 0) world.stats.landingTimesS.splice(0, stale);
-          }
           if (ac.directDistanceNm > 0) {
             world.stats.trackMileRatioSum += ac.trackMilesFlown / ac.directDistanceNm;
             world.stats.trackMileSamples += 1;

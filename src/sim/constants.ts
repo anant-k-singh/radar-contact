@@ -264,13 +264,15 @@ export const TOWER_FREQUENCY = '119.1';
 
 // ── Session stats (§8) ──────────────────────────────────────────────────────
 /**
- * Landing rate is quoted over a trailing 12 minutes of sim time rather than the
- * whole session, so it reads as "how the last few minutes are going" — the
- * number a controller would compare against the arrival flow.
+ * Movement rates — landings and departures alike — are quoted over a trailing
+ * 12 minutes of sim time rather than the whole session, so they read as "how the
+ * last few minutes are going": the numbers a controller would compare against
+ * the two flow settings. One window for both, because the two rates are the same
+ * runway measured in each direction and are read side by side.
  */
-export const LANDING_RATE_WINDOW_S = 720;
+export const MOVEMENT_RATE_WINDOW_S = 720;
 /** Below this much elapsed time the sample is too short to extrapolate. */
-export const LANDING_RATE_MIN_ELAPSED_S = 120;
+export const MOVEMENT_RATE_MIN_ELAPSED_S = 120;
 
 // ── Misc ────────────────────────────────────────────────────────────────────
 export const MESSAGE_LOG_MAX = 60;
