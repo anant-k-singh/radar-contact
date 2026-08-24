@@ -126,6 +126,16 @@ export const GO_AROUND_ABOVE_GS_FT = 1000;
 export const GO_AROUND_OVERSPEED_KTS = 45; // above Vapp
 export const GO_AROUND_ALT_FT = 3000;
 
+/**
+ * Time acceleration the number keys select: key *i* gives 2^(i−1), so 1 is real
+ * time and 5 is 16×.
+ *
+ * The doubling is the point. The key is the number of doublings rather than a
+ * rate to be looked up, so the row is learnt once instead of memorised — and
+ * extending it is adding a number here, not a case in three switch statements.
+ */
+export const TIME_SCALES: readonly number[] = [1, 2, 4, 8, 16];
+
 // ── Traffic generation (§4.4) ───────────────────────────────────────────────
 export const FLOW_DEFAULT_PER_HOUR = 25;
 export const FLOW_MIN_PER_HOUR = 5;
@@ -342,7 +352,7 @@ export const REPLAY_PRUNE_SLACK_S = 60;
 /** Step for the transport's rewind and forward buttons. */
 export const REPLAY_SKIP_S = 10;
 /** Playback rates the transport offers; 0.5× is the one live play does not have. */
-export const REPLAY_RATES: readonly number[] = [0.5, 1, 2, 4, 8];
+export const REPLAY_RATES: readonly number[] = [0.5, ...TIME_SCALES];
 /**
  * The selected aircraft's path is drawn from one sample a second rather than
  * all five: at 250 kt the samples are 0.07 NM apart, so four in five land

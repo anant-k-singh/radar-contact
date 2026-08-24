@@ -12,6 +12,7 @@ import {
   DEPARTURE_FLOW_STEP_PER_HOUR,
   DEPARTURE_FREQUENCY,
   GS_CAPTURE_WINDOW_FT,
+  TIME_SCALES,
   VS_DISPLAY_STEP_FPM,
 } from '../sim/constants.js';
 import {
@@ -78,16 +79,15 @@ const TEMPLATE = `
   <div class="keys live-only">
     <kbd>A</kbd><kbd>D</kbd> heading &nbsp; <kbd>W</kbd><kbd>S</kbd> altitude<br />
     <kbd>Q</kbd><kbd>E</kbd> speed &nbsp; <kbd>C</kbd> clear ILS &nbsp; <kbd>H</kbd> hold<br />
-    <kbd>Tab</kbd> cycle &nbsp; <kbd>Space</kbd> pause &nbsp; <kbd>1</kbd><kbd>2</kbd><kbd>4</kbd><kbd>8</kbd> rate
+    <kbd>Tab</kbd> cycle &nbsp; <kbd>Space</kbd> pause &nbsp; ${TIME_SCALES.map(
+      (_, index) => `<kbd>${index + 1}</kbd>`,
+    ).join('')} rate
   </div>
 
   <h2 class="live-only">Session controls</h2>
   <div class="buttons live-only">
     <button data-action="pause">Pause</button>
-    <button data-action="rate1">1x</button>
-    <button data-action="rate2">2x</button>
-    <button data-action="rate4">4x</button>
-    <button data-action="rate8">8x</button>
+    ${TIME_SCALES.map((scale) => `<button data-rate="${scale}">${scale}x</button>`).join('\n    ')}
   </div>
   <div class="buttons live-only">
     <button data-action="flow-down">Arr −</button>
@@ -129,22 +129,17 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
   };
 
   root.addEventListener('click', (event) => {
-    const action = (event.target as HTMLElement).closest('button')?.dataset.action;
-    switch (action) {
+    const button = (event.target as HTMLElement).closest('button');
+    // The rate buttons are generated from `TIME_SCALES` and carry the rate
+    // itself, so adding one needs no matching case below.
+    const rate = button?.dataset.rate;
+    if (rate !== undefined) {
+      handlers.setTimeScale(Number(rate));
+      return;
+    }
+    switch (button?.dataset.action) {
       case 'pause':
         handlers.togglePause();
-        break;
-      case 'rate1':
-        handlers.setTimeScale(1);
-        break;
-      case 'rate2':
-        handlers.setTimeScale(2);
-        break;
-      case 'rate4':
-        handlers.setTimeScale(4);
-        break;
-      case 'rate8':
-        handlers.setTimeScale(8);
         break;
       case 'flow-down':
         handlers.adjustFlow(-5);

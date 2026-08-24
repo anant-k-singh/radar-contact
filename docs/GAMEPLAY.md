@@ -20,7 +20,8 @@ Procedures follow standard radar-control practice. Every number below is derived
 | `C` | Clear for the ILS approach |
 | `H` | Enter / leave the published hold |
 | `Tab` | Cycle selection, nearest the runway first |
-| `Space` | Pause · `1` `2` `4` `8` time rate · `Esc` deselect |
+| `1` … `5` | Time rate — each key doubles the one before it: `1` real time, `3` is 4×, `5` is 16× |
+| `Space` | Pause · `Esc` deselect |
 | `←` / `→` | Skip 10 s back / forward — replay only (see below) |
 
 Click a blip or its data block to select it. **Arr −/+** in the sidebar sets arrivals per hour
@@ -263,7 +264,7 @@ bottom right of the scope, ends the session and plays it back from the beginning
 | --- | --- |
 | Scrub bar | Drag anywhere in the recording |
 | `−10s` / `+10s` | Or the left / right arrow keys |
-| `0.5×` … `8×` | Playback rate. `0.5×` is worth it for the ten seconds a sequence falls apart |
+| `0.5×` … `16×` | Playback rate, or the number keys as live. `0.5×` is worth it for the ten seconds a sequence falls apart |
 | `⏸` / `▶` | Or `Space`. At the end the button becomes `↻` and starts over |
 | `New session` | Throw the recording away and fly a fresh field |
 

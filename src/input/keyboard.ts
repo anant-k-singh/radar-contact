@@ -7,7 +7,7 @@ import {
   nextSelectableId,
   toggleHold,
 } from '../sim/commands.js';
-import { REPLAY_SKIP_S } from '../sim/constants.js';
+import { REPLAY_SKIP_S, TIME_SCALES } from '../sim/constants.js';
 import { selectedAircraft } from '../sim/world.js';
 import type { SessionController } from './controller.js';
 
@@ -21,6 +21,15 @@ export function bindKeyboard(controller: () => SessionController): void {
     const world = host.world();
     const key = event.key.toLowerCase();
 
+    // Number keys are time acceleration, doubling per key: 1 is real time and
+    // 5 is 16×. Arithmetic rather than a case per rate, so the row grows by
+    // adding a number to `TIME_SCALES`. A digit past the end does nothing.
+    if (/^[1-9]$/.test(key)) {
+      const scale = TIME_SCALES[Number(key) - 1];
+      if (scale !== undefined) host.setTimeScale(scale);
+      return;
+    }
+
     // Session keys work with nothing selected.
     switch (key) {
       case 'tab':
@@ -30,18 +39,6 @@ export function bindKeyboard(controller: () => SessionController): void {
       case ' ':
         event.preventDefault();
         host.togglePause();
-        return;
-      case '1':
-        host.setTimeScale(1);
-        return;
-      case '2':
-        host.setTimeScale(2);
-        return;
-      case '4':
-        host.setTimeScale(4);
-        return;
-      case '8':
-        host.setTimeScale(8);
         return;
       // Scrubbing a recording. Live these do nothing: a session has no
       // recorded future to jump to and no way to unfly the last ten seconds.

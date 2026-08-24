@@ -755,7 +755,7 @@ Three distinct rates, which is the whole design of the loop:
   blocks therefore hold still for a full second while the aircraft glides, which is the look you
   asked for and also stops the altitude digits from flickering.
 - Physics is written dt-agnostic, so 20 Hz is a constant, not an assumption baked into the maths.
-- **Time acceleration:** 1× / 2× / 4× by stepping physics more times per frame; the 1 Hz radar
+- **Time acceleration:** 1× to 16× by stepping physics more times per frame; the 1 Hz radar
   sample scales with *sim* time, so at 4× the data blocks refresh 4× per real second.
 - **Pause** stops the accumulator; input remains live.
 
@@ -889,7 +889,7 @@ fixes it, and the sidebar says so continuously for the whole `loc` leg rather th
 | `H` | Hold at the next fix / leave the hold (§4.6, STAR only) |
 | `Tab` | Cycle selection |
 | `Space` | Pause / resume |
-| `1` `2` `4` | Time acceleration |
+| `1` … `5` | Time acceleration: key *i* selects 2^(i−1), so 1× / 2× / 4× / 8× / 16× |
 | `Esc` | Deselect |
 
 **Commit semantics: each keypress transmits immediately** — no OK/confirm step. What it does *not*
@@ -1187,7 +1187,7 @@ Each milestone ends with something visible, so progress is never theoretical.
 | **M4** | ILS: `C` clearance gate with per-condition refusals, LOC + G/S capture, deceleration schedule, touchdown | ✅ done |
 | **M5** | Rules: separation violations, predicted-conflict halos, alert tiers, in-trail rule, auto go-around, auto handoff | ✅ done |
 | **M6** | Polish: session stats, pause + time accel, flow control, restart, live clearance preview, label de-clutter | ✅ done — **except the conflict alert sound**, which is not implemented (see §15) |
-| **M7** | Replay: always-on rolling recording, stop-and-watch transport with scrub / ±10 s / 0.5–8×, whole-path drawing, controls withheld (§17) | ✅ done |
+| **M7** | Replay: always-on rolling recording, stop-and-watch transport with scrub / ±10 s / 0.5–16×, whole-path drawing, controls withheld (§17) | ✅ done |
 
 ---
 
@@ -1413,7 +1413,7 @@ they always get. Two things are rebuilt rather than stored:
   gives the sidebar its in-trail figures. The per-aircraft *alert colour* still comes from the
   recording: on the scope that colour is a 1 Hz sample, not an instantaneous truth.
 
-The transport is elapsed/total with a scrub bar, ±10 s, and 0.5×–8× — 0.5× being the one rate live
+The transport is elapsed/total with a scrub bar, ±10 s, and 0.5×–16× — 0.5× being the one rate live
 play does not have, since watching a sequence unravel slowly is the point. Arrow keys skip, space
 holds, and the number keys set the rate, so the keyboard means the same things it did live.
 
