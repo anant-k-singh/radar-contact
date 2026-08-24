@@ -149,18 +149,18 @@ course so nothing arrives already lined up on the LOC:
 
 | Gate | Bearing from ARP | Inbound heading at entry | Handover altitude | STAR |
 | --- | --- | --- | --- | --- |
-| KOVAL | 040° | 220° | **8000 ft** | KOVAL1A |
-| TEMBA | 130° | 310° | 9000 ft | TEMBA1A |
-| RIMOL | 230° | 050° | 9000 ft | RIMOL1A |
-| VANDA | 320° | 140° | **8000 ft** | VANDA1A |
+| KOVAL | 040° | 220° | **10,000 ft** | KOVAL1A |
+| TEMBA | 130° | 310° | 12,000 ft | TEMBA1A |
+| RIMOL | 230° | 050° | 12,000 ft | RIMOL1A |
+| VANDA | 320° | 140° | **10,000 ft** | VANDA1A |
 
 **Center's handover contract:** every aircraft appears exactly at its gate at its gate altitude,
 **250 kt IAS**, **established on the first leg of its STAR** (§4.5), level and steady.
 
 KOVAL and VANDA lie north of the field — the same side as the final approach course for runway 18 —
 so their arrivals reach the localizer with far fewer track miles in which to lose the height. Center
-hands those two over 1000 ft lower, and their STARs are correspondingly shorter. The gate marker on
-the scope carries its altitude in hundreds (`KOVAL 80`).
+hands those two over 2000 ft lower, and their STARs are correspondingly shorter. The gate marker on
+the scope carries its altitude in hundreds (`KOVAL 100`).
 
 ### 3.3 Player authority limits
 
@@ -170,9 +170,10 @@ the scope carries its altitude in hundreds (`KOVAL 80`).
 | Altitude | 2000–12,000 ft | 1000 ft |
 | Speed (IAS) | 180–250 kt outside 20 track miles; **160**–250 kt within | 10 kt |
 
-Aircraft enter at 8000–9000 ft, but the assignable ceiling is **12,000 ft** so climbs are available as a
-de-confliction tool and a queue can be stacked vertically above the entry altitude. Eleven usable
-levels between MVA and ceiling.
+Aircraft enter at 10,000–12,000 ft against an assignable ceiling of **12,000 ft**, so a climb is
+available as a de-confliction tool everywhere except at the south gates, which arrive on the ceiling
+itself. Eleven usable levels between MVA and ceiling. Departures go *above* it, to 13,000 ft (§4.7):
+the ceiling is the top of what the controller may assign, not the top of the sky.
 
 The 180 kt floor outside 20 track miles enforces the configuration gate (§2.4) rather than merely
 suggesting it. An
@@ -196,12 +197,13 @@ attempt to go below it is rejected with a log message explaining why.
 
 Everything above 8000 ft sits outside the 25 NM LOC capture window (§6.1 condition 5), so those
 levels are for holding traffic down-level and de-conflicting, not for intercepts. The STARs deliver
-arrivals to **3000 ft** on the north routes and **4000 ft** on the south ones. The north platform is
-the one that has to be an intercept platform: those routes end 15.3 NM from the threshold measured
-along the final approach course, where the glideslope is 4882 ft, so the level flown there must be
-below it — 3000 ft meets the slope at 9.4 NM, comfortably inside the merge. The south routes end on
-a downwind that is turned base rather than final, so their 4000 ft is a descent step on the way
-round rather than an intercept level; it also sits below the 4128 ft glideslope at that range.
+arrivals to **3000 ft** on every route. The north platform is the one that has to be an intercept
+platform: those routes end 15.3 NM from the threshold measured along the final approach course,
+where the glideslope is 4882 ft, so the level flown there must be below it — 3000 ft meets the slope
+at 9.4 NM, comfortably inside the merge. The south routes end on a downwind that is turned base
+rather than final, so their 3000 ft is where the descent has already been made rather than an
+intercept level; whatever range the base turn is flown at beyond 9.4 NM, the aircraft is under the
+slope and captures from below.
 
 ---
 
@@ -365,21 +367,22 @@ published crossing altitude or speed.
 
 | STAR | Fixes | Profile |
 | --- | --- | --- |
-| VANDA1A | VANDA → OKPUR → ALVOR → ARDIS | 9000/250 kt → 8000/250 kt → 6000/230 kt → 3000/200 kt, level to 2 NM west of the centerline at 16 NM |
+| VANDA1A | VANDA → OKPUR → ALVOR → ARDIS | 10,000/250 kt → 9000/250 kt → 7000/230 kt → 3000/200 kt, to a platform 2 NM west of the centerline at 16 NM |
 | KOVAL1A | KOVAL → NIVEL → BELGA → BOXAR | mirror image, 2 NM east |
-| RIMOL1A | RIMOL → SUDIX → LOMSA → PIKON | 11,000/250 kt → 9000/250 kt → 6000/230 kt → 4000/210 kt, north up a downwind 8 NM west of the centerline, ending 11 NM north |
-| TEMBA1A | TEMBA → TAVIR → DEMUX → KETAN | mirror image, 8 NM east |
+| RIMOL1A | RIMOL → SUDIX → LOMSA → PIKON | 12,000/250 kt → 10,000/250 kt → 7000/230 kt → 3000/210 kt, north up a downwind 6 NM west of the centerline, ending 11 NM north |
+| TEMBA1A | TEMBA → TAVIR → DEMUX → KETAN | mirror image, 6 NM east |
 
 Geometry, all four:
 
-- The **north** routes run straight in from the gate to a corner 20 NM abeam, then turn onto a level
-  leg at 3000 ft that stops 2 NM short of the extended centerline at 16 NM final. The glideslope is
-  at 5350 ft there, so the platform sits under it and the intercept captures from below. Turn one
-  onto final and the other has to wait: they end pointing at each other, 4 NM apart, which is the
-  sequencing problem the player is there to solve.
-- The **south** routes run straight in until they cross 8 NM abeam the centerline, then turn north
-  onto a downwind at 4000 ft that ends 11 NM north of the field. Turn base when the gap in the
-  sequence is there, and lose the height on the way round.
+- The **north** routes run straight in from the gate to a corner 20 NM abeam, then turn onto a leg
+  descending 7000 → 3000 that stops 2 NM short of the extended centerline at 16 NM final. The
+  glideslope is at 5350 ft there, so the platform sits under it and the intercept captures from
+  below. Turn one onto final and the other has to wait: they end pointing at each other, 4 NM apart,
+  which is the sequencing problem the player is there to solve.
+- The **south** routes run straight in until they cross 6 NM abeam the centerline, then turn north
+  onto a downwind descending 7000 → 3000 that ends 11 NM north of the field. Turn base when the gap
+  in the sequence is there — by then the height is already off, so the base turn is a turn rather
+  than a descent as well.
 - **No two routes cross**, and no route passes within 3 NM of another's fixes. Doing nothing is
   never an instant separation loss; it is only ever a deferred problem.
 
@@ -398,7 +401,7 @@ published. The speed comes off over the middle legs, not from the moment of hand
 of every route at a single predictable speed. An aircraft vectored off before its first fix
 therefore keeps 250 kt.
 
-The two southern first fixes cross **1000 ft higher** than the northern pair (9000 vs 8000): those
+The two southern first fixes cross **1000 ft higher** than the northern pair (10,000 vs 9000): those
 routes start 2000 ft higher and are the longer pair, so the descent stays even instead of
 front-loading into the first leg and then running level.
 
@@ -556,32 +559,41 @@ behind**. Two consequences worth keeping:
 
 | SID | Turn off 18 | Fixes | Restrictions |
 | --- | --- | --- | --- |
-| `SABAR1A` | Right (west) | NORVU → MORVA → VELSA → SABAR | ≤3500 to VELSA; 12,000+ at SABAR |
-| `KIROS1A` | Left (east) | NORVU → TELMU → ZANDU → KIROS | ≤3500 to ZANDU; 12,000+ at KIROS |
+| `SABAR1A` | Right (west) | NORVU → MORVA → SABAR | ≤4000 to MORVA; 13,000+ at SABAR |
+| `KIROS1A` | Left (east) | NORVU → TELMU → KIROS | ≤4000 to TELMU; 13,000+ at KIROS |
 | `RAMOX1A` | Straight (south) | NORVU → RAMOX | none — unrestricted climb |
 
 All three climb runway heading to NORVU, 3.2 NM off the departure end, so the turn happens at a
-realistic thousand feet or so rather than at the wheels-up point.
+realistic thousand feet or so rather than at the wheels-up point. NORVU sits on the turning leg
+itself, 4 NM south of the field, which the two turning routes then follow due west and due east.
 
-**The turning SIDs cross the south STARs' downwind legs at x = ±8.** Those legs descend 6000 → 4000
-as they run north, and the crossing is placed at y = −5, where an arrival on the published profile
-is still at about **5800 ft**. A departure held at or below **3500 ft** therefore passes about
-2300 ft underneath it.
+**The turning SIDs cross the south STARs' downwind legs at x = ±6.** Those legs descend 7000 → 3000
+as they run north, and at the crossing latitude an arrival on the published profile is still at
+about **6700 ft**. A departure held at or below **4000 ft** therefore passes some 2700 ft
+underneath it.
 
-**The restriction runs five miles past the crossing, to x = ±13.** This is the part that is easy to
-get wrong, and it was: releasing the climb at the crossing itself leaves the departure within 3 NM
-of the arrival route for the next three miles, and three miles of climb is 1500 ft — enough to eat
-the entire gap it was just held under. Measured, a medium climbing away from the crossing came back
-to within 980 ft of the downwind profile at 2.4 NM, which is a separation violation by our own rule
-(§9.1). So the `at or below` is republished at a fix beyond the conflict, which is what a real SID
-does, and the climb begins where the geometry allows it rather than where the conflict happens to
-end. `tests/departure.test.ts` asserts the property directly: flying every type down every SID,
-**no departure is ever within 3 NM of a STAR without 1000 ft of vertical between them**.
+**The restriction ends five miles past the crossing, at MORVA / TELMU — not at the crossing
+itself.** This is the part that is easy to get wrong, and it was got wrong first time round.
+Releasing the climb where the tracks cross leaves the departure within 3 NM of the arrival route for
+the next three miles, and three miles of climb is 1500 ft or more: it climbs straight back into the
+gap it was just held under. Measured on the first attempt, a medium came back to within **980 ft**
+of the downwind profile at 2.4 NM, which is a separation violation by our own rule (§9.1).
 
-Beyond the release fix they climb to 12,000 ft — the airspace ceiling, the same one the player is
-held to (§3.3) — and leave due west and due east, through the middle of the gaps between the arrival
-gates. The straight SID runs down the extended departure centreline, the one direction with no
-arrival traffic in it at all: the nearest STAR fix is 8 NM abeam.
+No crossing altitude fixes that, either. The downwind tops out at 7000 ft, so the gap available at
+the crossing is at most 7000 − *R*, and by the time the departure is laterally clear it has climbed
+some 2200 ft of it; keeping 1000 ft would need the arrival above to be at 7200 or better. The
+geometry decides, not the number. So the fix carrying the `at or below` is placed past the conflict
+— which is what a real SID does — and the crossing itself is left unlabelled on the chart, visible
+where the amber line passes under the blue one. `tests/departure.test.ts` asserts the property
+directly: flying every type down every SID, **no departure is ever within 3 NM of a STAR without
+1000 ft of vertical between them**.
+
+Beyond that fix they climb to **13,000 ft** — deliberately 1000 ft above the assignable ceiling of
+§3.3, because the south gates now hand arrivals over at exactly 12,000 and a departure has to finish
+above the highest arrival rather than level with it — and leave due west and due east, through the
+middle of the gaps between the arrival gates. The straight SID runs down the extended departure
+centreline, the one direction with no arrival traffic in it at all: the nearest STAR fix is 6 NM
+abeam.
 
 #### Climb performance
 
@@ -599,8 +611,13 @@ the EUROCONTROL Aircraft Performance Database's *initial climb* and *climb to FL
 | B788 | 165 | 190 | 2700 |
 
 The profile is the real one: rotate at V2, hold the initial-climb IAS until the flaps are up at
-3000 ft AGL, then accelerate to **250 kt** — the below-10,000 speed limit, and our ceiling is lower
-than that, so 250 is the climb speed the whole way.
+3000 ft AGL, then accelerate to **250 kt** — the below-10,000 speed limit, and our airspace is
+lower than that, so 250 is the climb speed the whole way.
+
+**Below the acceleration altitude the published rate is reduced by 500 fpm.** The APD figure is the
+*clean* rate; for the first 3000 ft the flaps are still out and the drag costs the aircraft real
+climb performance. Without it the initial climb reads as too eager — a departure leaping away from
+the runway rather than climbing away from it.
 
 `departureClimbFpm` is the *pure-climb* rate, quoted at a fixed climb speed, so the acceleration
 segment is paid for out of what is left of a larger `DEPARTURE_THRUST_BUDGET_FPM` (4200 fpm) —
@@ -612,12 +629,13 @@ of a departure at climb thrust.
 
 **Are the published numbers achievable?** Yes, with margin, and the tests assert it for every type:
 
-- **3500 by the crossing.** A medium reaches it in about 1.3 minutes and 5 NM of track; the
-  crossing is 11 NM out. So it levels off and cruises the last few miles — the restriction is a
-  ceiling being *held*, not a performance limit being hit.
-- **12,000 by the exit fix.** 8500 ft of climb needs about 21 NM for the slowest climber in the
-  fleet; the exit fix is 28 NM past the release. The straight SID makes 12,000 by about 23 NM,
-  against a 33 NM leg.
+- **4000 across the downwind.** Even the slowest climber in the fleet is level at 4000 about 9 NM
+  after the brakes come off, with the crossing 10 NM out and the fix that ends the restriction
+  another 5 NM beyond — so the aircraft levels off and cruises the restricted segment. The
+  restriction is a ceiling being *held*, not a performance limit being hit.
+- **13,000 by the exit fix.** 9000 ft of climb needs about 22 NM for the slowest climber; the exit
+  fix is 28 NM past the restriction. The straight SID climbs the full 13,000 ft in about 32 NM,
+  against a 35 NM leg.
 
 #### The take-off roll
 
@@ -1120,12 +1138,13 @@ for the architecture.
 | A4 | Single landing direction, never changes |
 | A5 | Flat MVA of 2000 ft; no terrain model |
 | A6 | Aircraft always comply, after a 1–3 s reaction; no "unable", no pilot deviations, no emergencies, no fuel state |
-| A7 | Center's handover is always conflict-free, at the gate's altitude (8000 or 9000 ft) / 250 kt / on the STAR |
+| A7 | Center's handover is always conflict-free, at the gate's altitude (10,000 or 12,000 ft) / 250 kt / on the STAR |
 | A8 | Aircraft turn the short way to an assigned heading; long-way-round vectors aren't expressible |
 | A9 | 4 gates, 90° apart, offset 40° from the cardinals |
 | A10 | Endless session, no win/lose state; quality is reported, not enforced |
 | A11 | One STAR per gate, never rejoined once vectored off; no route changes. Holding is the one way back onto a route, and only because the aircraft never leaves it (§4.6) |
 | A12 | Departures always fly their SID exactly and are never re-routed, delayed airborne or given a level change by Departure Control. What the player sees is the published route, every time (§4.7) |
+| A13 | A departure's climb rate depends only on type and on whether the flaps are up. No weight, temperature, thrust derate or runway-length effect (§4.7) |
 
 ---
 
@@ -1135,12 +1154,12 @@ for the architecture.
 | --- | --- |
 | Radar refresh feel | **Smooth motion at 20 Hz, data blocks at 1 Hz.** Physics runs at the render rate so no interpolation layer exists (§5) |
 | Bad-approach handling | **Both gates**: `C` refuses an out-of-limits clearance with the specific reason, *and* an unstable approach inside 5 NM auto-goes-around (§6) |
-| Altitude ceiling | **12,000 ft**, giving climbs as a de-confliction tool; everything above 8000 ft is stacking-only, outside LOC coverage (§3.3) |
+| Altitude ceiling | **12,000 ft assignable**, giving climbs as a de-confliction tool; everything above 8000 ft is stacking-only, outside LOC coverage. Departures climb through it to 13,000 (§3.3, §4.7) |
 | Airspace exit | **Scored penalty, aircraft despawns**, with an amber warning 5 NM before the boundary. No soft wall (§3.4) |
 
 | Question | Decision (2026-08-15) |
 | --- | --- |
-| Arrival routing | **Four published STARs, flown on autopilot** to a platform — 3000 ft / 200 kt north, 4000 ft / 210 kt south — rather than "direct ARP and wait" (§4.5) |
+| Arrival routing | **Four published STARs, flown on autopilot** to a platform — 3000 ft / 200 kt north, 3000 ft / 210 kt south — rather than "direct ARP and wait" (§4.5) |
 | Where crossing altitudes and speeds live | **Per route and per fix, in `scenario/stars.ts`, not as shared constants.** Shared constants coupled fixes that are only incidentally equal, so retuning one crossing moved three others and every new distinction needed a new constant first. Repeating the twelve crossings is the cheaper trade when the profile is expected to change (§4.5) |
 | What a vector cancels | **Heading takes the aircraft off the route; altitude and speed take only their own axis.** Descending an aircraft on its STAR is the single most common real instruction and must not cost the lateral track (§4.5) |
 | Descent profile | **Continuous, interpolated between published altitudes** — crossing altitudes made good exactly, no dive-and-drive (§4.5) |
@@ -1180,7 +1199,7 @@ for the architecture.
 | Whose aircraft a departure is | **Departure Control's, never the player's.** The player has no authority over one at all — it is traffic to be worked around, not traffic to be worked. Giving them away is what keeps the workload the arrival problem it already is, while still doubling the things in the way (§4.7) |
 | How a departure appears | **Stationary on the threshold, and it rolls.** The alternative — materialising airborne off the departure end, the way an arrival materialises at a gate — is cheaper, but a take-off roll is what makes the shared runway legible: you can see why the next one is waiting (§4.7) |
 | What a SID publishes | **Restrictions, not a profile.** A STAR is a descent profile the aircraft is flown onto; a SID is a set of crossings with the aircraft's own performance in between. Modelling it as a profile would have meant inventing climb gradients that no chart carries (§4.7) |
-| Where the crossing restriction ends | **Five miles past the crossing, not at it.** Releasing the climb at the fix puts the departure back inside 1000 ft of the arrival route three miles later, which is a violation by our own rule. Measured at 980 ft before the fix was moved (§4.7) |
+| Where the crossing restriction ends | **Five miles past the crossing, not at it.** Releasing the climb at the crossing puts the departure back inside 1000 ft of the arrival route three miles later, which is a violation by our own rule — measured at 980 ft. No crossing altitude fixes it either, since the downwind tops out at 7000: the geometry decides, so the `at or below` is carried by a fix beyond the conflict (§4.7) |
 | Departures and separation | **Full radar separation, and violations count.** Advisory-only alerts were the alternative, on the grounds that the player cannot instruct a departure — but that is exactly why it counts: the arrival is the half they *can* move (§9.4) |
 | The runway | **Shared, and it holds departures.** Arrival inside 4 NM on final, or a landing rolling out, blocks the release; the departure goes late rather than not at all. The set flow is therefore an upper bound that a busy final eats into (§4.7) |
 | Climb performance | **Per type, from the EUROCONTROL APD.** Everything else in the model is two performance classes, and stays that way — but the whole airspace sits inside the APD's initial-climb band, so for departures there is real per-type data covering exactly the regime flown (§4.7) |
@@ -1237,6 +1256,13 @@ None of these blocks play; each is a small, contained change.
 13. **Both turning SIDs share NORVU**, so a west and an east departure fly the same 3 NM of track.
     The two-minute release interval means they are never close, but if the departure flow is ever
     raised past 20/h that stops being true and each SID needs its own initial fix.
+14. **The conflict predictor takes its two minima independently** (§9.2): the closest horizontal
+    approach in the look-ahead window and the closest vertical approach, whether or not they happen
+    at the same moment. That was harmless while everything in the airspace was descending inbound,
+    but a departure climbing out towards an arrival coming in trips it a few times an hour on
+    geometry that resolves itself — the pair is flagged amber and then both turn away. Requiring the
+    two minima to coincide would remove the false positives, and would tighten the warning for
+    arrivals as well.
 
 ---
 

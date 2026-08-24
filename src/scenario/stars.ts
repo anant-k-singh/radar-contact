@@ -15,15 +15,18 @@
  * expressed as a published constraint.
  *
  * - **North gates** (KOVAL, VANDA) run straight in to a corner fix abeam the
- *   field, then a level leg at 3000 ft along 090/270 that stops 2 NM short of
- *   the extended centerline at 16 NM final. That is 15.3 NM from the threshold
- *   along the final approach course, where the glideslope is 4882 ft, so the
- *   platform sits well under it and the intercept captures from below.
+ *   field, then a leg along 090/270 descending 7000 → 3000 that stops 2 NM
+ *   short of the extended centerline at 16 NM final. That is 15.3 NM from the
+ *   threshold along the final approach course, where the glideslope is 4882 ft,
+ *   so the platform sits well under it and the intercept captures from below.
  *   Turn one onto final; the other has to wait.
- * - **South gates** (TEMBA, RIMOL) run straight in until they cross 8 NM abeam
- *   the centerline, then turn north onto a parallel leg at 4000 ft that ends
- *   11 NM north of the field. That leg is a downwind: turn base when the gap
- *   in the sequence is there, and descend for the intercept on the way round.
+ * - **South gates** (TEMBA, RIMOL) run straight in until they cross 6 NM abeam
+ *   the centerline, then turn north onto a parallel leg descending 7000 → 3000
+ *   that ends 11 NM north of the field. That leg is a downwind: turn base when
+ *   the gap in the sequence is there. The height is already off by then, so the
+ *   base turn is a turn rather than a descent as well — and 3000 ft is under
+ *   the 3° slope from 9.4 NM out, which is inside any base turn off an 11 NM
+ *   downwind.
  *
  * No two routes cross. Only the two north routes end pointing at each other,
  * 4 NM apart, which is the sequencing problem the player is here to solve.
@@ -76,7 +79,7 @@ const NORTH_CORNER_NM = 20;
 /** How close to the extended centerline the north routes stop. */
 const MERGE_OFFSET_NM = 2;
 /** Offset of the south parallel legs either side of the centerline. */
-const DOWNWIND_OFFSET_NM = 8;
+const DOWNWIND_OFFSET_NM = 6;
 /** North end of the south parallel legs — 5 NM clear of the north routes. */
 const DOWNWIND_END_NM = 11;
 
@@ -180,29 +183,31 @@ function southStar(name: string, gateName: string, side: -1 | 1, fixes: [FixSpec
  *
  * The last fix of a north route is an intercept platform and must stay below
  * the glideslope where the route ends (4882 ft at 15.3 NM along the final
- * course). The last fix of a south route is a downwind that is turned base, so
- * it is a descent step rather than an intercept level.
+ * course). The last fix of a south route is a downwind that is turned base, and
+ * it too sits below the glideslope wherever that base turn is flown — 3000 ft is
+ * under the 3° path from about 9.5 NM out, which is inside every reasonable
+ * base turn off an 11 NM downwind.
  */
 export const STARS: readonly Star[] = [
   northStar('VANDA1A', 'VANDA', -1, [
-    { name: 'OKPUR', altitudeFt: 8000, speedKts: 250 },
-    { name: 'ALVOR', altitudeFt: 6000, speedKts: 230 },
+    { name: 'OKPUR', altitudeFt: 9000, speedKts: 250 },
+    { name: 'ALVOR', altitudeFt: 7000, speedKts: 230 },
     { name: 'ARDIS', altitudeFt: 3000, speedKts: 200 },
   ]),
   northStar('KOVAL1A', 'KOVAL', 1, [
-    { name: 'NIVEL', altitudeFt: 8000, speedKts: 250 },
-    { name: 'BELGA', altitudeFt: 6000, speedKts: 230 },
+    { name: 'NIVEL', altitudeFt: 9000, speedKts: 250 },
+    { name: 'BELGA', altitudeFt: 7000, speedKts: 230 },
     { name: 'BOXAR', altitudeFt: 3000, speedKts: 200 },
   ]),
   southStar('RIMOL1A', 'RIMOL', -1, [
-    { name: 'SUDIX', altitudeFt: 9000, speedKts: 250 },
-    { name: 'LOMSA', altitudeFt: 6000, speedKts: 230 },
-    { name: 'PIKON', altitudeFt: 4000, speedKts: 210 },
+    { name: 'SUDIX', altitudeFt: 10_000, speedKts: 250 },
+    { name: 'LOMSA', altitudeFt: 7000, speedKts: 230 },
+    { name: 'PIKON', altitudeFt: 3000, speedKts: 210 },
   ]),
   southStar('TEMBA1A', 'TEMBA', 1, [
-    { name: 'TAVIR', altitudeFt: 9000, speedKts: 250 },
-    { name: 'DEMUX', altitudeFt: 6000, speedKts: 230 },
-    { name: 'KETAN', altitudeFt: 4000, speedKts: 210 },
+    { name: 'TAVIR', altitudeFt: 10_000, speedKts: 250 },
+    { name: 'DEMUX', altitudeFt: 7000, speedKts: 230 },
+    { name: 'KETAN', altitudeFt: 3000, speedKts: 210 },
   ]),
 ];
 

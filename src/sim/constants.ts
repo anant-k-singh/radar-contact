@@ -134,9 +134,9 @@ export const MIN_SPAWN_INTERVAL_S = 45;
 export const GATE_COOLDOWN_S = 90;
 export const SPAWN_VETO_NM = 5;
 export const SPAWN_VETO_FT = 1000;
-export const ENTRY_ALTITUDE_FT = 11_000;
+export const ENTRY_ALTITUDE_FT = 12_000;
 /** Gates whose geometry gives a short run to the localizer arrive lower. */
-export const ENTRY_ALTITUDE_NEAR_FT = 9000;
+export const ENTRY_ALTITUDE_NEAR_FT = 10_000;
 export const ENTRY_SPEED_KTS = 250;
 
 // ── STARs (§4.5) ────────────────────────────────────────────────────────────
@@ -196,6 +196,25 @@ export const TAKEOFF_ACCEL_KTS_S = 4.0;
 export const DEPARTURE_ACCEL_ALT_FT = 3000;
 /** Climb speed once clean: the 250 kt limit below 10,000 ft, and our ceiling is lower. */
 export const DEPARTURE_CLIMB_SPEED_KTS = 250;
+/**
+ * How much the published climb rate is given up below the acceleration altitude.
+ *
+ * The APD figure is the *clean* rate. Below the acceleration altitude the
+ * aircraft is still in a take-off configuration with the flaps out, and the
+ * extra drag costs it: it climbs away noticeably less steeply for the first
+ * 3000 ft than it does once cleaned up.
+ */
+export const INITIAL_CLIMB_REDUCTION_FPM = 500;
+/**
+ * Where a departure levels off with every restriction behind it — 1000 ft above
+ * the airspace ceiling the *player* is held to (`CEILING_FT`).
+ *
+ * The two are deliberately different numbers. `CEILING_FT` is the top of what
+ * the controller may assign, and the south gates now hand arrivals over at
+ * exactly that; a departure has to end up above the highest arrival rather than
+ * level with it, and it is leaving the terminal area anyway.
+ */
+export const DEPARTURE_TOP_FT = 13_000;
 /**
  * Total energy available to an aircraft climbing away on a departure, replacing
  * `THRUST_BUDGET_FPM`. A jet at take-off thrust at low level has far more excess

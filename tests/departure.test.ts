@@ -7,8 +7,8 @@ import type { Aircraft } from '../src/sim/aircraft.js';
 import { isControllable, isDeparture } from '../src/sim/aircraft.js';
 import { adjustAltitude, adjustHeading, nextSelectableId } from '../src/sim/commands.js';
 import {
-  CEILING_FT,
   DEPARTURE_CLIMB_SPEED_KTS,
+  DEPARTURE_TOP_FT,
   DEPARTURE_HOLD_FINAL_NM,
   DEPARTURE_MIN_INTERVAL_S,
   PHYSICS_DT,
@@ -30,6 +30,24 @@ const sidNamed = (name: string): Sid => SIDS.find((sid) => sid.name === name)!;
  */
 const CAPTURE_TOLERANCE_FT = 10;
 const fixNamed = (sid: Sid, name: string) => sid.waypoints.find((wpt) => wpt.name === name)!;
+/**
+ * How far abeam the centreline the south STARs' downwind legs run — read off the
+ * chart rather than written down here, so moving the downwind moves the tests
+ * with it.
+ */
+const DOWNWIND_ABEAM_NM = Math.abs(
+  STARS.find((star) => star.name === 'RIMOL1A')!.waypoints.at(-1)!.position.x,
+);
+
+/**
+ * Where a turning SID's track crosses the arrival downwind leg — the turning leg
+ * runs at the latitude of the SID's first fix, and the downwind is straight
+ * north/south, so the crossing is that latitude abeam.
+ */
+const crossingPoint = (side: number): Point => ({
+  x: side * DOWNWIND_ABEAM_NM,
+  y: sidNamed('SABAR1A').waypoints[1]!.position.y,
+});
 
 /** A departure of a given type at the holding point, in an otherwise empty world. */
 function departure(sid: Sid, type: AircraftType): { ac: Aircraft; world: World } {
@@ -146,13 +164,13 @@ describe('the take-off roll', () => {
 
 describe('SID crossing restrictions', () => {
   const turning = [
-    { sid: sidNamed('SABAR1A'), crossing: 'MORVA', release: 'VELSA', exit: 'SABAR' },
-    { sid: sidNamed('KIROS1A'), crossing: 'TELMU', release: 'ZANDU', exit: 'KIROS' },
+    { sid: sidNamed('SABAR1A'), restriction: 'MORVA', exit: 'SABAR', side: -1 },
+    { sid: sidNamed('KIROS1A'), restriction: 'TELMU', exit: 'KIROS', side: 1 },
   ];
 
-  it('never busts the 3500 restriction anywhere it is in force, for every type', () => {
-    for (const { sid, crossing } of turning) {
-      const restrictedFt = fixNamed(sid, crossing).maxAltitudeFt!;
+  it('never busts the crossing restriction anywhere it is in force, for every type', () => {
+    for (const { sid, restriction } of turning) {
+      const restrictedFt = fixNamed(sid, restriction).maxAltitudeFt!;
       for (const type of AIRCRAFT_TYPES) {
         const { samples } = flyOut(sid, type);
         // Asserted over every instant the restriction applies rather than at one
@@ -173,26 +191,30 @@ describe('SID crossing restrictions', () => {
     }
   });
 
-  it('holds the restriction until it is laterally clear of the downwind', () => {
-    for (const { sid, crossing, release } of turning) {
-      const crossingFix = fixNamed(sid, crossing);
-      const releaseFix = fixNamed(sid, release);
-      // The published ceiling is still in force at the crossing and for the whole
-      // leg beyond it, and lifts only past the release fix (§4.7).
-      expect(ceilingAtFt(sid, crossingFix.position)).toBe(crossingFix.maxAltitudeFt);
-      const between = {
-        x: (crossingFix.position.x + releaseFix.position.x) / 2,
-        y: crossingFix.position.y,
-      };
-      expect(ceilingAtFt(sid, between)).toBe(crossingFix.maxAltitudeFt);
-      const beyond = { x: releaseFix.position.x * 1.2, y: releaseFix.position.y };
-      expect(ceilingAtFt(sid, beyond)).toBe(CEILING_FT);
-      // And by the time it lifts, the track is clear of every arrival route.
-      expect(nearestStar(releaseFix.position).distNm).toBeGreaterThan(SEP_HORIZ_NM);
+  it('holds the restriction past the downwind, and only lifts it clear of one', () => {
+    for (const { sid, restriction, side } of turning) {
+      const fix = fixNamed(sid, restriction);
+      const crossing = crossingPoint(side);
+
+      // The ceiling is in force where the tracks cross...
+      expect(nearestStar(crossing).distNm).toBeLessThan(0.001); // it really is the crossing
+      expect(ceilingAtFt(sid, crossing)).toBe(fix.maxAltitudeFt);
+      // ...still in force halfway out to the fix that ends it...
+      const between = { x: (crossing.x + fix.position.x) / 2, y: crossing.y };
+      expect(ceilingAtFt(sid, between)).toBe(fix.maxAltitudeFt);
+      // ...and lifts only beyond that fix.
+      expect(ceilingAtFt(sid, fix.position)).toBe(fix.maxAltitudeFt);
+      const beyond = { x: fix.position.x * 1.2, y: fix.position.y };
+      expect(ceilingAtFt(sid, beyond)).toBe(DEPARTURE_TOP_FT);
+
+      // The point of putting the fix out here rather than on the crossing: by
+      // the time the climb is released the track is clear of every arrival
+      // route, so the climb cannot eat the gap it was just held under (§4.7).
+      expect(nearestStar(fix.position).distNm).toBeGreaterThan(SEP_HORIZ_NM);
     }
   });
 
-  it('makes 12,000 by the exit fix, for every type', () => {
+  it('makes the exit fix altitude, for every type', () => {
     for (const { sid, exit } of turning) {
       const fix = fixNamed(sid, exit);
       for (const type of AIRCRAFT_TYPES) {
@@ -208,7 +230,7 @@ describe('SID crossing restrictions', () => {
     }
   });
 
-  it('makes 12,000 by RAMOX on the unrestricted straight departure', () => {
+  it('makes the exit altitude by RAMOX on the unrestricted straight departure', () => {
     const sid = sidNamed('RAMOX1A');
     const fix = fixNamed(sid, 'RAMOX');
     for (const type of AIRCRAFT_TYPES) {
@@ -230,18 +252,18 @@ describe('SID crossing restrictions', () => {
     const levelledEarly = airborne.some(
       (s, i) =>
         i > 0 &&
-        s.altitudeFt < CEILING_FT - 100 &&
+        s.altitudeFt < DEPARTURE_TOP_FT - 100 &&
         Math.abs(s.altitudeFt - airborne[i - 1]!.altitudeFt) < 1,
     );
     expect(levelledEarly).toBe(false);
   });
 
-  it('never climbs above the airspace ceiling', () => {
+  it('never climbs above the top of the departure climb', () => {
     for (const sid of SIDS) {
       for (const type of AIRCRAFT_TYPES) {
         const { samples } = flyOut(sid, type);
         const highest = Math.max(...samples.map((s) => s.altitudeFt));
-        expect(highest, `${type.code} on ${sid.name}`).toBeLessThanOrEqual(CEILING_FT + 1);
+        expect(highest, `${type.code} on ${sid.name}`).toBeLessThanOrEqual(DEPARTURE_TOP_FT + 1);
       }
     }
   });
@@ -271,17 +293,18 @@ describe('SIDs against the STARs', () => {
 
   it('passes underneath the downwind, not over it', () => {
     const sid = sidNamed('SABAR1A');
-    const fix = fixNamed(sid, 'MORVA');
+    const crossing = crossingPoint(-1);
     const { samples } = flyOut(sid, AIRCRAFT_TYPES[0]!);
     const at = samples.reduce((best, s) =>
-      distance(s, fix.position) < distance(best, fix.position) ? s : best,
+      distance(s, crossing) < distance(best, crossing) ? s : best,
     );
-    const arrivalFt = nearestStar(fix.position).altitudeFt;
+    const arrivalFt = nearestStar(crossing).altitudeFt;
     expect(arrivalFt).toBeGreaterThan(at.altitudeFt);
     expect(arrivalFt - at.altitudeFt).toBeGreaterThan(2000);
     // Not a coincidence of where the sample landed: the published numbers
     // themselves are 2000 ft apart at the crossing.
-    expect(arrivalFt - fix.maxAltitudeFt!).toBeGreaterThan(2000);
+    const restrictedFt = fixNamed(sid, 'MORVA').maxAltitudeFt!;
+    expect(arrivalFt - restrictedFt).toBeGreaterThan(2000);
   });
 });
 
@@ -450,26 +473,37 @@ describe('a session flown entirely as published', () => {
    * end pointing at one another, which is the sequencing problem the player is
    * there to solve — so only pairs involving a departure are examined.
    */
-  it('never puts a departure in conflict with anything, over two hours', () => {
+  it('never loses separation against a departure, over two hours', () => {
     const world = createWorld(20260825, 50, 20);
-    const offenders: string[] = [];
+    const violations: string[] = [];
+    // Predicted conflicts are counted rather than banned. The 90 s look-ahead
+    // takes the closest horizontal and closest vertical approach *independently*
+    // (§9.2), so a departure climbing out and an arrival descending inbound can
+    // be flagged converging and then both turn away — advisory, and not wrong,
+    // but it must stay a handful an hour rather than every departure.
+    const warned = new Set<string>();
 
     const steps = Math.round((2 * 3600) / PHYSICS_DT);
     for (let i = 0; i < steps; i += 1) {
       step(world, PHYSICS_DT);
       for (const pair of world.separation.pairs) {
         if (!isDeparture(pair.a) && !isDeparture(pair.b)) continue;
-        offenders.push(
+        if (pair.level === 'warning') {
+          warned.add(pair.key);
+          continue;
+        }
+        violations.push(
           `${pair.a.callsign}/${pair.b.callsign} at ${Math.round(world.timeS)}s — ` +
             `${pair.horizNm.toFixed(1)} NM, ${Math.round(pair.vertFt)} ft`,
         );
       }
-      if (offenders.length > 0) break;
+      if (violations.length > 0) break;
     }
 
-    expect(offenders).toEqual([]);
+    expect(violations).toEqual([]);
     // And the session really did run departures, so this is not vacuous.
     expect(world.stats.departures).toBeGreaterThan(20);
+    expect(warned.size).toBeLessThan(world.stats.departures / 3);
   });
 
   it('keeps the runway sequence sane under a saturated arrival flow', () => {

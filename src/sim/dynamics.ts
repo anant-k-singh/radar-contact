@@ -3,10 +3,13 @@
  * bounded rate. The interesting part is `planRates`, which makes descending and
  * decelerating compete for one energy budget (docs §4.3).
  */
+import { AIRPORT } from '../scenario/airport.js';
 import {
   ALT_CAPTURE_FT,
   ALT_CAPTURE_MIN_FRACTION,
+  DEPARTURE_ACCEL_ALT_FT,
   DEPARTURE_THRUST_BUDGET_FPM,
+  INITIAL_CLIMB_REDUCTION_FPM,
   ENERGY_BUDGET_FPM,
   MAX_ACCEL_KTS_S,
   MAX_DECEL_KTS_S,
@@ -74,7 +77,7 @@ export interface RatePlanInput {
    * Energy available for climbing *and* accelerating, before `budgetScale`.
    * Defaults to the arrival-stream figure; a departure at take-off thrust has
    * far more of it (§4.7), which is what lets it accelerate to 250 kt without
-   * giving up the climb it needs to make the 12,000 ft crossing.
+   * giving up the climb it needs to make the 13,000 ft exit crossing.
    */
   thrustBudgetFpm?: Fpm;
   /**
@@ -163,6 +166,20 @@ export function planRates(input: RatePlanInput): RatePlan {
 }
 
 /**
+ * Rate of climb available to a departure right now (§4.7).
+ *
+ * The type's published figure is the *clean* rate. Below the acceleration
+ * altitude the flaps are still out, and the drag costs it 500 fpm — so a
+ * departure climbs away noticeably less steeply for the first 3000 ft than it
+ * does once cleaned up, which is what the initial climb actually looks like.
+ */
+export function departureClimbRateFpm(ac: Aircraft): Fpm {
+  const aglFt = ac.altitudeFt - AIRPORT.elevationFt;
+  if (aglFt >= DEPARTURE_ACCEL_ALT_FT) return ac.type.departureClimbFpm;
+  return Math.max(0, ac.type.departureClimbFpm - INITIAL_CLIMB_REDUCTION_FPM);
+}
+
+/**
  * Advance heading, altitude, speed and position by `dt`.
  * Pure kinematics — approach logic lives in ils.ts and sets the targets.
  */
@@ -190,7 +207,7 @@ export function stepKinematics(ac: Aircraft, dt: Sec, controlVertical = true): v
     altErrorFt: ac.targetAltitudeFt - ac.altitudeFt,
     speedErrorKts: ac.targetIasKts - ac.iasKts,
     descentFpm: ac.type.descentFpm,
-    climbFpm: departing ? ac.type.departureClimbFpm : ac.type.climbFpm,
+    climbFpm: departing ? departureClimbRateFpm(ac) : ac.type.climbFpm,
     budgetScale: ac.type.budgetScale,
     thrustBudgetFpm: departing ? DEPARTURE_THRUST_BUDGET_FPM : THRUST_BUDGET_FPM,
     // On the glideslope the vertical profile comes from the geometry, but its

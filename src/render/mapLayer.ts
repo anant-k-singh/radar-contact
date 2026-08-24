@@ -26,6 +26,13 @@ import { bearing, headingVector, magnitude, type Point } from '../sim/units.js';
 import { screenX, screenY, toScreen, type Projection } from './project.js';
 import { THEME } from './theme.js';
 
+/**
+ * How far the SID chart sits behind the STAR chart. Low enough that a departure
+ * route reads as background the moment the eye is looking for an arrival one,
+ * high enough that following one across the scope is still easy.
+ */
+const SID_ALPHA = 0.55;
+
 let cache: { key: string; canvas: HTMLCanvasElement } | null = null;
 
 export function mapLayer(projection: Projection, dpr: number): HTMLCanvasElement {
@@ -64,12 +71,21 @@ function draw(ctx: CanvasRenderingContext2D, p: Projection): void {
  * blue-grey, because the two chart layers cross and the whole question the
  * player asks of them is "which of these is the one I do not control".
  *
+ * And drawn *faint*. The STAR chart is a working reference — the player is
+ * flying aircraft along it and reading crossing altitudes off it all session.
+ * The SID chart is context: it says where the traffic you cannot instruct is
+ * going, which is a thing to notice once and then keep out of. So the whole
+ * layer goes down at `SID_ALPHA`, receding behind the STARs where the two
+ * cross instead of competing with them.
+ *
  * A SID publishes restrictions rather than a profile, so the labels read as
- * restrictions: `≤3500` under the arrival downwind, `12000+` at the exit fix.
+ * restrictions: `≤4000` across the arrival downwind, `13000+` at the exit fix.
  * Past the last fix the track continues to the boundary with an arrowhead —
  * that leg is flown on the exit heading and is the aircraft's way out.
  */
 function drawSids(ctx: CanvasRenderingContext2D, p: Projection): void {
+  ctx.save();
+  ctx.globalAlpha = SID_ALPHA;
   ctx.font = THEME.fontLabel;
   ctx.textBaseline = 'middle';
 
@@ -129,6 +145,7 @@ function drawSids(ctx: CanvasRenderingContext2D, p: Projection): void {
       }
     }
   }
+  ctx.restore();
 }
 
 /**

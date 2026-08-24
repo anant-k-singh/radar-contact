@@ -39,15 +39,18 @@ They fly one of three published SIDs, drawn on the scope in amber:
 
 | SID | Where it goes | The restriction |
 | --- | --- | --- |
-| `SABAR1A` | Turns right, out to the west | At or below **3500** until VELSA, then 12,000 |
-| `KIROS1A` | Turns left, out to the east | At or below **3500** until ZANDU, then 12,000 |
+| `SABAR1A` | Turns right, out to the west | At or below **4,000** until MORVA, then 13,000 |
+| `KIROS1A` | Turns left, out to the east | At or below **4,000** until TELMU, then 13,000 |
 | `RAMOX1A` | Straight ahead, out to the south | None — it just climbs |
 
-The two turning departures cross the RIMOL and TEMBA downwinds, which is why they are held at 3500:
-underneath your arrivals, which are at 5800 or so at that point. As published, the two never touch.
+The two turning departures cross the RIMOL and TEMBA downwinds, which is why they are held at 4,000:
+underneath your arrivals, which are at 6,700 or so at that point. MORVA and TELMU sit five miles
+*past* the crossing, not on it — a departure that started climbing the moment it was clear would be
+back in your arrival's level before it was laterally clear of the route. As published, the two never
+touch.
 
 **But your arrivals are only where you left them.** Vector one south of the field and the departure
-corridor is waiting there, at 3500 climbing to 12,000 — and a bust against a departure counts
+corridor is waiting there, at 4,000 climbing to 13,000 — and a bust against a departure counts
 against you exactly like any other, because the arrival is the half you could have moved. The amber
 lines on the scope are the thing to keep the base turn clear of.
 
@@ -91,8 +94,8 @@ the final approach course. One STAR from each:
 | --- | --- | --- | --- |
 | KOVAL | 040° | 9,000 ft | Level 3,000 ft, 2 NM east of the centerline at 16 NM final |
 | VANDA | 320° | 9,000 ft | Level 3,000 ft, 2 NM west of the centerline at 16 NM final |
-| TEMBA | 130° | 11,000 ft | Downwind at 4,000 ft, 8 NM east, ending 11 NM north of the field |
-| RIMOL | 230° | 11,000 ft | Downwind at 4,000 ft, 8 NM west, ending 11 NM north of the field |
+| TEMBA | 130° | 12,000 ft | Downwind descending 7,000 → 3,000, 6 NM east, ending 11 NM north of the field |
+| RIMOL | 230° | 12,000 ft | Downwind descending 7,000 → 3,000, 6 NM west, ending 11 NM north of the field |
 
 **KOVAL and VANDA** sit north of the field, the same side as the final approach course, so their
 arrivals reach the localizer with far fewer track miles to lose the height in — which is why Center
