@@ -46,7 +46,7 @@ const STRIKE = '\u0336';
 const struckThrough = (text: string): string =>
   [...text].map((character) => character + STRIKE).join('');
 
-function stateTag(ac: Aircraft): string {
+export function stateTag(ac: Aircraft): string {
   if (ac.handedOff) return 'TWR';
   // A departure is never ours, so the tag says whose it is rather than where it
   // is on a route the player cannot change (§4.7).

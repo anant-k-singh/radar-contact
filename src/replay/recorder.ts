@@ -138,6 +138,12 @@ const PHASE_SHIFT = 10;
 const PHASE_MASK = 0b111 << PHASE_SHIFT;
 const ALERT_SHIFT = 13;
 const ALERT_MASK = 0b11 << ALERT_SHIFT;
+/**
+ * The hold has been told to end at the next crossing of the fix. Recorded
+ * because the data block strikes the `HOLD` tag through for it (§4.6) — it is
+ * displayed state, and nothing in a rebuilt frame could infer it.
+ */
+const F_HOLD_EXITING = 1 << 15;
 
 // Seven states in three bits, with one spare. The two departure phases are in
 // the same enumeration as the approach ones (§4.7).
@@ -161,6 +167,7 @@ export interface DecodedFlags {
   altitudeManual: boolean;
   speedManual: boolean;
   holding: boolean;
+  holdExiting: boolean;
   rejoining: boolean;
   pendingHeading: boolean;
   pendingAltitude: boolean;
@@ -176,6 +183,7 @@ function encodeFlags(ac: Aircraft): number {
   if (nav?.altitudeManual) bits |= F_ALT_MANUAL;
   if (nav?.speedManual) bits |= F_SPEED_MANUAL;
   if (nav?.hold) bits |= F_HOLDING;
+  if (nav?.hold?.exitRequested) bits |= F_HOLD_EXITING;
   if (nav?.rejoining) bits |= F_REJOINING;
   // Only the three axes are recorded: a pending clearance or hold changes
   // nothing on the display, whereas a pending turn is the difference between
@@ -198,6 +206,7 @@ export function decodeFlags(bits: number): DecodedFlags {
     altitudeManual: (bits & F_ALT_MANUAL) !== 0,
     speedManual: (bits & F_SPEED_MANUAL) !== 0,
     holding: (bits & F_HOLDING) !== 0,
+    holdExiting: (bits & F_HOLD_EXITING) !== 0,
     rejoining: (bits & F_REJOINING) !== 0,
     pendingHeading: (bits & F_PENDING_HEADING) !== 0,
     pendingAltitude: (bits & F_PENDING_ALTITUDE) !== 0,

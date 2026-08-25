@@ -101,7 +101,7 @@ function trailAt(track: Track, frame: number): Point[] {
  * puts `HOLD` on the data block and `(alt assigned)` in the sidebar; nothing in
  * playback ever flies the pattern, so the leg geometry is inert.
  */
-function displayHold(nav: StarNav, altitudeFt: number): HoldNav {
+function displayHold(nav: StarNav, altitudeFt: number, exitRequested: boolean): HoldNav {
   return {
     fix: activeFix(nav).name,
     leg: 'inbound',
@@ -111,7 +111,10 @@ function displayHold(nav: StarNav, altitudeFt: number): HoldNav {
     turningRight: true,
     altitudeWasManual: nav.altitudeManual,
     established: true,
-    exitRequested: false,
+    // The one field of the pattern that is displayed rather than flown: the
+    // data block strikes `HOLD` through once the exit is instructed (§4.6), so
+    // it is recorded and restored instead of being invented as false.
+    exitRequested,
   };
 }
 
@@ -134,7 +137,7 @@ function aircraftAt(track: Track, frame: number): Aircraft {
       // recorded — so a rebuilt frame flies the chart and reads identically.
       altitudes: route.altitudes,
     };
-    if (flags.holding) star.hold = displayHold(star, track.altitudeFt[i]!);
+    if (flags.holding) star.hold = displayHold(star, track.altitudeFt[i]!, flags.holdExiting);
   }
 
   // A departure is rebuilt from its chart name and the fix it was tracking.
