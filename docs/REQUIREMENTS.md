@@ -700,49 +700,48 @@ with a hard distance floor of **3.5 NM** underneath it, because the real rule ha
 too and nothing should be released with an arrival that close however slowly it happens to be
 flying.
 
-**Which of the two binds depends on the speed, and at approach speeds it is the floor.** The margin
-is 30 s, so the time test would allow a release at 3.15 NM behind an arrival at 141 kt — the 3.5 NM
-floor catches it first. The time test takes back over above about 150 kt of ground speed, which is
-where it matters: a fast arrival is the case a distance gate cannot see at all. The effective margin
-at approach speed therefore comes out at **39 s for the slowest heavy and 52 s for a medium**,
-rather than the 30 s the constant names.
+**The two land almost on top of each other at an approach speed.** With a 40 s margin the clock
+asks for 3.59 NM behind an arrival at 141 kt and the floor asks for 3.5, so the two rules agree
+there and the clock governs cleanly at every speed above it. That is the figure the margin was
+tuned to: much below it the floor starts overriding the clock in the ordinary case, which would
+leave the constant naming a margin it was not actually applying.
 
 Three things follow, and all three were wrong when this was a bare 3 NM:
 
-- **The arrival's speed counts.** One still carrying 180 kt blocks from 4.08 NM; one already at its
-  approach speed releases at the 3.5 NM floor. A distance gate could not tell them apart, and 3 NM
-  was calibrated on the approach-speed case only.
+- **The arrival's speed counts.** One still carrying 180 kt blocks from 4.61 NM; one already at its
+  approach speed releases at 3.59. A distance gate could not tell them apart, and 3 NM was
+  calibrated on the approach-speed case only.
 - **The take-off roll is a computed number**, `v2Kts ÷ (TAKEOFF_ACCEL_KTS_S × budgetScale)` — 36 s
   for a medium, 49 s for the slowest heavy. The release uses the fleet maximum, because the type is
   not drawn until the release itself (the queue is a count, §4.7). Being conservative for a medium
   is the right way round: the cost is a departure held a few seconds longer than it needed to be.
 - **The safety margin is its own term.** The old 3 NM was chosen so the *slowest* type would just
   clear, which meant every release sat at that type's edge by construction — a B77W rotated with the
-  arrival at 0.8 NM and 300 ft. It now rotates with the arrival 1.54 NM out at 491 ft, and an A320
-  with it 2.06 NM out at 657 ft.
+  arrival at 0.8 NM and 300 ft. It now rotates with the arrival 1.63 NM out at 519 ft, and an A320
+  with it 2.15 NM out at 685 ft.
 
   The theoretical floor on this term is about **8 s** — the time an arrival takes to cover the
-  0.3 NM at which the go-around backstop (§6.2) would fire. 30 s is a little under four times that:
-  enough that a release is not one wobble away from a go-around, and not so much that the runway
-  sits idle behind a gap it could have used.
+  0.3 NM at which the go-around backstop (§6.2) would fire. 40 s is five times that: enough that a
+  release is not one wobble away from a go-around, and not so much that the runway sits idle behind
+  a gap it could have used.
 
 `tests/departure.test.ts` flies all 36 departure/arrival type combinations and asserts the departure
 is off the ground before the arrival lands, rather than trusting the arithmetic.
 
-One consequence worth stating: a departure needs about **5.9 NM** between two arrivals to get out,
+One consequence worth stating: a departure needs about **6 NM** between two arrivals to get out,
 against 5.3 NM under the old bare-distance gate. A departure released 60 s after a landing has to
 find the next arrival still outside the release distance, and those 60 s of a 141 kt approach have
 already spent 2.4 NM of the gap. The whole timeline, at the tightest pair that still works:
 
 ```
 t = 0     first arrival lands
-t = 60    runway clear; second arrival at 3.5 NM, 87 s out → released
+t = 60    runway clear; second arrival at 3.6 NM, 90 s out → released
 t = 109   departure airborne (49.4 s, the fleet's slowest)
-t = 147   second arrival crosses the threshold
+t = 149   second arrival crosses the threshold
 ```
 
 The in-trail minimum is 3–4 NM, so a departure still has to be *given* the gap rather than finding
-one in an ordinary tight sequence. Against a faster arrival it needs more: 6.4 NM at 160 kt, 7.2 NM
+one in an ordinary tight sequence. Against a faster arrival it needs more: 6.8 NM at 160 kt, 7.7 NM
 at 180 kt.
 
 **Why 90 s between departures.** It covers the wake-turbulence minimum behind a medium and the time

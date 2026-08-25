@@ -57,13 +57,12 @@ lines on the scope are the thing to keep the base turn clear of.
 
 You cannot help a departure and you cannot delay one. What you *do* control is the runway. A
 departure is released only when the arrival ahead is far enough out *in time* — long enough for the
-take-off roll plus half a minute of margin, measured off the arrival's actual ground speed, so an
+take-off roll plus forty seconds of margin, measured off the arrival's actual ground speed, so an
 arrival still carrying speed holds the runway from further out. Underneath that there is a 3.5 NM
-floor — which is what usually decides it, since an arrival at its approach speed reaches the floor
-before it runs the clock down — a
+floor, a
 minute after every landing, and 90 seconds between departures. In practice a departure needs about
-6 NM between two arrivals to get out — more behind a fast one — so a tight sequence quietly starves
-them and a gap lets one go.
+6 NM between two arrivals to get out, and more behind a fast one — so a tight sequence quietly
+starves them and a gap lets one go.
 
 And if the tower gets it wrong anyway, **your arrival goes around**: anything inside 0.3 NM of a
 runway that still has something on it climbs away, whatever was decided a minute earlier. That
