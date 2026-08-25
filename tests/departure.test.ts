@@ -415,9 +415,12 @@ describe('the shared runway', () => {
     const state = createTrafficState();
     const requiredS = MAX_DEPARTURE_ROLL_S + DEPARTURE_AIRBORNE_MARGIN_S;
 
-    // Far enough at an approach speed, not far enough at 210 kt.
-    const slow = onApproach(5, MEDIUM_TYPE.vappKts);
-    const fast = onApproach(5, 210);
+    // One distance, two speeds: far enough at an approach speed, not far enough
+    // at 210 kt. The two time assertions below state that premise explicitly, so
+    // a retune of the margin fails here with the reason rather than a bare
+    // "expected null".
+    const slow = onApproach(4.5, MEDIUM_TYPE.vappKts);
+    const fast = onApproach(4.5, 210);
     expect(finalGeometry(slow).alongNm / (groundSpeed(slow) / 3600)).toBeGreaterThan(requiredS);
     expect(finalGeometry(fast).alongNm / (groundSpeed(fast) / 3600)).toBeLessThan(requiredS);
     expect(runwayBlockedBy(state, [slow], 0)).toBeNull();

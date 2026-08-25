@@ -234,10 +234,15 @@ export const DEPARTURE_HOLD_AFTER_LANDING_S = 60;
  * actual ground speed, so an arrival still carrying speed blocks further out
  * than one already at its approach speed.
  *
- * 60 s puts the arrival a little over 2 NM out as the departure lifts off,
- * which is the picture a tower would actually accept.
+ * The theoretical floor is about 8 s — the time an arrival takes to cover the
+ * 0.3 NM at which `GO_AROUND_RUNWAY_OCCUPIED_NM` would send it around. 30 s is
+ * a little under four times that: enough that the release is not one wobble
+ * from a go-around, and not so much that the runway sits idle behind a gap it
+ * could have used. At this figure the 3.5 NM floor starts doing real work —
+ * behind an arrival at its approach speed the floor binds first, and the
+ * effective margin is nearer 39 s than 30.
  */
-export const DEPARTURE_AIRBORNE_MARGIN_S = 60;
+export const DEPARTURE_AIRBORNE_MARGIN_S = 30;
 /**
  * Where the hold-short queue turns amber and then red (§8.2).
  *
