@@ -5,9 +5,14 @@ import {
   turnRadiusNm,
   turnRateDegPerSec,
 } from '../src/sim/dynamics.js';
-import { PHYSICS_DT } from '../src/sim/constants.js';
+import {
+  MAX_INTERCEPT_SPEED_KTS,
+  PHYSICS_DT,
+  SEP_VERT_FT,
+} from '../src/sim/constants.js';
 import { trueAirspeed } from '../src/sim/units.js';
-import { makeAircraft } from './helpers.js';
+import { analyzeSeparation } from '../src/sim/separation.js';
+import { makeAircraft, quietWorld, run } from './helpers.js';
 
 describe('turn performance', () => {
   it('is bank-limited at high speed and standard-rate-limited at low speed', () => {
@@ -115,5 +120,59 @@ describe('energy budget', () => {
     // has stopped costing anything and §4.3 no longer holds.
     expect(descending / level).toBeGreaterThan(1.4);
     expect(descending / level).toBeLessThan(2.6);
+  });
+});
+
+// ── Levelling off exactly (§4.3) ────────────────────────────────────────────
+
+describe('settling on an assignment', () => {
+  it('levels exactly at the assigned altitude, from above and from below', () => {
+    for (const [from, to] of [
+      [10_500, 10_000],
+      [9500, 10_000],
+      [3000, 7000],
+    ]) {
+      const ac = makeAircraft({ altitudeFt: from, targetAltitudeFt: to });
+      run(quietWorld(ac), 600);
+      expect(ac.altitudeFt, `${from} -> ${to}`).toBe(to);
+      expect(ac.vsFpm).toBe(0);
+    }
+  });
+
+  it('stacks two aircraft exactly 1000 ft apart, which is not a violation', () => {
+    // The bug this exists for: the rate is zero inside the deadband, so an
+    // aircraft used to rest wherever the taper ran out — up to a foot off. One
+    // delivered level at 11,000 and one descending to 10,000 ended up 999 ft
+    // apart, which §9.1 calls a violation against two legal assignments.
+    const low = makeAircraft({ altitudeFt: 10_500, targetAltitudeFt: 10_000 });
+    const high = makeAircraft({ altitudeFt: 11_000, targetAltitudeFt: 11_000 });
+    run(quietWorld(low, high), 600);
+
+    expect(Math.abs(high.altitudeFt - low.altitudeFt)).toBe(SEP_VERT_FT);
+    // Stacked directly on top of each other, which is what a holding stack is:
+    // the vertical is the only thing keeping them apart, and 1000 ft exactly is
+    // legal (§9.1). The pair is measured once settled — the descent through the
+    // gap on the way down is a real conflict and not what this is about.
+    expect(analyzeSeparation([low, high]).pairs).toHaveLength(0);
+  });
+
+  it('settles exactly on the assigned speed', () => {
+    for (const [from, to] of [
+      [250, 230],
+      [210, 230],
+      [250, 180],
+    ]) {
+      const ac = makeAircraft({ iasKts: from, targetIasKts: to });
+      run(quietWorld(ac), 600);
+      expect(ac.iasKts, `${from} -> ${to}`).toBe(to);
+    }
+  });
+
+  it('keeps an aircraft assigned the intercept ceiling inside it', () => {
+    // Half a knot of residual on an aircraft assigned exactly 230 used to fail
+    // the §6.1a speed test and throw away the clearance.
+    const ac = makeAircraft({ iasKts: 250, targetIasKts: MAX_INTERCEPT_SPEED_KTS });
+    run(quietWorld(ac), 600);
+    expect(ac.iasKts).toBeLessThanOrEqual(MAX_INTERCEPT_SPEED_KTS);
   });
 });

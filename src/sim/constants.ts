@@ -61,6 +61,18 @@ export const MAX_ACCEL_KTS_S = 0.8;
 export const MIN_SPEED_RATE_KTS_S = 0.3; // guaranteed, taken back out of vertical rate
 export const ALT_CAPTURE_FT = 200; // vertical rate tapers inside this
 export const ALT_CAPTURE_MIN_FRACTION = 0.15;
+/**
+ * Deadband on the vertical: inside this, the rate is zero and the aircraft is
+ * put *exactly* on its assignment (§4.3).
+ *
+ * The snap is the part that matters. Without it an aircraft rests wherever the
+ * taper ran out — up to a foot off — and two aircraft stacked on adjacent
+ * levels are 999 ft apart rather than 1000, which is a separation violation by
+ * §9.1 against two assignments that are perfectly legal. The same argument
+ * applies to `SPEED_CAPTURE_KTS`, where the residual half-knot fails the 230 kt
+ * intercept ceiling of §6.1a for an aircraft assigned exactly 230.
+ */
+export const ALT_SETTLE_FT = 1;
 export const SPEED_CAPTURE_KTS = 0.5;
 
 // ── Glideslope / localizer (§6) ─────────────────────────────────────────────

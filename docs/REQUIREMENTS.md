@@ -335,8 +335,16 @@ Implementation:
 - **Priority:** altitude first (a descent clearance is firm), speed gets the remainder — but with
   a **guaranteed minimum of 0.3 kt/s** for speed, taken back out of the vertical rate if needed,
   so an aircraft never looks frozen at the wrong speed.
-- Capture: within 200 ft of target altitude the vertical rate tapers; within 3 kt of target speed
-  it snaps. Prevents oscillation at 1 Hz sampling.
+- Capture: within 200 ft of target altitude the vertical rate tapers, and within the last 1 ft it
+  stops. Prevents oscillation at 1 Hz sampling.
+- **Level means level.** Inside the capture deadband — 1 ft vertically, 0.5 kt on the speed — the
+  aircraft is put *exactly* on its assignment rather than left wherever the taper ran out. Without
+  that it rests up to a foot high, and two aircraft stacked on adjacent levels are 999 ft apart
+  instead of 1000: a separation violation by §9.1 against two assignments that are perfectly legal,
+  and one the player has no way to correct. The same residual on the speed is worse — half a knot
+  on an aircraft assigned exactly 230 fails the intercept ceiling of §6.1a and throws the clearance
+  away. A deadband that stops the rate is not the same as one that stops the error, and the
+  difference only shows up where a number is compared against a limit.
 
 Consequences the player will feel, all emergent: a descent-and-slow combination takes ~2× as long
 as either alone; asking for both late in the sequence blows the spacing; and the fix is to slow

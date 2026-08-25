@@ -7,6 +7,7 @@ import { AIRPORT } from '../scenario/airport.js';
 import {
   ALT_CAPTURE_FT,
   ALT_CAPTURE_MIN_FRACTION,
+  ALT_SETTLE_FT,
   DEPARTURE_ACCEL_ALT_FT,
   DEPARTURE_THRUST_BUDGET_FPM,
   INITIAL_CLIMB_REDUCTION_FPM,
@@ -114,7 +115,7 @@ export function planRates(input: RatePlanInput): RatePlan {
   let vsDemandFpm = 0;
   if (input.imposedVsFpm != null) {
     vsDemandFpm = input.imposedVsFpm;
-  } else if (Math.abs(altErrorFt) > 1) {
+  } else if (Math.abs(altErrorFt) > ALT_SETTLE_FT) {
     // Taper the rate close to the target so 1 Hz sampling cannot overshoot visibly.
     const taper = clamp(Math.abs(altErrorFt) / ALT_CAPTURE_FT, ALT_CAPTURE_MIN_FRACTION, 1);
     vsDemandFpm = Math.sign(altErrorFt) * nominalFpm * taper;
@@ -215,19 +216,31 @@ export function stepKinematics(ac: Aircraft, dt: Sec, controlVertical = true): v
     imposedVsFpm: controlVertical ? null : ac.vsFpm,
   });
 
-  if (controlVertical) ac.vsFpm = plan.vsFpm;
-  if (controlVertical && plan.vsFpm !== 0) {
-    const next = ac.altitudeFt + (plan.vsFpm * dt) / 60;
-    // Do not overshoot the assigned altitude.
-    ac.altitudeFt =
-      plan.vsFpm > 0
-        ? Math.min(next, ac.targetAltitudeFt)
-        : Math.max(next, ac.targetAltitudeFt);
+  if (controlVertical) {
+    ac.vsFpm = plan.vsFpm;
+    if (plan.vsFpm !== 0) {
+      const next = ac.altitudeFt + (plan.vsFpm * dt) / 60;
+      // Do not overshoot the assigned altitude.
+      ac.altitudeFt =
+        plan.vsFpm > 0
+          ? Math.min(next, ac.targetAltitudeFt)
+          : Math.max(next, ac.targetAltitudeFt);
+    } else if (Math.abs(ac.targetAltitudeFt - ac.altitudeFt) <= ALT_SETTLE_FT) {
+      // Inside the deadband the rate is zero, so without this the aircraft
+      // would rest wherever the taper ran out — and "level at 10,000" a foot
+      // high is 999 ft from the aircraft stacked above it, which §9.1 calls a
+      // violation. Level means level.
+      ac.altitudeFt = ac.targetAltitudeFt;
+    }
   }
   if (plan.speedRateKtsS !== 0) {
     const next = ac.iasKts + plan.speedRateKtsS * dt;
     ac.iasKts =
       plan.speedRateKtsS > 0 ? Math.min(next, ac.targetIasKts) : Math.max(next, ac.targetIasKts);
+  } else if (Math.abs(ac.targetIasKts - ac.iasKts) <= SPEED_CAPTURE_KTS) {
+    // Same again on the speed, and it bites harder: half a knot of residual on
+    // an aircraft assigned exactly 230 fails the intercept ceiling of §6.1a.
+    ac.iasKts = ac.targetIasKts;
   }
 
   // Position. No wind, so heading = track and TAS = ground speed.
