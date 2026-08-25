@@ -773,7 +773,7 @@ Three distinct rates, which is the whole design of the loop:
 | **20 Hz** (dt = 0.05 s), fixed timestep | Physics: turn, vertical, speed integration, LOC/GS capture, separation checks |
 | **20 fps** | Scope redraw — glyph position, leader line. Motion reads as smooth |
 | **1 Hz** | "Radar return": data-block values (altitude, speed, heading) and conflict-alert level for display |
-| **0.1 Hz** | History dots. At 250 kt a 1 Hz dot moves ~0.6 px on a 50 NM scope — invisible. One dot every 10 s, ten retained, gives 100 s of visible history — longer than the minute the leader line projects forward, so a turn that started before the last instruction is still on the scope, and the dots are spaced far enough apart to read a speed off them |
+| **0.1 Hz** | History dots. At 250 kt a 1 Hz dot moves ~0.6 px on a 50 NM scope — invisible. One dot every 10 s, ten retained, gives 100 s of visible history — longer than the minute the leader line projects forward, so a turn that started before the last instruction is still on the scope, and the dots are spaced far enough apart to read a speed off them. **Drawn only for traffic the player has authority over** — the trail is read on the way to an instruction, and on a departure or an aircraft already with Tower there is no instruction to make, so the dots are clutter over the busiest part of the scope |
 
 - Physics and rendering share the 20 Hz tick, so **no interpolation layer is needed** — the glyph
   simply draws wherever the sim currently is. That removes an entire class of "render state drifted

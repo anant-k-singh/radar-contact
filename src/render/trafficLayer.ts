@@ -209,15 +209,23 @@ export function drawTraffic(
     // History trail — one dot every 6 s, oldest faintest. The newest is drawn
     // too and simply disappears under the glyph for the moment after it is laid
     // down, which keeps the gap behind the blip even instead of doubling.
-    for (let i = 0; i < ac.trail.length; i += 1) {
-      const point = ac.trail[i]!;
-      ctx.globalAlpha = 0.2 + (i / ac.trail.length) * 0.45;
-      ctx.fillStyle = isDimmed(ac) ? THEME.handedOff : THEME.trafficDim;
-      ctx.beginPath();
-      ctx.arc(screenX(p, point.x), screenY(p, point.y), 1.7, 0, Math.PI * 2);
-      ctx.fill();
+    //
+    // Only for traffic that is ours. The trail exists to be read — where an
+    // aircraft has come from and how fast — and reading it is a step towards an
+    // instruction. On a departure or an aircraft already with Tower there is no
+    // instruction to make, so the dots are clutter over the part of the scope
+    // that is busiest with it (§11.1).
+    if (!isDimmed(ac)) {
+      for (let i = 0; i < ac.trail.length; i += 1) {
+        const point = ac.trail[i]!;
+        ctx.globalAlpha = 0.2 + (i / ac.trail.length) * 0.45;
+        ctx.fillStyle = THEME.trafficDim;
+        ctx.beginPath();
+        ctx.arc(screenX(p, point.x), screenY(p, point.y), 1.7, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
     }
-    ctx.globalAlpha = 1;
 
     // Violation ring. A warning is already carrying a colour of its own; the
     // ring is held back for the violation so the escalation reads across the

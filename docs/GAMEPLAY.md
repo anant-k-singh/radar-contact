@@ -101,6 +101,10 @@ Behind each blip is a history trail — one dot every 10 seconds, ten dots, so 1
 track. That's deliberately longer than the leader line projects forward, so a turn that began before
 your last instruction is still visible.
 
+Only *your* traffic has one. Departures and aircraft already handed to Tower are drawn without
+trails: you read a trail on the way to giving an instruction, and there is no instruction to give
+either of them.
+
 ## The airspace
 
 Four gates, 90° apart and offset 40° from the cardinals, so nothing arrives already lined up with
