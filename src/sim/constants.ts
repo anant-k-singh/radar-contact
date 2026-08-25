@@ -135,6 +135,13 @@ export const GO_AROUND_ALT_FT = 3000;
  * extending it is adding a number here, not a case in three switch statements.
  */
 export const TIME_SCALES: readonly number[] = [1, 2, 4, 8, 16];
+/**
+ * The subset the sidebar offers as buttons. The top rate is deliberately
+ * keys-only: at 16× a session runs away from anyone watching it, so it is
+ * something to reach for rather than something to hit by accident next to the
+ * pause button. The key row still advertises all five.
+ */
+export const TIME_SCALE_BUTTONS: readonly number[] = TIME_SCALES.slice(0, -1);
 
 // ── Traffic generation (§4.4) ───────────────────────────────────────────────
 export const FLOW_DEFAULT_PER_HOUR = 25;

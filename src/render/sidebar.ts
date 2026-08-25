@@ -12,6 +12,7 @@ import {
   DEPARTURE_FLOW_STEP_PER_HOUR,
   DEPARTURE_FREQUENCY,
   GS_CAPTURE_WINDOW_FT,
+  TIME_SCALE_BUTTONS,
   TIME_SCALES,
   VS_DISPLAY_STEP_FPM,
 } from '../sim/constants.js';
@@ -87,7 +88,9 @@ const TEMPLATE = `
   <h2 class="live-only">Session controls</h2>
   <div class="buttons live-only">
     <button data-action="pause">Pause</button>
-    ${TIME_SCALES.map((scale) => `<button data-rate="${scale}">${scale}x</button>`).join('\n    ')}
+    ${TIME_SCALE_BUTTONS.map((scale) => `<button data-rate="${scale}">${scale}x</button>`).join(
+      '\n    ',
+    )}
   </div>
   <div class="buttons live-only">
     <button data-action="flow-down">Arr −</button>
