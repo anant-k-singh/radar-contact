@@ -141,7 +141,7 @@ export function leaveHold(ac: Aircraft): void {
     // Stacked above the profile, the aircraft has to descend back down to it
     // rather than be written onto it. Cleared by `stepStar` on capture.
     if (!nav.altitudeManual) {
-      const profileFt = starProfileAt(nav.route, distanceToGoNm(ac, nav)).altitudeFt;
+      const profileFt = starProfileAt(nav.route, distanceToGoNm(ac, nav), nav.altitudes).altitudeFt;
       nav.rejoining = ac.altitudeFt > profileFt;
     }
   }

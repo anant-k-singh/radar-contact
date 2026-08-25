@@ -2,10 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { AIRPORT } from '../src/scenario/airport.js';
 import type { Aircraft } from '../src/sim/aircraft.js';
 import { adjustAltitude, adjustHeading, adjustSpeed, clearForIls, toggleHold } from '../src/sim/commands.js';
-import { HOLD_LEG_S, HOLD_SPEED_KTS, PHYSICS_DT } from '../src/sim/constants.js';
+import { altitudeAheadFt, starProfileAt } from '../src/scenario/stars.js';
+import {
+  CEILING_FT,
+  GATE_COOLDOWN_S,
+  HOLD_LEG_S,
+  HOLD_SPEED_KTS,
+  PHYSICS_DT,
+} from '../src/sim/constants.js';
 import { createRng } from '../src/sim/rng.js';
 import { activeFix } from '../src/sim/star.js';
-import { createArrival, createTrafficState } from '../src/sim/traffic.js';
+import { createArrival, createTrafficState, trySpawn } from '../src/sim/traffic.js';
 import { distance } from '../src/sim/units.js';
 import { type World } from '../src/sim/world.js';
 import { makeAircraft, pilotActs, quietWorld, run } from './helpers.js';
@@ -361,5 +368,84 @@ describe('instructions while holding', () => {
 
     expect(ac.phase).toBe('inbound');
     expect(world.messages.at(-1)!.text).toContain('in the hold');
+  });
+});
+
+// ── The stack at an entry fix (§4.5) ────────────────────────────────────────
+
+describe('delivering into a holding stack', () => {
+  /** An aircraft parked in the pattern at `gate`'s entry fix, at `levelFt`. */
+  function holdingAt(gateName: string, levelFt: number): Aircraft {
+    const gate = AIRPORT.gates.find((candidate) => candidate.name === gateName)!;
+    const ac = createArrival(createRng(5), createTrafficState(), gate, [], 0);
+    const world = quietWorld(ac);
+    pressHold(world, ac);
+    flyToEstablished(world, ac);
+    // Put it on the level the test wants, the way the controller would.
+    ac.star!.altitudeManual = true;
+    ac.targetAltitudeFt = levelFt;
+    ac.altitudeFt = levelFt;
+    return ac;
+  }
+
+  const deliver = (gateName: string, existing: readonly Aircraft[]): Aircraft => {
+    const gate = AIRPORT.gates.find((candidate) => candidate.name === gateName)!;
+    return createArrival(createRng(9), createTrafficState(), gate, existing, 0);
+  };
+
+  it('delivers on the published chart when nothing is holding', () => {
+    const gate = AIRPORT.gates.find((candidate) => candidate.name === 'KOVAL')!;
+    const fresh = deliver('KOVAL', []);
+    expect(fresh.altitudeFt).toBe(gate.entryAltitudeFt);
+    expect(fresh.star!.altitudes).toBe(fresh.star!.route.altitudes);
+  });
+
+  it('delivers 1000 ft above the highest aircraft in the stack', () => {
+    const stack = [holdingAt('KOVAL', 8000), holdingAt('KOVAL', 9000), holdingAt('KOVAL', 10_000)];
+    const entryFix = stack[0]!.star!.route.waypoints[1]!;
+    expect(entryFix.name).toBe('NIVEL');
+
+    const next = deliver('KOVAL', stack);
+    expect(next.altitudeFt).toBe(11_000);
+    // And it holds that level all the way to the fix rather than descending to
+    // the published crossing on the way in.
+    expect(altitudeAheadFt(next.star!.route, entryFix.dtgNm, next.star!.altitudes)).toBe(11_000);
+  });
+
+  it('leaves the chart alone past the entry fix', () => {
+    const stack = [holdingAt('KOVAL', 10_000)];
+    const next = deliver('KOVAL', stack);
+    const route = next.star!.route;
+    // BELGA and BOXAR are unchanged: the extra height is given back on the next
+    // leg rather than carried down the whole arrival.
+    for (const wpt of route.waypoints.slice(2)) {
+      expect(starProfileAt(route, wpt.dtgNm, next.star!.altitudes).altitudeFt).toBe(
+        wpt.altitudeFt,
+      );
+    }
+  });
+
+  it('counts only the stack at its own entry fix', () => {
+    const stack = [holdingAt('KOVAL', 10_000)];
+    // A different STAR, a different fix — VANDA's traffic is unaffected.
+    const other = deliver('VANDA', stack);
+    const gate = AIRPORT.gates.find((candidate) => candidate.name === 'VANDA')!;
+    expect(other.altitudeFt).toBe(gate.entryAltitudeFt);
+    expect(other.star!.altitudes).toBe(other.star!.route.altitudes);
+  });
+
+  it('stops delivering on that route once the stack reaches the ceiling', () => {
+    const state = createTrafficState();
+    const full = [holdingAt('KOVAL', CEILING_FT)];
+    // Every gate is off cooldown, so KOVAL is only missing if the stack vetoed
+    // it — checked by spawning many times and never seeing it.
+    const rng = createRng(3);
+    const gates = new Set<string>();
+    for (let i = 0; i < 200; i += 1) {
+      const ac = trySpawn(rng, state, full, i * GATE_COOLDOWN_S);
+      if (ac) gates.add(ac.entryGate);
+    }
+    expect(gates.has('KOVAL')).toBe(false);
+    expect(gates.size).toBe(AIRPORT.gates.length - 1);
   });
 });

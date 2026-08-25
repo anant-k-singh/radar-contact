@@ -129,6 +129,10 @@ function aircraftAt(track: Track, frame: number): Aircraft {
       speedManual: flags.speedManual,
       hold: null,
       rejoining: flags.rejoining,
+      // A stacked delivery raises the profile the *live* aircraft flies, but
+      // nothing displays that profile — only the altitude it produced, which is
+      // recorded — so a rebuilt frame flies the chart and reads identically.
+      altitudes: route.altitudes,
     };
     if (flags.holding) star.hold = displayHold(star, track.altitudeFt[i]!);
   }

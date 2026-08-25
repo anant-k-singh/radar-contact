@@ -253,6 +253,12 @@ while it's in the pattern; take it out first.
 Use it when the sequence has gotten away from you and you need one aircraft to stop making the
 problem worse.
 
+**They stack.** The four fixes closest to the gates — OKPUR, NIVEL, SUDIX, TAVIR — are where a
+sequence backs up, so Center delivers each new arrival 1,000 ft above the highest aircraft already
+holding at that fix. Hold three at NIVEL on 8,000, 9,000 and 10,000 and the next one off KOVAL
+arrives at 11,000, already clear of them. Fill the stack to the ceiling and that gate goes quiet
+until it drains — which is the sim telling you the arrivals have nowhere left to go.
+
 ## Scoring
 
 The gutter on the right keeps a running account:

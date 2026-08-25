@@ -241,15 +241,52 @@ function ahead(constraints: readonly StarConstraint[], dtgNm: Nm): number {
   return constraints[constraints.length - 1]!.value;
 }
 
-export function starProfileAt(star: Star, dtgNm: Nm): { altitudeFt: Ft; speedKts: Kts } {
+/**
+ * The published profile at a point on the route.
+ *
+ * `altitudes` overrides the route's own list, and exists for one thing: an
+ * arrival delivered into a holding stack flies the run in to the entry fix
+ * above the published crossing (§4.5), so the constraint list it is flying is
+ * its own rather than the chart's. Everything else passes nothing and gets the
+ * chart. The speeds have no equivalent — a stack changes the level, not the
+ * speed — so they are always the route's.
+ */
+export function starProfileAt(
+  star: Star,
+  dtgNm: Nm,
+  altitudes: readonly StarConstraint[] = star.altitudes,
+): { altitudeFt: Ft; speedKts: Kts } {
   return {
-    altitudeFt: interpolate(star.altitudes, dtgNm),
+    altitudeFt: interpolate(altitudes, dtgNm),
     speedKts: interpolate(star.speeds, dtgNm),
   };
 }
 
-export function altitudeAheadFt(star: Star, dtgNm: Nm): Ft {
-  return ahead(star.altitudes, dtgNm);
+export function altitudeAheadFt(
+  star: Star,
+  dtgNm: Nm,
+  altitudes: readonly StarConstraint[] = star.altitudes,
+): Ft {
+  return ahead(altitudes, dtgNm);
+}
+
+/**
+ * The route's altitude list with everything from the gate to the entry fix
+ * raised to `levelFt` — the profile an arrival flies when the entry fix already
+ * has a holding stack on it (§4.5).
+ *
+ * Only the constraints at or before the entry fix move. Past it the chart is
+ * unchanged, so the aircraft rejoins the published descent on the next leg
+ * rather than carrying the extra height all the way down, and the interpolation
+ * between the two turns the join into a descent rather than a step.
+ */
+export function raisedToLevel(star: Star, levelFt: Ft): readonly StarConstraint[] {
+  const entryDtgNm = star.waypoints[1]!.dtgNm;
+  return star.altitudes.map((constraint) =>
+    constraint.dtgNm >= entryDtgNm
+      ? { ...constraint, value: Math.max(constraint.value, levelFt) }
+      : constraint,
+  );
 }
 
 export function speedAheadKts(star: Star, dtgNm: Nm): Kts {

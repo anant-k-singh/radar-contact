@@ -9,9 +9,11 @@ import { AIRCRAFT_TYPES } from '../scenario/aircraftTypes.js';
 import { AIRLINES } from '../scenario/airlines.js';
 import { AIRPORT, type EntryGate } from '../scenario/airport.js';
 import { SIDS, type Sid } from '../scenario/sids.js';
-import { starForGate } from '../scenario/stars.js';
+import { starForGate, type Star } from '../scenario/stars.js';
 import type { Aircraft } from './aircraft.js';
 import {
+  ALTITUDE_STEP_FT,
+  CEILING_FT,
   DEPARTURE_AIRBORNE_MARGIN_S,
   DEPARTURE_FLOW_IDLE_RECHECK_S,
   DEPARTURE_HOLD_AFTER_LANDING_S,
@@ -28,7 +30,7 @@ import { groundSpeed } from './dynamics.js';
 import { finalGeometry } from './ils.js';
 import type { Rng } from './rng.js';
 import { joinStar } from './star.js';
-import { bearing, distance, type Sec } from './units.js';
+import { bearing, distance, type Ft, type Sec } from './units.js';
 
 export interface TrafficState {
   nextSpawnAtS: Sec;
@@ -89,9 +91,52 @@ function callsign(rng: Rng, existing: readonly Aircraft[]): { airline: (typeof A
   return { airline, text: `${airline.icao}${existing.length + 900}` };
 }
 
+/**
+ * The level to deliver the next arrival on this route at, given whatever is
+ * already holding at its entry fix (§4.5).
+ *
+ * The four entry fixes are the ones a sequence backs up onto, and a hold there
+ * is flown level, so a second aircraft arriving on the published crossing would
+ * fly straight into the first. Center therefore delivers it **1000 ft above the
+ * highest aircraft in the stack**, on the assignable grid — which is exactly
+ * what a real stack is: an ordered column, filled from the bottom.
+ *
+ * Returns null when nothing is holding there, in which case the aircraft flies
+ * the published chart and nothing about this exists.
+ */
+export function holdingStackLevelFt(route: Star, existing: readonly Aircraft[]): Ft | null {
+  const entryFix = route.waypoints[1]!.name;
+  let topFt = Number.NEGATIVE_INFINITY;
+  for (const ac of existing) {
+    const hold = ac.star?.hold;
+    // The target rather than the live altitude: an aircraft still descending
+    // into the pattern already owns the level it is descending to.
+    if (hold?.fix === entryFix) topFt = Math.max(topFt, ac.targetAltitudeFt);
+  }
+  if (topFt === Number.NEGATIVE_INFINITY) return null;
+  return Math.ceil(topFt / ALTITUDE_STEP_FT) * ALTITUDE_STEP_FT + ALTITUDE_STEP_FT;
+}
+
 function gateAvailable(gate: EntryGate, state: TrafficState, timeS: Sec): boolean {
   const last = state.gateLastSpawnS.get(gate.name);
   return last === undefined || timeS - last >= GATE_COOLDOWN_S;
+}
+
+/**
+ * True when the holding stack at this gate's entry fix reaches the ceiling, so
+ * there is no level left to deliver anyone on (§4.5).
+ *
+ * Center simply stops handing traffic over on that route until the stack
+ * drains. Delivering above `CEILING_FT` would put an arrival higher than the
+ * player is allowed to assign, and delivering *at* the top of the stack would
+ * create the conflict the stacking exists to prevent — so neither is offered,
+ * and the gate goes quiet instead.
+ */
+function stackFull(gate: EntryGate, existing: readonly Aircraft[]): boolean {
+  const route = starForGate(gate.name);
+  if (!route) return false;
+  const levelFt = holdingStackLevelFt(route, existing);
+  return levelFt !== null && levelFt > CEILING_FT;
 }
 
 /** Would this spawn appear too close to traffic already in the airspace? */
@@ -114,11 +159,12 @@ export function createArrival(
   const { airline, text } = callsign(rng, existing);
   const id = state.nextId;
   state.nextId += 1;
-  const altitudeFt = gate.entryAltitudeFt;
-
-  // Center delivers the arrival established on the first leg of the STAR.
+  // Center delivers the arrival established on the first leg of the STAR —
+  // above whatever is already holding at its entry fix, if anything is (§4.5).
   const route = starForGate(gate.name);
-  const star = route ? joinStar(route) : null;
+  const stackLevelFt = route ? holdingStackLevelFt(route, existing) : null;
+  const altitudeFt = Math.max(gate.entryAltitudeFt, stackLevelFt ?? 0);
+  const star = route ? joinStar(route, stackLevelFt) : null;
   const headingDeg = star
     ? bearing(gate.position, star.route.waypoints[star.index]!.position)
     : gate.inboundHeadingDeg;
@@ -181,7 +227,8 @@ export function trySpawn(
   timeS: Sec,
 ): Aircraft | null {
   const candidates = AIRPORT.gates.filter(
-    (gate) => gateAvailable(gate, state, timeS) && !vetoed(gate, existing),
+    (gate) =>
+      gateAvailable(gate, state, timeS) && !vetoed(gate, existing) && !stackFull(gate, existing),
   );
   if (candidates.length === 0) return null;
 

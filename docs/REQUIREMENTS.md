@@ -431,6 +431,23 @@ Nothing rejoins a STAR. Once vectored, an aircraft is on vectors for the rest of
 and speed, and flies on. Left alone it crosses the centerline and eventually exits the airspace
 (§3.4). The routes buy the controller 3–5 minutes of level flight, not indefinite parking.
 
+**Delivery into a holding stack.** The four entry fixes — OKPUR, NIVEL, SUDIX, TAVIR — are where a
+sequence backs up, and a hold there is flown level. A second aircraft arriving on the published
+crossing would fly straight into the first, so Center delivers it **1000 ft above the highest
+aircraft already holding at that fix**, rounded onto the 1000 ft assignable grid. Three aircraft
+stacked at NIVEL on 8000, 9000 and 10,000 means the next KOVAL1A arrival is handed over at 11,000
+and crosses NIVEL there. That is what a stack is: an ordered column, filled from the bottom.
+
+Only the run in to the entry fix is raised. Past it the chart is unchanged, so the aircraft rejoins
+the published descent on the next leg rather than carrying the extra height down the whole arrival,
+and the interpolation between the two makes the join a descent rather than a step. The raised list
+is a property of the *aircraft* (`StarNav.altitudes`), not of the chart.
+
+When the stack reaches `CEILING_FT` there is no level left to deliver anyone on, and **Center stops
+handing traffic over on that route** until it drains — the gate simply goes quiet. Delivering above
+the ceiling would put an arrival higher than the player may assign; delivering at the top of the
+stack would create the conflict the stacking exists to prevent.
+
 ### 4.6 Holding patterns
 
 The routes buy minutes; a hold buys as long as the controller wants. When the arrival rate outruns
@@ -1271,7 +1288,7 @@ for the architecture.
 | A4 | Single landing direction, never changes |
 | A5 | Flat MVA of 2000 ft; no terrain model |
 | A6 | Aircraft always comply, after a 1–3 s reaction; no "unable", no pilot deviations, no emergencies, no fuel state |
-| A7 | Center's handover is always conflict-free, at the gate's altitude (10,000 or 12,000 ft) / 250 kt / on the STAR |
+| A7 | Center's handover is always conflict-free, at the gate's altitude (11,000 or 13,000 ft) / 250 kt / on the STAR — or above it, when the entry fix already has a holding stack (§4.5) |
 | A8 | Aircraft turn the short way to an assigned heading; long-way-round vectors aren't expressible |
 | A9 | 4 gates, 90° apart, offset 40° from the cardinals |
 | A10 | Endless session, no win/lose state; quality is reported, not enforced |

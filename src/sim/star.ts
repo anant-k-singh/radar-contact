@@ -9,9 +9,11 @@
  */
 import {
   altitudeAheadFt,
+  raisedToLevel,
   speedAheadKts,
   starProfileAt,
   type Star,
+  type StarConstraint,
 } from '../scenario/stars.js';
 import type { Aircraft } from './aircraft.js';
 import { STAR_FIX_CAPTURE_NM, STAR_MAX_ANTICIPATION_NM } from './constants.js';
@@ -25,6 +27,7 @@ import {
   headingDiff,
   toRad,
   trueAirspeed,
+  type Ft,
   type Nm,
   type Sec,
 } from './units.js';
@@ -52,12 +55,26 @@ export interface StarNav {
    * which is a descent through it: the capture test is simply "no longer above".
    */
   rejoining: boolean;
+  /**
+   * The altitude constraints this aircraft is actually flying.
+   *
+   * Normally the route's own, and shared with it. It differs only when the
+   * entry fix had a holding stack on it at handover, in which case the run in
+   * to that fix is raised to sit above the stack (§4.5) — so the profile is a
+   * property of the aircraft rather than of the chart, and everything that
+   * reads it must read it from here.
+   */
+  altitudes: readonly StarConstraint[];
 }
 
 export type StarEvent = { kind: 'starComplete'; fix: string } | HoldEvent;
 
-/** Put a freshly handed-over arrival on its route, tracking the fix after the gate. */
-export function joinStar(route: Star): StarNav {
+/**
+ * Put a freshly handed-over arrival on its route, tracking the fix after the
+ * gate. `levelFt` raises the run in to the entry fix above a holding stack
+ * already on it (§4.5); without one the aircraft flies the published chart.
+ */
+export function joinStar(route: Star, levelFt: Ft | null = null): StarNav {
   return {
     route,
     index: 1,
@@ -65,6 +82,7 @@ export function joinStar(route: Star): StarNav {
     speedManual: false,
     hold: null,
     rejoining: false,
+    altitudes: levelFt === null ? route.altitudes : raisedToLevel(route, levelFt),
   };
 }
 
@@ -121,7 +139,7 @@ export function leaveStar(ac: Aircraft): void {
   nav.hold = null;
   ac.turnDirection = null;
   const dtgNm = distanceToGoNm(ac, nav);
-  if (!nav.altitudeManual) ac.targetAltitudeFt = altitudeAheadFt(nav.route, dtgNm);
+  if (!nav.altitudeManual) ac.targetAltitudeFt = altitudeAheadFt(nav.route, dtgNm, nav.altitudes);
   if (!nav.speedManual) ac.targetIasKts = speedAheadKts(nav.route, dtgNm);
   ac.targetHeadingDeg = ac.headingDeg;
   ac.star = null;
@@ -166,7 +184,7 @@ export function stepStar(ac: Aircraft, dt: Sec, timeS: Sec = 0): StarEvent[] {
   const courseDeg = bearing(position, fix.position);
   const dtgNm = rangeNm + fix.dtgNm;
 
-  const profile = starProfileAt(nav.route, dtgNm);
+  const profile = starProfileAt(nav.route, dtgNm, nav.altitudes);
   if (!nav.altitudeManual) {
     // The profile is captured the moment the aircraft is no longer above it.
     // Descending onto it is the only way to rejoin, so this needs no tolerance
@@ -185,7 +203,7 @@ export function stepStar(ac: Aircraft, dt: Sec, timeS: Sec = 0): StarEvent[] {
       // energy is still charged against the speed budget by stepKinematics.
       const previous = ac.altitudeFt;
       ac.altitudeFt = profile.altitudeFt;
-      ac.targetAltitudeFt = altitudeAheadFt(nav.route, dtgNm);
+      ac.targetAltitudeFt = altitudeAheadFt(nav.route, dtgNm, nav.altitudes);
       ac.vsFpm = dt > 0 ? ((ac.altitudeFt - previous) / dt) * 60 : 0;
     }
   }
