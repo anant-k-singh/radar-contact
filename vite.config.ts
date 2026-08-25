@@ -29,5 +29,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],
+    // The saturated multi-hour sessions in departure.test.ts run a few seconds
+    // of real time; vitest's 5 s default leaves no headroom on a CI runner.
+    testTimeout: 30_000,
   },
 });
