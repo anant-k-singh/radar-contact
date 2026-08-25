@@ -448,6 +448,11 @@ handing traffic over on that route** until it drains — the gate simply goes qu
 the ceiling would put an arrival higher than the player may assign; delivering at the top of the
 stack would create the conflict the stacking exists to prevent.
 
+Holding one of these aircraft holds it at **its own** crossing level, not the chart's: `enterHold`
+freezes the pattern at the aircraft's constraint list rather than at `fix.altitudeFt`, or an arrival
+delivered above a stack would descend onto the published crossing the moment it was told to hold —
+straight into the traffic it was delivered above.
+
 ### 4.6 Holding patterns
 
 The routes buy minutes; a hold buys as long as the controller wants. When the arrival rate outruns

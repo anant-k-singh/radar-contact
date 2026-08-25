@@ -548,3 +548,34 @@ describe('pressing H a third time', () => {
     expect(ac.star!.hold!.exitRequested).toBe(false);
   });
 });
+
+describe('holding after delivery into a stack', () => {
+  it('holds at the level it was delivered on, not the published crossing', () => {
+    const gate = AIRPORT.gates.find((candidate) => candidate.name === 'KOVAL')!;
+    // One already in the pattern at NIVEL on 10,000.
+    const first = createArrival(createRng(5), createTrafficState(), gate, [], 0);
+    const firstWorld = quietWorld(first);
+    pressHold(firstWorld, first);
+    flyToEstablished(firstWorld, first);
+    first.star!.altitudeManual = true;
+    first.targetAltitudeFt = 10_000;
+    first.altitudeFt = 10_000;
+
+    // The next one is delivered 1000 ft above it (§4.5)...
+    const next = createArrival(createRng(9), createTrafficState(), gate, [first], 0);
+    expect(next.altitudeFt).toBe(11_000);
+    const entryFix = next.star!.route.waypoints[1]!;
+    expect(entryFix.name).toBe('NIVEL');
+    expect(entryFix.altitudeFt).toBe(9000); // what the chart says
+
+    // ...and holding it must keep that level rather than dropping it onto the
+    // chart, which would fly it into the aircraft already there.
+    const world = quietWorld(next);
+    pressHold(world, next);
+    expect(next.star!.hold!.altitudeFt).toBe(11_000);
+    expect(next.targetAltitudeFt).toBe(11_000);
+
+    flyToEstablished(world, next);
+    expect(Math.round(next.altitudeFt)).toBe(11_000);
+  });
+});

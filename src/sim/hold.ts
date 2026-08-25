@@ -23,7 +23,7 @@
  */
 import type { Aircraft } from './aircraft.js';
 import { HOLD_LEG_S, HOLD_SPEED_KTS, STAR_FIX_CAPTURE_NM } from './constants.js';
-import { starProfileAt } from '../scenario/stars.js';
+import { altitudeAheadFt, starProfileAt } from '../scenario/stars.js';
 import { activeFix, distanceToGoNm, type StarNav } from './star.js';
 import { bearing, distance, headingDiff, normalizeHeading, type Deg, type Sec } from './units.js';
 
@@ -86,6 +86,17 @@ export function isHolding(ac: Aircraft): boolean {
 }
 
 /**
+ * What this aircraft crosses the holding fix at, or undefined if the fix
+ * publishes no altitude. Its own profile, which is the chart's unless it was
+ * delivered into a stack (§4.5).
+ */
+function publishedAtFixFt(nav: StarNav): number | undefined {
+  const fix = activeFix(nav);
+  if (fix.altitudeFt === undefined) return undefined;
+  return altitudeAheadFt(nav.route, fix.dtgNm, nav.altitudes);
+}
+
+/**
  * Begin the hold. The aircraft carries on to the fix it is already tracking and
  * slows to 230 kt on the way, so nothing about the lateral track changes until
  * it gets there — the pattern only starts at the fix.
@@ -98,7 +109,12 @@ export function enterHold(ac: Aircraft, nav: StarNav): HoldNav {
     // The published altitude for the holding fix, which is what the aircraft
     // was descending towards anyway; if the controller has already taken the
     // altitude over, that assignment stands.
-    altitudeFt: nav.altitudeManual ? ac.targetAltitudeFt : (fix.altitudeFt ?? ac.targetAltitudeFt),
+    //
+    // Read from the aircraft's own constraint list rather than off the chart:
+    // one delivered into a stack is flying the run in to this fix raised above
+    // the traffic already holding there (§4.5), and dropping it back onto the
+    // published crossing on entry would fly it straight into them.
+    altitudeFt: nav.altitudeManual ? ac.targetAltitudeFt : (publishedAtFixFt(nav) ?? ac.targetAltitudeFt),
     outboundHeadingDeg: ac.headingDeg,
     legEndsAtS: 0,
     turningRight: false,
