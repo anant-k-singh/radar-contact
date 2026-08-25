@@ -216,9 +216,11 @@ export const DEPARTURE_MIN_INTERVAL_S = 90;
  * The distance is a floor, not the test — the test is
  * `DEPARTURE_AIRBORNE_MARGIN_S` below, in time. It is here because the real
  * rule has a distance in it too: nothing is released with an arrival this close
- * however slowly that arrival happens to be flying.
+ * however slowly that arrival happens to be flying. At any normal approach
+ * speed the time test binds a mile before this does, so the floor only takes
+ * over below about 115 kt of ground speed.
  */
-export const DEPARTURE_HOLD_FINAL_NM = 4.0;
+export const DEPARTURE_HOLD_FINAL_NM = 3.5;
 export const DEPARTURE_HOLD_AFTER_LANDING_S = 60;
 /**
  * How long the arrival must still be from the threshold at the moment the

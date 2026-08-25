@@ -696,9 +696,11 @@ time to threshold  =  alongNm ÷ ground speed          ← the arrival's actual 
 required           =  longest take-off roll in the fleet  +  DEPARTURE_AIRBORNE_MARGIN_S
 ```
 
-with a hard distance floor of **4 NM** underneath it, because the real rule has a distance in it
+with a hard distance floor of **3.5 NM** underneath it, because the real rule has a distance in it
 too and nothing should be released with an arrival that close however slowly it happens to be
-flying.
+flying. The floor is a backstop, not the working rule: at any normal approach speed the time test
+binds first — it holds until 4.4 NM behind an arrival at 141 kt — and the floor only takes over
+below about 115 kt of ground speed, which nothing on an ILS is flying.
 
 Three things follow, and all three were wrong when this was a bare 3 NM:
 

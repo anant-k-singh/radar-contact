@@ -58,7 +58,7 @@ lines on the scope are the thing to keep the base turn clear of.
 You cannot help a departure and you cannot delay one. What you *do* control is the runway. A
 departure is released only when the arrival ahead is far enough out *in time* — long enough for the
 take-off roll plus a minute of margin, measured off the arrival's actual ground speed, so an arrival
-still carrying speed holds the runway from further out. Underneath that there is a 4 NM floor, a
+still carrying speed holds the runway from further out. Underneath that there is a 3.5 NM floor, a
 minute after every landing, and 90 seconds between departures. In practice a departure needs about
 6.5 NM between two arrivals to get out, so a tight sequence quietly starves them and a gap lets one
 go.
