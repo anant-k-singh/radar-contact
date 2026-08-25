@@ -149,10 +149,10 @@ course so nothing arrives already lined up on the LOC:
 
 | Gate | Bearing from ARP | Inbound heading at entry | Handover altitude | STAR |
 | --- | --- | --- | --- | --- |
-| KOVAL | 040° | 220° | **10,000 ft** | KOVAL1A |
-| TEMBA | 130° | 310° | 12,000 ft | TEMBA1A |
-| RIMOL | 230° | 050° | 12,000 ft | RIMOL1A |
-| VANDA | 320° | 140° | **10,000 ft** | VANDA1A |
+| KOVAL | 040° | 220° | **11,000 ft** | KOVAL1A |
+| TEMBA | 130° | 310° | 13,000 ft | TEMBA1A |
+| RIMOL | 230° | 050° | 13,000 ft | RIMOL1A |
+| VANDA | 320° | 140° | **11,000 ft** | VANDA1A |
 
 **Center's handover contract:** every aircraft appears exactly at its gate at its gate altitude,
 **250 kt IAS**, **established on the first leg of its STAR** (§4.5), level and steady.
@@ -167,12 +167,12 @@ the scope carries its altitude in hundreds (`KOVAL 100`).
 | Parameter | Range | Step |
 | --- | --- | --- |
 | Heading | 010–360 | 10° |
-| Altitude | 2000–12,000 ft | 1000 ft |
+| Altitude | 2000–13,000 ft | 1000 ft |
 | Speed (IAS) | 180–250 kt outside 20 track miles; **160**–250 kt within | 10 kt |
 
-Aircraft enter at 10,000–12,000 ft against an assignable ceiling of **12,000 ft**, so a climb is
+Aircraft enter at 11,000–13,000 ft against an assignable ceiling of **13,000 ft**, so a climb is
 available as a de-confliction tool everywhere except at the south gates, which arrive on the ceiling
-itself. Eleven usable levels between MVA and ceiling. Departures go *above* it, to 13,000 ft (§4.7):
+itself. Twelve usable levels between MVA and ceiling. Departures go *above* it, to 14,000 ft (§4.7):
 the ceiling is the top of what the controller may assign, not the top of the sky.
 
 The 180 kt floor outside 20 track miles enforces the configuration gate (§2.4) rather than merely
@@ -369,7 +369,7 @@ published crossing altitude or speed.
 | --- | --- | --- |
 | VANDA1A | VANDA → OKPUR → ALVOR → ARDIS | 10,000/250 kt → 9000/250 kt → 7000/230 kt → 3000/200 kt, to a platform 2 NM west of the centerline at 16 NM |
 | KOVAL1A | KOVAL → NIVEL → BELGA → BOXAR | mirror image, 2 NM east |
-| RIMOL1A | RIMOL → SUDIX → LOMSA → PIKON | 12,000/250 kt → 10,000/250 kt → 7000/230 kt → 3000/210 kt, north up a downwind 6 NM west of the centerline, ending 11 NM north |
+| RIMOL1A | RIMOL → SUDIX → LOMSA → PIKON | 13,000/250 kt → 10,000/250 kt → 7000/230 kt → 3000/210 kt, north up a downwind 6 NM west of the centerline, ending 11 NM north |
 | TEMBA1A | TEMBA → TAVIR → DEMUX → KETAN | mirror image, 6 NM east |
 
 Geometry, all four:
@@ -559,8 +559,8 @@ behind**. Two consequences worth keeping:
 
 | SID | Turn off 18 | Fixes | Restrictions |
 | --- | --- | --- | --- |
-| `SABAR1A` | Right (west) | NORVU → MORVA → SABAR | ≤4000 to MORVA; 13,000+ at SABAR |
-| `KIROS1A` | Left (east) | NORVU → TELMU → KIROS | ≤4000 to TELMU; 13,000+ at KIROS |
+| `SABAR1A` | Right (west) | NORVU → MORVA → SABAR | ≤4000 to MORVA; 14,000+ at SABAR |
+| `KIROS1A` | Left (east) | NORVU → TELMU → KIROS | ≤4000 to TELMU; 14,000+ at KIROS |
 | `RAMOX1A` | Straight (south) | NORVU → RAMOX | none — unrestricted climb |
 
 All three climb runway heading to NORVU, 3.2 NM off the departure end, so the turn happens at a
@@ -597,8 +597,8 @@ where the amber line passes under the blue one. `tests/departure.test.ts` assert
 directly: flying every type down every SID, **no departure is ever within 3 NM of a STAR without
 1000 ft of vertical between them**.
 
-Beyond that fix they climb to **13,000 ft** — deliberately 1000 ft above the assignable ceiling of
-§3.3, because the south gates now hand arrivals over at exactly 12,000 and a departure has to finish
+Beyond that fix they climb to **14,000 ft** — deliberately 1000 ft above the assignable ceiling of
+§3.3, because the south gates now hand arrivals over at exactly 13,000 and a departure has to finish
 above the highest arrival rather than level with it — and leave due west and due east, through the
 middle of the gaps between the arrival gates. The straight SID runs down the extended departure
 centreline, the one direction with no arrival traffic in it at all: the nearest STAR fix is 6 NM
@@ -648,9 +648,9 @@ of a departure at climb thrust.
   after the brakes come off, with the crossing 10 NM out and the fix that ends the restriction
   another 2 NM beyond — so the aircraft levels off and cruises the restricted segment. The
   restriction is a ceiling being *held*, not a performance limit being hit.
-- **13,000 by the exit fix.** 9000 ft of climb needs about 22 NM for the slowest climber; the exit
-  fix is 28 NM past the restriction. The straight SID climbs the full 13,000 ft in about 32 NM,
-  against a 35 NM leg.
+- **14,000 by the exit fix.** Measured for every type, the slowest climber (A332) levels off
+  37.7 NM into the route against an exit fix at 39.2 NM — 1.5 NM to spare, and 6.5 to 10 NM for
+  everything else. The straight SID's slowest is level at 33.2 NM against a 35.2 NM leg.
 
 #### The take-off roll
 
@@ -937,7 +937,7 @@ fixes it, and the sidebar says so continuously for the whole `loc` leg rather th
 | Key | Action |
 | --- | --- |
 | `A` / `D` | Assigned heading −10° / +10° (wraps 010–360) |
-| `W` / `S` | Assigned altitude +1000 / −1000 ft (clamped 2000–12,000) |
+| `W` / `S` | Assigned altitude +1000 / −1000 ft (clamped 2000–13,000) |
 | `Q` / `E` | Assigned speed −10 / +10 kt (clamped per §3.3) |
 | `C` | Clear for ILS approach (subject to §6.1) |
 | `H` | Hold at the next fix / leave the hold (§4.6, STAR only) |
@@ -1282,7 +1282,7 @@ for the architecture.
 | --- | --- |
 | Radar refresh feel | **Smooth motion at 20 Hz, data blocks at 1 Hz.** Physics runs at the render rate so no interpolation layer exists (§5) |
 | Bad-approach handling | **Both gates**: `C` refuses an out-of-limits clearance with the specific reason, *and* an unstable approach inside 5 NM auto-goes-around (§6) |
-| Altitude ceiling | **12,000 ft assignable**, giving climbs as a de-confliction tool; everything above 8000 ft is stacking-only, outside LOC coverage. Departures climb through it to 13,000 (§3.3, §4.7) |
+| Altitude ceiling | **13,000 ft assignable**, giving climbs as a de-confliction tool; everything above 8000 ft is stacking-only, outside LOC coverage. Departures climb through it to 14,000 (§3.3, §4.7) |
 | Airspace exit | **Scored penalty, aircraft despawns**, with an amber warning 5 NM before the boundary. No soft wall (§3.4) |
 
 | Question | Decision (2026-08-15) |

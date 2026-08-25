@@ -34,7 +34,7 @@ export const AIRSPACE_HALF_HEIGHT_NM = 42;
 /** How close to the boundary an outbound aircraft gets its warning. */
 export const EXIT_WARN_MARGIN_NM = 5;
 export const MVA_FT = 2000;
-export const CEILING_FT = 12_000;
+export const CEILING_FT = 13_000;
 export const RANGE_RINGS_NM = [10, 20, 30, 40, 50];
 export const CENTERLINE_LENGTH_NM = 20;
 export const CENTERLINE_TICK_NM = 2;
@@ -162,9 +162,9 @@ export const MIN_SPAWN_INTERVAL_S = 45;
 export const GATE_COOLDOWN_S = 90;
 export const SPAWN_VETO_NM = 5;
 export const SPAWN_VETO_FT = 1000;
-export const ENTRY_ALTITUDE_FT = 12_000;
+export const ENTRY_ALTITUDE_FT = 13_000;
 /** Gates whose geometry gives a short run to the localizer arrive lower. */
-export const ENTRY_ALTITUDE_NEAR_FT = 10_000;
+export const ENTRY_ALTITUDE_NEAR_FT = 11_000;
 export const ENTRY_SPEED_KTS = 250;
 
 // ── STARs (§4.5) ────────────────────────────────────────────────────────────
@@ -288,7 +288,7 @@ export const INITIAL_CLIMB_REDUCTION_FPM = 500;
  * exactly that; a departure has to end up above the highest arrival rather than
  * level with it, and it is leaving the terminal area anyway.
  */
-export const DEPARTURE_TOP_FT = 13_000;
+export const DEPARTURE_TOP_FT = CEILING_FT + 1000;
 /**
  * Total energy available to an aircraft climbing away on a departure, replacing
  * `THRUST_BUDGET_FPM`. A jet at take-off thrust at low level has far more excess
