@@ -525,6 +525,11 @@ platform faster than the aeroplane can follow.
 
 **Display.** The data block shows `HOLD` in place of the fix name — a holding aircraft is circling
 that fix rather than tracking to it, and that is the thing the controller has to see at a glance.
+Once the exit has been instructed the same word is **struck through** (`H̶O̶L̶D̶`, U+0336 combining
+long stroke overlay on each character, so the font and the block layout are unchanged). The aircraft
+is still in the pattern and still going round, but it is leaving at the next crossing of the fix —
+a change to what `HOLD` *means* rather than a different state, which is why it is the same word
+rather than a new tag.
 The racetrack itself is **not drawn**: the trail dots already show it, and four overlapping
 racetracks on a congested scope cost more legibility than they buy.
 

@@ -92,6 +92,7 @@ The tag after the callsign is the fix while the aircraft is on its arrival, then
 | `LOC` | Established on the localizer |
 | `G/S` | Descending on the glideslope |
 | `HOLD` | In the published hold at that fix |
+| `H̶O̶L̶D̶` | Same, struck through: you've told it to leave, and it will at the next crossing of the fix |
 | `G/A` | Going around |
 | `TWR` | Handed to Tower — still flying, no longer taking your instructions |
 
@@ -239,6 +240,10 @@ A go-around isn't a game-over — it's the sim telling you the sequence broke tw
 
 `H` puts an aircraft into a published right-hand hold at the fix it is tracking to: 230 kt,
 one-minute legs. It has to be on its arrival — off the route there's no fix to hold at.
+
+Press `H` again to take it out. Before it has ever reached the fix that cancels outright; afterwards
+it finishes the loop it is on and leaves at the next crossing, and the block's `HOLD` tag is struck
+through in the meantime so you can see which of your holding aircraft are on their way out.
 
 The hold *suspends* the STAR rather than ending it, so leaving it resumes the route from the same
 fix. If the pattern left the aircraft above the published descent profile, it flies back down to it

@@ -34,6 +34,18 @@ const CANDIDATES: ReadonlyArray<{ dx: number; dy: number; align: 'left' | 'right
   { dx: -14, dy: 22, align: 'right' },
 ];
 
+/**
+ * Strike a string through with U+0336 COMBINING LONG STROKE OVERLAY.
+ *
+ * A canvas has no text decoration, and the alternative — measuring the tag and
+ * stroking a line over it — would need the data block to know where its own
+ * words are. The combining mark travels with the character in the same font at
+ * the same size, and measures zero width, so the block lays out unchanged.
+ */
+const STRIKE = '\u0336';
+const struckThrough = (text: string): string =>
+  [...text].map((character) => character + STRIKE).join('');
+
 function stateTag(ac: Aircraft): string {
   if (ac.handedOff) return 'TWR';
   // A departure is never ours, so the tag says whose it is rather than where it
@@ -41,7 +53,12 @@ function stateTag(ac: Aircraft): string {
   if (isDeparture(ac)) return 'DEP';
   // Holding outranks the fix name: the aircraft is circling that fix rather
   // than tracking to it, and that is the thing the controller has to see (§4.6).
-  if (ac.star?.hold) return 'HOLD';
+  // Struck through once the exit has been instructed — still in the pattern,
+  // but leaving at the next crossing of the fix. That is a change to what HOLD
+  // *means* rather than a different state, so it stays the same word.
+  if (ac.star?.hold) {
+    return ac.star.hold.exitRequested ? struckThrough('HOLD') : 'HOLD';
+  }
   // On the arrival, the fix it is tracking to says more than any state name.
   if (ac.star && ac.phase === 'inbound') return activeFix(ac.star).name;
   switch (ac.phase) {
