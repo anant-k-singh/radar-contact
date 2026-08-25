@@ -124,15 +124,22 @@ export function toggleHold(world: World, ac: Aircraft): void {
     return;
   }
 
-  const holding = ac.star.hold !== null;
-  if (!holding) {
+  // `H` toggles one thing: whether the aircraft is to stay in the pattern. That
+  // makes three cases rather than two, because an aircraft that has been told
+  // to leave is still in the pattern until it next crosses the fix — and
+  // pressing H again there means "never mind", not "enter again" (§4.6).
+  const hold = ac.star.hold;
+  const stay = hold === null || hold.exitRequested;
+  if (hold === null) {
     log(world, `${ac.callsign}, hold at ${activeFix(ac.star).name} as published.`, 'system', [
       ac.id,
     ]);
+  } else if (hold.exitRequested) {
+    log(world, `${ac.callsign}, disregard, continue holding at ${hold.fix}.`, 'system', [ac.id]);
   } else {
     log(world, `${ac.callsign}, leave the hold, continue on the arrival.`, 'system', [ac.id]);
   }
-  issue(world, ac, { kind: 'hold', enter: !holding });
+  issue(world, ac, { kind: 'hold', hold: stay });
 }
 
 export function clearForIls(world: World, ac: Aircraft): void {

@@ -15,6 +15,10 @@ import { activeFix } from '../src/sim/star.js';
 import { createArrival, createTrafficState, trySpawn } from '../src/sim/traffic.js';
 import { distance } from '../src/sim/units.js';
 import { type World } from '../src/sim/world.js';
+import { worldAtFrame } from '../src/replay/playback.js';
+import { createRecording, sample } from '../src/replay/recorder.js';
+import { stateTag } from '../src/render/trafficLayer.js';
+import { step } from '../src/sim/world.js';
 import { makeAircraft, pilotActs, quietWorld, run } from './helpers.js';
 
 /** A fresh arrival at `gateName`, on its STAR, in an otherwise empty world. */
@@ -447,5 +451,100 @@ describe('delivering into a holding stack', () => {
     }
     expect(gates.has('KOVAL')).toBe(false);
     expect(gates.size).toBe(AIRPORT.gates.length - 1);
+  });
+});
+
+// ── The data block while leaving (§4.6) ─────────────────────────────────────
+
+describe('the HOLD tag', () => {
+  const STRIKE = '̶';
+
+  it('is struck through once the exit is instructed, and not before', () => {
+    const { ac, world } = arrival('KOVAL');
+    expect(stateTag(ac)).not.toContain('HOLD');
+
+    pressHold(world, ac);
+    flyToEstablished(world, ac);
+    expect(stateTag(ac)).toBe('HOLD');
+
+    pressHold(world, ac); // second press: leave at the next crossing
+    expect(ac.star!.hold!.exitRequested).toBe(true);
+    expect(stateTag(ac)).toBe([...'HOLD'].map((c) => c + STRIKE).join(''));
+    // Same word, same letters — only the overlay is added.
+    expect(stateTag(ac).replaceAll(STRIKE, '')).toBe('HOLD');
+  });
+
+  it('survives the round trip through a recording', () => {
+    // The flag is displayed state that nothing in a rebuilt frame could infer,
+    // so it has to be in the packed flags or a replay shows a plain HOLD.
+    const { ac, world } = arrival('KOVAL');
+    pressHold(world, ac);
+    flyToEstablished(world, ac);
+    pressHold(world, ac);
+
+    const rec = createRecording();
+    step(world, PHYSICS_DT);
+    sample(rec, world);
+    const rebuilt = worldAtFrame(rec, rec.lastFrame, {
+      selectedId: null,
+      paused: true,
+      timeScale: 1,
+    });
+
+    const copy = rebuilt.aircraft.find((other) => other.id === ac.id)!;
+    expect(copy.star?.hold?.exitRequested).toBe(true);
+    expect(stateTag(copy)).toBe(stateTag(ac));
+  });
+});
+
+// ── `H` is one toggle, not two instructions ─────────────────────────────────
+
+describe('pressing H a third time', () => {
+  it('takes back the exit and keeps the aircraft in the pattern', () => {
+    const { ac, world } = arrival('KOVAL');
+    pressHold(world, ac);
+    flyToEstablished(world, ac);
+
+    pressHold(world, ac);
+    expect(ac.star!.hold!.exitRequested).toBe(true);
+
+    // Never mind: still in the pattern, so this cancels the exit rather than
+    // re-entering a hold it never left.
+    pressHold(world, ac);
+    expect(ac.star!.hold).not.toBeNull();
+    expect(ac.star!.hold!.exitRequested).toBe(false);
+    expect(world.messages.at(-1)!.text).toContain('continuing to hold');
+    // And the tag goes back to a plain HOLD.
+    expect(stateTag(ac)).toBe('HOLD');
+
+    // It really does keep holding: a full lap later it is still there.
+    run(world, HOLD_LEG_S * 4);
+    expect(ac.star!.hold).not.toBeNull();
+  });
+
+  it('still leaves on the press after that', () => {
+    const { ac, world } = arrival('KOVAL');
+    pressHold(world, ac);
+    flyToEstablished(world, ac);
+    pressHold(world, ac); // leave
+    pressHold(world, ac); // never mind
+    pressHold(world, ac); // leave, for real this time
+    expect(ac.star!.hold!.exitRequested).toBe(true);
+
+    for (let elapsed = 0; elapsed < 900 && ac.star?.hold; elapsed += 10) run(world, 10);
+    expect(ac.star!.hold).toBeNull();
+  });
+
+  it('enters again once the aircraft has actually left', () => {
+    const { ac, world } = arrival('KOVAL');
+    pressHold(world, ac);
+    flyToEstablished(world, ac);
+    pressHold(world, ac);
+    for (let elapsed = 0; elapsed < 900 && ac.star?.hold; elapsed += 10) run(world, 10);
+    expect(ac.star!.hold).toBeNull();
+
+    pressHold(world, ac);
+    expect(ac.star!.hold).not.toBeNull();
+    expect(ac.star!.hold!.exitRequested).toBe(false);
   });
 });

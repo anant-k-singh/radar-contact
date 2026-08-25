@@ -542,6 +542,12 @@ platform faster than the aeroplane can follow.
 
 **Display.** The data block shows `HOLD` in place of the fix name — a holding aircraft is circling
 that fix rather than tracking to it, and that is the thing the controller has to see at a glance.
+**`H` toggles one thing: whether the aircraft is to stay in the pattern.** That is three cases
+rather than two, because an aircraft told to leave is still in the pattern until it next crosses the
+fix — so pressing `H` there means *never mind*, not *enter again*, and it takes the exit back rather
+than rebuilding a pattern the aircraft never left. Not holding → enter; holding → leave at the next
+crossing; leaving → keep holding. Only once it has actually left does `H` enter a fresh hold.
+
 Once the exit has been instructed the same word is **struck through** (`H̶O̶L̶D̶`, U+0336 combining
 long stroke overlay on each character, so the font and the block layout are unchanged). The aircraft
 is still in the pattern and still going round, but it is leaving at the next crossing of the fix —

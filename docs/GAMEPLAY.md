@@ -245,6 +245,10 @@ Press `H` again to take it out. Before it has ever reached the fix that cancels 
 it finishes the loop it is on and leaves at the next crossing, and the block's `HOLD` tag is struck
 through in the meantime so you can see which of your holding aircraft are on their way out.
 
+Changed your mind? `H` again while it is struck through takes the exit back and the aircraft keeps
+going round — it never left, so there is nothing to re-enter. Only once it has actually left the
+pattern does `H` start a fresh hold.
+
 The hold *suspends* the STAR rather than ending it, so leaving it resumes the route from the same
 fix. If the pattern left the aircraft above the published descent profile, it flies back down to it
 on ordinary rates rather than teleporting onto it. You can't clear an aircraft for the approach

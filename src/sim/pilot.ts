@@ -27,8 +27,12 @@ export type Instruction =
   | { kind: 'altitude'; altitudeFt: Ft }
   | { kind: 'speed'; iasKts: Kts }
   | { kind: 'approach'; warnings: readonly string[] }
-  /** Enter the pattern at the next fix, or leave the one being flown (§4.6). */
-  | { kind: 'hold'; enter: boolean };
+  /**
+   * Whether the aircraft should be in the pattern at all (§4.6). True covers
+   * both entering and *staying* — taking back an exit already instructed — so
+   * one boolean carries the whole of what `H` toggles.
+   */
+  | { kind: 'hold'; hold: boolean };
 
 export interface PendingInstruction {
   /** Sim time the crew acts on it. */
@@ -174,8 +178,19 @@ function apply(ac: Aircraft, instruction: Instruction): Readback[] {
         return readbacks;
       }
 
-      if (instruction.enter) {
-        if (nav.hold) return readbacks; // already holding; nothing to say
+      if (instruction.hold) {
+        // Already in the pattern: this is taking back an exit, not a second
+        // entry — the aircraft never left, so nothing about the pattern is
+        // rebuilt and it simply keeps going round.
+        if (nav.hold) {
+          if (!nav.hold.exitRequested) return readbacks; // nothing to take back
+          nav.hold.exitRequested = false;
+          readbacks.push({
+            text: `${ac.callsign}, disregard, continuing to hold at ${nav.hold.fix}.`,
+            kind: 'pilot',
+          });
+          return readbacks;
+        }
         const hold = enterHold(ac, nav);
         readbacks.push({
           text: `${ac.callsign}, holding at ${hold.fix} as published, ` +
