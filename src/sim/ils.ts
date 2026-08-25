@@ -19,6 +19,7 @@ import {
   GO_AROUND_GATE_NM,
   GO_AROUND_IN_TRAIL_NM,
   GO_AROUND_OVERSPEED_KTS,
+  GO_AROUND_RUNWAY_OCCUPIED_NM,
   GS_CAPTURE_WINDOW_FT,
   GS_FT_PER_NM,
   ESTABLISHED_HDG_DEG,
@@ -286,6 +287,13 @@ export type ApproachEvent =
 export interface ApproachContext {
   /** Distance to the aircraft ahead on final, or null when there is none. */
   inTrailNm: Nm | null;
+  /**
+   * True while something is still on the runway — a departure rolling, or a
+   * landing inside its runway occupancy time (§9.4). Passed in rather than
+   * worked out here: the runway's state belongs to `world.ts`, and this module
+   * only decides what an approach does about it.
+   */
+  runwayOccupied: boolean;
 }
 
 /**
@@ -355,6 +363,17 @@ export function stepApproach(
     ac.altitudeFt = Math.min(previous, geo.gsAltitudeFt);
     ac.targetAltitudeFt = AIRPORT.elevationFt;
     ac.vsFpm = dt > 0 ? ((ac.altitudeFt - previous) / dt) * 60 : 0;
+  }
+
+  // ── The runway itself, inside 0.3 NM (§6.2) ──────────────────────────────
+  // Separate from the stability gate below and deliberately much later: this is
+  // not about how the approach was flown, it is about what is on the concrete.
+  // A release decision made a minute ago cannot bind an aircraft about to land
+  // on an occupied runway, so this is the backstop that overrides it.
+  if (geo.alongNm > 0 && geo.alongNm <= GO_AROUND_RUNWAY_OCCUPIED_NM && ctx.runwayOccupied) {
+    goAround(ac);
+    events.push({ kind: 'goAround', reason: 'runway occupied' });
+    return events;
   }
 
   // ── Stability gate inside 5 NM (§6.2) ────────────────────────────────────

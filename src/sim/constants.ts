@@ -125,6 +125,17 @@ export const GO_AROUND_IN_TRAIL_NM = 2.5;
 export const GO_AROUND_ABOVE_GS_FT = 1000;
 export const GO_AROUND_OVERSPEED_KTS = 45; // above Vapp
 export const GO_AROUND_ALT_FT = 3000;
+/**
+ * How close to the threshold an arrival may get with the runway still occupied
+ * before it goes around (§6.2, §9.4).
+ *
+ * This is the backstop that makes the runway a real object rather than a rule
+ * about departures. Whatever the release logic decided a minute ago, an
+ * aircraft this close to a runway with something on it goes around, exactly as
+ * it would in life. 0.3 NM is about 8 s at an approach speed — inside the
+ * point where a crew would have committed, and outside the threshold itself.
+ */
+export const GO_AROUND_RUNWAY_OCCUPIED_NM = 0.3;
 
 /**
  * Time acceleration the number keys select: key *i* gives 2^(i−1), so 1 is real
@@ -202,15 +213,29 @@ export const DEPARTURE_MIN_INTERVAL_S = 90;
  * rolling out. A saturated final therefore starves the departures, which is the
  * coupling that makes one runway feel like one runway.
  *
- * 3 NM is the real rule expressed as a distance: the departure has to be
- * airborne before the arrival crosses the threshold. An arrival is at its
- * approach speed inside `FINAL_SPEED_NM`, so 3 NM is 75 s or so of flying,
- * against a take-off roll of 36 s for a medium and 49 s for the slowest heavy —
- * the margin holds for every type in the fleet, and `tests/departure.test.ts`
- * asserts it rather than trusting the arithmetic.
+ * The distance is a floor, not the test — the test is
+ * `DEPARTURE_AIRBORNE_MARGIN_S` below, in time. It is here because the real
+ * rule has a distance in it too: nothing is released with an arrival this close
+ * however slowly that arrival happens to be flying.
  */
-export const DEPARTURE_HOLD_FINAL_NM = 3.0;
+export const DEPARTURE_HOLD_FINAL_NM = 4.0;
 export const DEPARTURE_HOLD_AFTER_LANDING_S = 60;
+/**
+ * How long the arrival must still be from the threshold at the moment the
+ * departure ahead of it *rotates* (§4.7).
+ *
+ * This is the safety buffer, and making it a term of its own is the point. The
+ * release used to be a bare 3 NM chosen so the slowest type in the fleet would
+ * just clear — which meant every release sat at that type's edge, and a heavy
+ * rotated with the arrival at 0.8 NM and 300 ft. The gate is now
+ * `time to threshold ≥ take-off roll + this`, computed from the arrival's
+ * actual ground speed, so an arrival still carrying speed blocks further out
+ * than one already at its approach speed.
+ *
+ * 60 s puts the arrival a little over 2 NM out as the departure lifts off,
+ * which is the picture a tower would actually accept.
+ */
+export const DEPARTURE_AIRBORNE_MARGIN_S = 60;
 /**
  * Where the hold-short queue turns amber and then red (§8.2).
  *

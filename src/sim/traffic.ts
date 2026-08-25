@@ -12,6 +12,7 @@ import { SIDS, type Sid } from '../scenario/sids.js';
 import { starForGate } from '../scenario/stars.js';
 import type { Aircraft } from './aircraft.js';
 import {
+  DEPARTURE_AIRBORNE_MARGIN_S,
   DEPARTURE_FLOW_IDLE_RECHECK_S,
   DEPARTURE_HOLD_AFTER_LANDING_S,
   DEPARTURE_HOLD_FINAL_NM,
@@ -22,7 +23,8 @@ import {
   SPAWN_VETO_FT,
   SPAWN_VETO_NM,
 } from './constants.js';
-import { joinSid } from './departure.js';
+import { joinSid, MAX_DEPARTURE_ROLL_S } from './departure.js';
+import { groundSpeed } from './dynamics.js';
 import { finalGeometry } from './ils.js';
 import type { Rng } from './rng.js';
 import { joinStar } from './star.js';
@@ -233,10 +235,20 @@ export function runwayBlockedBy(
   // Anything already on the runway — the previous departure has not lifted off.
   if (existing.some((ac) => ac.phase === 'roll')) return 'runway occupied';
 
+  // The arrival test, in time rather than in distance. What matters is whether
+  // the departure will be airborne with room to spare before the arrival
+  // crosses the threshold, and that depends on how fast the arrival is actually
+  // flying — one still carrying speed blocks from further out than one already
+  // slowed to its approach speed. The take-off roll is the fleet's longest,
+  // since the type is not drawn until the release itself.
+  const requiredS = MAX_DEPARTURE_ROLL_S + DEPARTURE_AIRBORNE_MARGIN_S;
   const shortFinal = existing.find((ac) => {
     if (ac.phase !== 'loc' && ac.phase !== 'gs') return false;
     const alongNm = finalGeometry(ac).alongNm;
-    return alongNm > 0 && alongNm <= DEPARTURE_HOLD_FINAL_NM;
+    if (alongNm <= 0) return false;
+    if (alongNm <= DEPARTURE_HOLD_FINAL_NM) return true;
+    const speedNmS = groundSpeed(ac) / 3600;
+    return speedNmS > 0 && alongNm / speedNmS < requiredS;
   });
   return shortFinal ? `arrival on short final` : null;
 }

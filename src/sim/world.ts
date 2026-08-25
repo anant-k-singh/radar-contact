@@ -8,6 +8,7 @@ import { isDeparture, sampleRadar } from './aircraft.js';
 import { boundaryMarginNm } from './airspace.js';
 import {
   DEPARTURE_FLOW_DEFAULT_PER_HOUR,
+  DEPARTURE_HOLD_AFTER_LANDING_S,
   DEPARTURE_FREQUENCY,
   EXIT_WARN_MARGIN_NM,
   FLOW_DEFAULT_PER_HOUR,
@@ -245,6 +246,23 @@ export function departureQueueLength(world: World): number {
   return world.traffic.departureQueue;
 }
 
+/**
+ * True while the runway cannot be landed on: something is rolling on it, or a
+ * landing is still vacating it (§9.4).
+ *
+ * The landing that owns it has already been removed from the scope — it stops
+ * being an air-traffic problem the moment it touches down — so the runway
+ * remembers it as a time instead. That is what makes the occupancy real for
+ * arrivals rather than only for departures.
+ */
+export function runwayOccupied(world: World): boolean {
+  const { lastLandingS } = world.traffic;
+  if (lastLandingS !== null && world.timeS - lastLandingS < DEPARTURE_HOLD_AFTER_LANDING_S) {
+    return true;
+  }
+  return world.aircraft.some((ac) => ac.phase === 'roll');
+}
+
 /** Projected in-trail spacing when the aircraft ahead reaches the threshold (§9.3). */
 export function projectedSpacingNm(follower: Aircraft, leader: Aircraft): Nm {
   const followerAlong = finalGeometry(follower).alongNm;
@@ -439,6 +457,12 @@ export function step(world: World, dt: Sec): void {
     }
   }
 
+  // Is there anything on the runway? A departure still rolling, or a landing
+  // inside its runway occupancy time — the same 60 s that holds the next
+  // departure, applied to the arrivals as well (§9.4). Read once for the tick,
+  // before anything moves, so every aircraft sees the same runway.
+  const occupied = runwayOccupied(world);
+
   // ── Separation ───────────────────────────────────────────────────────────
   // Analysed before flying, so in-trail spacing and the handoff closure check
   // see this tick's picture rather than the previous one's — which on the very
@@ -485,7 +509,7 @@ export function step(world: World, dt: Sec): void {
 
     const geo = finalGeometry(ac);
     const inTrailNm = world.separation.inTrail.get(ac.id) ?? null;
-    const events = stepApproach(ac, geo, { inTrailNm }, dt);
+    const events = stepApproach(ac, geo, { inTrailNm, runwayOccupied: occupied }, dt);
 
     let removed = false;
     for (const event of events) {

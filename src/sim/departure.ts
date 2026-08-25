@@ -28,6 +28,7 @@
  * published profile to sit on, so kinematics own the vertical throughout and the
  * `controlVertical: false` seam is not one of this module's problems.
  */
+import { AIRCRAFT_TYPES, type AircraftType } from '../scenario/aircraftTypes.js';
 import { AIRPORT } from '../scenario/airport.js';
 import { ceilingAtFt, type Sid, type SidWaypoint } from '../scenario/sids.js';
 import type { Aircraft } from './aircraft.js';
@@ -65,6 +66,28 @@ export interface SidNav {
 export type DepartureEvent =
   | { kind: 'airborne'; sid: string }
   | { kind: 'sidComplete'; fix: string };
+
+/**
+ * How long this type needs on the runway to reach V2 (§4.7).
+ *
+ * The ground roll is a constant acceleration to V2, so the time falls straight
+ * out of the two figures rather than needing to be flown to find out — which is
+ * what lets the tower's release decision ask "will it be airborne in time"
+ * before there is an aircraft to ask about.
+ */
+export function departureRollTimeS(type: AircraftType): Sec {
+  return type.v2Kts / (TAKEOFF_ACCEL_KTS_S * type.budgetScale);
+}
+
+/**
+ * The longest take-off roll in the fleet.
+ *
+ * The release decision is made before the departure exists — the type is drawn
+ * at the release, not when it joins the queue — so it has to assume the worst
+ * type it might be about to build. Being conservative for a medium is the right
+ * way round: the cost is a departure held slightly longer than it needed to be.
+ */
+export const MAX_DEPARTURE_ROLL_S: Sec = Math.max(...AIRCRAFT_TYPES.map(departureRollTimeS));
 
 /** Put a departure at the holding point, tracking the first fix after the runway. */
 export function joinSid(route: Sid): SidNav {

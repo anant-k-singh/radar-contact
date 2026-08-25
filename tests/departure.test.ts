@@ -10,13 +10,17 @@ import {
   DEPARTURE_CLIMB_SPEED_KTS,
   DEPARTURE_TOP_FT,
   DEPARTURE_HOLD_FINAL_NM,
+  DEPARTURE_AIRBORNE_MARGIN_S,
+  DEPARTURE_HOLD_AFTER_LANDING_S,
   DEPARTURE_MIN_INTERVAL_S,
+  GO_AROUND_RUNWAY_OCCUPIED_NM,
   GS_FT_PER_NM,
   MOVEMENT_RATE_WINDOW_S,
   PHYSICS_DT,
   SEP_HORIZ_NM,
   SEP_VERT_FT,
 } from '../src/sim/constants.js';
+import { MAX_DEPARTURE_ROLL_S } from '../src/sim/departure.js';
 import { groundSpeed } from '../src/sim/dynamics.js';
 import { finalGeometry } from '../src/sim/ils.js';
 import { createRng } from '../src/sim/rng.js';
@@ -29,7 +33,7 @@ import {
   step,
   type World,
 } from '../src/sim/world.js';
-import { makeAircraft, onFinalApproach, quietWorld, run } from './helpers.js';
+import { makeAircraft, MEDIUM_TYPE, onFinalApproach, quietWorld, run } from './helpers.js';
 
 const sidNamed = (name: string): Sid => SIDS.find((sid) => sid.name === name)!;
 /**
@@ -386,21 +390,45 @@ describe('a departure is not the player’s', () => {
 // ── The shared runway ───────────────────────────────────────────────────────
 
 describe('the shared runway', () => {
+  /** An arrival on the glideslope at `alongNm`, flying `iasKts`. */
+  const onApproach = (alongNm: number, iasKts: number): Aircraft =>
+    makeAircraft({
+      ...onFinalApproach(alongNm),
+      phase: 'gs',
+      altitudeFt: alongNm * GS_FT_PER_NM,
+      headingDeg: AIRPORT.runway.courseDeg,
+      iasKts,
+    });
+
   it('holds a departure while an arrival is on short final', () => {
     const state = createTrafficState();
-    const shortFinal = makeAircraft({
-      ...onFinalApproach(DEPARTURE_HOLD_FINAL_NM - 1),
-      phase: 'gs',
-      altitudeFt: 900,
-    });
-    expect(runwayBlockedBy(state, [shortFinal], 0)).toBe('arrival on short final');
+    const vapp = MEDIUM_TYPE.vappKts;
+    expect(runwayBlockedBy(state, [onApproach(DEPARTURE_HOLD_FINAL_NM - 1, vapp)], 0)).toBe(
+      'arrival on short final',
+    );
+    expect(runwayBlockedBy(state, [onApproach(DEPARTURE_HOLD_FINAL_NM + 3, vapp)], 0)).toBeNull();
+  });
 
-    const further = makeAircraft({
-      ...onFinalApproach(DEPARTURE_HOLD_FINAL_NM + 3),
-      phase: 'gs',
-      altitudeFt: 2200,
-    });
-    expect(runwayBlockedBy(state, [further], 0)).toBeNull();
+  it('measures the arrival in time, so a fast one blocks from further out', () => {
+    // The gate is "will the departure be airborne with the margin to spare",
+    // not a fixed distance — the whole reason it reads the ground speed (§4.7).
+    const state = createTrafficState();
+    const requiredS = MAX_DEPARTURE_ROLL_S + DEPARTURE_AIRBORNE_MARGIN_S;
+
+    // Far enough at an approach speed, not far enough at 210 kt.
+    const slow = onApproach(5, MEDIUM_TYPE.vappKts);
+    const fast = onApproach(5, 210);
+    expect(finalGeometry(slow).alongNm / (groundSpeed(slow) / 3600)).toBeGreaterThan(requiredS);
+    expect(finalGeometry(fast).alongNm / (groundSpeed(fast) / 3600)).toBeLessThan(requiredS);
+    expect(runwayBlockedBy(state, [slow], 0)).toBeNull();
+    expect(runwayBlockedBy(state, [fast], 0)).toBe('arrival on short final');
+  });
+
+  it('never releases inside the distance floor, however slow the arrival is', () => {
+    const state = createTrafficState();
+    // Slow enough that the time test alone would let it go.
+    const crawling = onApproach(DEPARTURE_HOLD_FINAL_NM - 0.1, 90);
+    expect(runwayBlockedBy(state, [crawling], 0)).toBe('arrival on short final');
   });
 
   it('holds a departure behind a landing and behind the one before it', () => {
@@ -467,6 +495,47 @@ describe('the shared runway', () => {
     expect(worstMarginS, `worst case ${worstCase}: ${worstMarginS.toFixed(1)} s`).toBeGreaterThan(
       10,
     );
+  });
+
+  it('sends an arrival around rather than landing it on an occupied runway', () => {
+    // The backstop (§6.2). Whatever the release decided a minute ago, an
+    // aircraft this close to a runway with something on it goes around.
+    const { ac: dep } = departure(sidNamed('RAMOX1A'), AIRCRAFT_TYPES[4]!);
+    const arrival = onApproach(GO_AROUND_RUNWAY_OCCUPIED_NM + 0.4, MEDIUM_TYPE.vappKts);
+    const world = quietWorld(arrival, dep);
+
+    run(world, 30);
+    expect(dep.phase, 'the departure should still be rolling').toBe('roll');
+    expect(arrival.phase).toBe('goAround');
+    expect(world.stats.goArounds).toBe(1);
+    expect(world.stats.landings).toBe(0);
+    expect(world.messages.some((m) => m.text.includes('runway occupied'))).toBe(true);
+  });
+
+  it('lands the same arrival when the runway is clear', () => {
+    const arrival = onApproach(GO_AROUND_RUNWAY_OCCUPIED_NM + 0.4, MEDIUM_TYPE.vappKts);
+    const world = quietWorld(arrival);
+    run(world, 30);
+    expect(world.stats.goArounds).toBe(0);
+    expect(world.stats.landings).toBe(1);
+  });
+
+  it('holds the runway for the landing that just vacated it, against arrivals too', () => {
+    // The occupancy is a time because the landing is removed at touchdown, and
+    // it applies to the aircraft behind as well as to the next departure.
+    const arrival = onApproach(GO_AROUND_RUNWAY_OCCUPIED_NM + 0.4, MEDIUM_TYPE.vappKts);
+    const world = quietWorld(arrival);
+    world.traffic.lastLandingS = 0;
+    run(world, 30);
+    expect(arrival.phase).toBe('goAround');
+    expect(world.stats.landings).toBe(0);
+
+    // Past the occupancy time, the same approach lands.
+    const later = onApproach(GO_AROUND_RUNWAY_OCCUPIED_NM + 0.4, MEDIUM_TYPE.vappKts);
+    const clear = quietWorld(later);
+    clear.traffic.lastLandingS = -DEPARTURE_HOLD_AFTER_LANDING_S;
+    run(clear, 30);
+    expect(clear.stats.landings).toBe(1);
   });
 
   it('is not a radar separation problem while the departure is on the runway', () => {

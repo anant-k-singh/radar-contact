@@ -55,10 +55,18 @@ corridor is waiting there, at 4,000 climbing to 13,000 — and a bust against a 
 against you exactly like any other, because the arrival is the half you could have moved. The amber
 lines on the scope are the thing to keep the base turn clear of.
 
-You cannot help a departure and you cannot delay one. What you *do* control is the runway: no
-departure rolls while you have an arrival inside 3 NM on final, or for a minute after one lands, and
-two departures are never less than 90 seconds apart. A tight sequence quietly starves them; a gap
-lets one go.
+You cannot help a departure and you cannot delay one. What you *do* control is the runway. A
+departure is released only when the arrival ahead is far enough out *in time* — long enough for the
+take-off roll plus a minute of margin, measured off the arrival's actual ground speed, so an arrival
+still carrying speed holds the runway from further out. Underneath that there is a 4 NM floor, a
+minute after every landing, and 90 seconds between departures. In practice a departure needs about
+6.5 NM between two arrivals to get out, so a tight sequence quietly starves them and a gap lets one
+go.
+
+And if the tower gets it wrong anyway, **your arrival goes around**: anything inside 0.3 NM of a
+runway that still has something on it climbs away, whatever was decided a minute earlier. That
+includes the aircraft you landed a moment ago — the runway is not free for a minute after a
+touchdown, so a sequence flown tighter than that is a go-around, not a landing.
 
 **They queue.** A departure that cannot roll does not disappear — it waits at the holding point, and
 the next one lines up behind it. `DEP QUEUE` in the stats gutter is how many are stacked up there.
@@ -216,6 +224,9 @@ Inside 5 NM the approach has to be stable. Any of these and the aircraft goes ar
 - More than 1,000 ft above the glideslope
 - More than 45 kt above its approach speed
 - Less than 2.5 NM behind the aircraft ahead
+
+And one that has nothing to do with how the approach was flown: **inside 0.3 NM with something
+still on the runway** — a departure rolling, or a landing inside the minute it takes to vacate.
 
 A go-around isn't a game-over — it's the sim telling you the sequence broke two minutes ago.
 

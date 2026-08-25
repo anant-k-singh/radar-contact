@@ -687,14 +687,41 @@ The head of the queue is held while:
 - the previous departure rolled less than **90 s** ago, or
 - anything is still on the runway.
 
-**Why 3 NM.** The real rule is not a distance at all: the departure has to be *airborne before the
-landing aircraft crosses the threshold*. Expressing it as a distance works because an arrival is at
-its approach speed inside `FINAL_SPEED_NM` — 140 kt for a medium, 145 for a heavy — so 3 NM is 73 to
-76 s of flying, against a take-off roll of 34–36 s for a medium and 43–49 s for a heavy. Measured
-over every departure type against every arrival type, the departure is off the ground with **24 to
-42 s** in hand; the worst case is a B77W rolling under a heavy arrival. `tests/departure.test.ts`
-flies all 36 combinations and asserts both that the arrival has not landed and that the margin is
-comfortably positive, rather than trusting the arithmetic.
+**The arrival test is a time, not a distance.** The real rule is not a distance either: the
+departure has to be *airborne, with room to spare, before the landing aircraft crosses the
+threshold*. So the gate is
+
+```
+time to threshold  =  alongNm ÷ ground speed          ← the arrival's actual speed
+required           =  longest take-off roll in the fleet  +  DEPARTURE_AIRBORNE_MARGIN_S
+```
+
+with a hard distance floor of **4 NM** underneath it, because the real rule has a distance in it
+too and nothing should be released with an arrival that close however slowly it happens to be
+flying.
+
+Three things follow, and all three were wrong when this was a bare 3 NM:
+
+- **The arrival's speed counts.** One still carrying 180 kt blocks from 5.7 NM; one already at its
+  approach speed releases at 4.4 NM. A distance gate could not tell them apart, and 3 NM was
+  calibrated on the approach-speed case only.
+- **The take-off roll is a computed number**, `v2Kts ÷ (TAKEOFF_ACCEL_KTS_S × budgetScale)` — 36 s
+  for a medium, 49 s for the slowest heavy. The release uses the fleet maximum, because the type is
+  not drawn until the release itself (the queue is a count, §4.7). Being conservative for a medium
+  is the right way round: the cost is a departure held a few seconds longer than it needed to be.
+- **The safety margin is its own term.** The old 3 NM was chosen so the *slowest* type would just
+  clear, which meant every release sat at that type's edge by construction — a B77W rotated with the
+  arrival at 0.8 NM and 300 ft. With a 60 s margin it rotates with the arrival 2.4 NM out at 770 ft,
+  and against a fast arrival 3.3 NM out at 1050 ft.
+
+`tests/departure.test.ts` flies all 36 departure/arrival type combinations and asserts the departure
+is off the ground before the arrival lands, rather than trusting the arithmetic.
+
+One consequence worth stating: a departure now needs about **6.6 NM** between two arrivals to get
+out, against 5.3 NM before — a departure released 60 s after a landing has to find an arrival more
+than 109 s from the threshold, and 60 s of a 140 kt approach is 2.3 NM of that gap already spent.
+The in-trail minimum is 3–4 NM, so a tight-but-legal sequence no longer has a departure squeezed
+into it.
 
 **Why 90 s between departures.** It covers the wake-turbulence minimum behind a medium and the time
 the first aircraft needs to be airborne and clear. It caps the runway at 40 departures an hour,
@@ -853,6 +880,12 @@ fixes it, and the sidebar says so continuously for the whole `loc` leg rather th
    rule: the 4 NM gap is enforced out at 10 NM (§9.3), and by 5 NM only a genuinely unusable gap is
    worth a go-around. The aircraft climbs to 3000 ft on runway
    heading and returns to `inbound` as the player's problem, and the event is scored.
+6. **Go-around, runway occupied** — separately from the stability gate and much later, at
+   **0.3 NM**: if anything is still on the runway (§9.4), the arrival goes around. This is not about
+   how the approach was flown, it is about what is on the concrete, and it is the reason the release
+   logic of §4.7 is allowed to be a prediction: a decision made a minute ago cannot bind an aircraft
+   about to land on an occupied runway. 0.3 NM is about eight seconds at an approach speed — inside
+   where a crew would have committed, outside the threshold itself.
 
 ---
 
@@ -1063,6 +1096,14 @@ already get (§9.3) — a different rule applies there, not no rule.
 
 Everywhere else a departure is ordinary traffic: it raises warnings and violations against arrivals
 like anything else on the scope, which is the whole reason it is worth having on the scope.
+
+**What "occupied" means.** The runway is occupied while a departure is in `phase === 'roll'`, or for
+`DEPARTURE_HOLD_AFTER_LANDING_S` (60 s) after a touchdown. The second half is a *time* because the
+landing that owns the runway has already been despawned — it stops being an air-traffic problem the
+moment it touches down (§6.2 step 4), so the runway remembers it instead. That 60 s used to hold
+only the next departure; it now also sends an arrival around at 0.3 NM, which is what makes the
+occupancy real rather than a rule about departures. An in-trail sequence at the §9.3 minimum is
+77–103 s apart and never trips it; one flown tighter than about 2.3 NM does.
 
 ## 10. Handoff to Tower
 
