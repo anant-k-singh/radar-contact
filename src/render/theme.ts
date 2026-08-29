@@ -52,11 +52,12 @@ export const THEME = {
   assigned: '#ffe14d',
   hint: '#f6eba6',
   /**
-   * The two alert levels are one hue apart in brightness, not in colour: a
-   * warning is the same problem as a violation, a few seconds earlier. Only the
-   * violation gets a ring drawn round it, so the step up is unmissable.
+   * The two alert levels are a hue apart, not a step in brightness. Red means
+   * separation is *gone*, and nothing else on the scope is allowed to spend it:
+   * a warning is a few seconds of notice, so it takes amber. The violation also
+   * gets a ring drawn round it, so the step up reads without comparing hues.
    */
-  warning: '#ff9a9a',
+  warning: '#ffcc44',
   violation: '#ff2b2b',
 
   /**

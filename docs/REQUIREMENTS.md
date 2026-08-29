@@ -49,8 +49,9 @@ argued with rather than merely obeyed.
 ### 2.1 Separation
 
 - Aircraft must be no closer than **3 NM laterally or 1000 ft vertically** at any time.
-- Alerting has two tiers: a red target inside **3 NM and 1000 ft**, and a red target with an
-  audible alarm inside **1.5 NM and 500 ft**.
+- Alerting has two tiers: an **amber** target inside **3 NM and 1000 ft**, and a **red** target
+  with an audible alarm inside **1.5 NM and 500 ft**. Red is reserved for separation that is
+  actually lost; the amber tier is the warning that it is about to be.
 
 Derived rules → §9.
 
@@ -1051,12 +1052,14 @@ Mirroring the reference screenshots:
 - **Altitude convention:** hundreds of feet, two digits (`80` = 8000 ft). `=70` = level at 7000,
   `↓60` = descending to 6000, `↑` for climbing.
 - **Colour coding:** data blocks and leader lines are a cool near-white; the blip is a shade bluer
-  than its own label so the two read apart. Over that, in order of precedence: **violation** bright
-  red *and ringed*, **conflict warning** light red, **go-around** light yellow, **selected** cyan,
-  **handed off to Tower** dimmed grey. The two alert levels differ in brightness rather than hue —
-  a warning is the same problem as a violation a few seconds earlier — and the ring is held back
-  for the violation alone so the escalation reads across the scope without the two reds having to
-  be told apart. A go-around outranks the selection because the selection already has a ring of its
+  than its own label so the two read apart. **An alert recolours the blip only** — never the data
+  block, which keeps saying whether the aircraft is selected or handed off while it is in conflict,
+  and stops the alert hue being spent twice on one piece of information. On the blip, in order of
+  precedence: **violation** bright red *and ringed*, **conflict warning** amber, **go-around**
+  light yellow, **selected** white, **handed off to Tower** dimmed grey. The two alert levels are a
+  hue apart rather than a step in brightness — red means separation is gone and nothing else is
+  allowed to spend it, while amber is the few seconds of notice before it — and the ring is held
+  back for the violation alone so the escalation reads across the scope from the blip. A go-around outranks the selection because the selection already has a ring of its
   own, while a go-around is the state that must be noticed unprompted. The selection is a change of
   *hue* rather than a step in brightness: white is the near-white block colour slightly brighter,
   and at 11.5 px that difference does not survive being read across a crowd of blocks. Cyan is the

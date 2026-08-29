@@ -83,9 +83,14 @@ export function stateTag(ac: Aircraft): string {
   }
 }
 
+/**
+ * The block's shade, which an alert deliberately does not touch. The block is
+ * read for what the aircraft is *doing*; whether it is selected or handed off
+ * has to stay legible while it is in conflict, and recolouring the text as well
+ * as the blip only spends the alert hue twice for one piece of information.
+ * The blip carries the alert alone (`glyphColor`).
+ */
 function primaryColor(ac: Aircraft, selected: boolean): string {
-  if (ac.alert === 'violation') return THEME.violation;
-  if (ac.alert === 'warning') return THEME.warning;
   if (selected) return THEME.selected;
   if (isDimmed(ac)) return THEME.handedOff;
   return THEME.traffic;
@@ -93,6 +98,7 @@ function primaryColor(ac: Aircraft, selected: boolean): string {
 
 /** The blip's own shade, except when something more urgent has claimed the colour. */
 function glyphColor(ac: Aircraft, selected: boolean): string {
+  // The blip is the only thing an alert recolours, so it outranks everything.
   if (ac.alert === 'violation') return THEME.violation;
   if (ac.alert === 'warning') return THEME.warning;
   // A go-around outranks the selection here. It is the one state the controller
@@ -299,9 +305,9 @@ export function drawTraffic(
 
     // Violation ring. A warning is already carrying a colour of its own; the
     // ring is held back for the violation so the escalation reads across the
-    // scope rather than needing the two reds told apart.
+    // scope from the blip alone, without the block having to change with it.
     if (ac.alert === 'violation') {
-      ctx.strokeStyle = color;
+      ctx.strokeStyle = THEME.violation;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(sx, sy, 13, 0, Math.PI * 2);
