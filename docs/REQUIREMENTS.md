@@ -1068,7 +1068,7 @@ The session is endless; the score is a running quality report, not a life counte
 | Metric | Definition |
 | --- | --- |
 | Landings | Aircraft that touched down |
-| Landing rate | Landings per hour over the **trailing 12 minutes** of sim time (§8.2) |
+| Landing rate | Landings per hour from the gaps between the last **4** landings (§8.2) |
 | Separation violations | Count, plus total seconds in violation |
 | Go-arounds | Automatic go-arounds triggered |
 | Airspace exits | Aircraft that left the 50 NM circle laterally (handed back to Center — penalty) |
@@ -1076,26 +1076,59 @@ The session is endless; the score is a running quality report, not a life counte
 | Clearance rejections | Failed `C` attempts, by reason — the learning signal |
 | Missed intercepts | Clearances accepted that then failed the §6.1a window at the localizer, by reason |
 | Departures | Departures that got airborne and left the area on their SID (§4.7) |
-| Departure rate | Departures per hour off the runway, over the same trailing 12 minutes (§8.2) |
+| Departure rate | Departures per hour off the runway, from the same gap measure (§8.2) |
 | Departure queue | How many are holding short right now — amber above **3**, red above **6** (§8.2) |
+| Handoffs | Arrivals handed to Tower off a stable approach (§10) |
+
+Not every metric is on the scope. **Clearance rejections**, **missed intercepts** and **handoffs**
+are tracked but not shown in the stats gutter: all three are diagnostics for a clearance that has
+already been refused or read back on the frequency, so the message log has said it once already and
+the gutter would only be repeating it in a tally. Aircraft **on final** is likewise not a row — it is
+read off the scope, where the sequence itself is.
 
 ### 8.2 Landing rate
 
-Quoted over a **trailing 12 minutes** rather than the whole session, because the useful question is
-"how is it going *now*" — the number to compare against the arrival flow you are being fed. A
-session average only ever converges, and hides the twelve minutes where the sequence fell apart.
+Computed from the gaps *between* landings rather than by counting them inside a trailing window,
+because the useful question is "how is it going *now*" — the number to compare against the arrival
+flow you are being fed. A session average only ever converges, and hides the minutes where the
+sequence fell apart; a sliding window drifts between landings and answers a moment later than the
+landing that changed it.
 
-Landings inside the window are counted and extrapolated over however much of it has elapsed, so at
-minute 5 three landings read as 36/h rather than 18/h. Below **2 minutes** elapsed the sample is too
-short to extrapolate honestly and the field reads `—`. A quiet twelve minutes decays the rate to 0/h
-while the `Landings` total stands, which is the point of having both.
+    rate = 3600 × n / (T_latest − T_{latest−n}),  n = min(4, landings − 1)
+
+The reciprocal of the **mean interval over the last 4 gaps** — the figure a controller reads off a
+strip. It steps to a new value the instant a landing happens rather than sliding, and averaging four
+gaps smooths the wake-turbulence jitter between consecutive pairs while still reacting inside a
+couple of minutes. Fewer than **2 gaps** (three landings) and one tight or loose pair would set the
+whole number, so the field reads `—`.
+
+#### The open interval
+
+A gap on final is usually one the player made deliberately — it is how departures get out (§4.7) —
+so the rate **holds the last figure achieved** through a short quiet spell rather than sagging every
+time the runway is given back. A rate that punished the gap would punish the thing it is meant to
+reward.
+
+Past **3 minutes** with nothing landing, the quiet is no longer a gap in the sequence but the
+absence of one, and the time elapsed since the last landing is averaged in as an **open interval** —
+one still running. The window stays four wide, so the open interval displaces the oldest recorded
+gap rather than widening the average, and the rate decays from there instead of standing
+indefinitely.
+
+The open interval is **computed on read and never recorded**. The next landing therefore replaces it
+with the real interval it turned out to be, and a landing arriving soon after the threshold discards
+the decay rather than compounding it. It also only ever *decays* a rate — the minimum of 2 gaps is
+counted against recorded intervals alone, so silence can never conjure a rate out of a single pair.
+
+Because it is derived from the displayed clock, a replay recomputes the decay from the frame's own
+sim time (§17) and needs nothing extra recorded.
 
 The **departure rate** is the same measure on the other movement, and is timed at the take-off
 *roll* rather than at the airspace exit that the `Departures` total counts — the rate is about what
 the runway got away, and an exit happens eight minutes downstream of the runway decision that caused
 it.
 
-The **departure queue** is neither: it is a live gauge, not a windowed rate. It is the one number
+The **departure queue** is neither: it is a live gauge, not a rate at all. It is the one number
 here that is caused by the player without being about them — they have no authority over a
 departure, but the gaps they leave on final are what releases one, so a queue that only grows is a
 final that has stopped giving the runway back. It turns **amber above 3** and **red above 6**: three

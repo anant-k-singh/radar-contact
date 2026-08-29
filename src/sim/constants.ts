@@ -350,15 +350,34 @@ export const TOWER_FREQUENCY = '119.1';
 
 // ── Session stats (§8) ──────────────────────────────────────────────────────
 /**
- * Movement rates — landings and departures alike — are quoted over a trailing
- * 12 minutes of sim time rather than the whole session, so they read as "how the
- * last few minutes are going": the numbers a controller would compare against
- * the two flow settings. One window for both, because the two rates are the same
- * runway measured in each direction and are read side by side.
+ * Movement rates — landings and departures alike — are computed from the gaps
+ * *between* movements rather than by counting them inside a trailing window: the
+ * rate is `3600 * N / (T_latest - T_{latest-N})`, and it updates the instant a
+ * movement happens instead of drifting as a window slides. Averaging over four
+ * intervals smooths the wake-turbulence jitter between consecutive arrivals
+ * while still reacting inside a couple of minutes (§8.2). One number for both,
+ * because the two rates are the same runway measured in each direction and are
+ * read side by side.
  */
-export const MOVEMENT_RATE_WINDOW_S = 720;
-/** Below this much elapsed time the sample is too short to extrapolate. */
-export const MOVEMENT_RATE_MIN_ELAPSED_S = 120;
+export const MOVEMENT_RATE_INTERVALS = 4;
+/**
+ * Fewer gaps than this and a single tight or loose pair sets the whole number,
+ * so the rate is withheld until at least three movements have been seen.
+ */
+export const MOVEMENT_RATE_MIN_INTERVALS = 2;
+/**
+ * How long the runway may be quiet before *now* counts as an open interval.
+ *
+ * Below this the rate holds the last figure achieved, because a gap on final is
+ * usually deliberate — it is how departures get out (§4.7), and a rate that
+ * sagged every time one was released would punish the thing it is meant to
+ * reward. Past three minutes the quiet is no longer a gap in the sequence, it is
+ * the absence of one, so the elapsed time since the last movement is averaged in
+ * as though it were an interval still running. It is never recorded: the moment
+ * a movement lands the open interval is replaced by the real one it turned out
+ * to be, so a quick landing afterwards discards it entirely.
+ */
+export const MOVEMENT_RATE_STALE_S = 180;
 
 // ── Misc ────────────────────────────────────────────────────────────────────
 export const MESSAGE_LOG_MAX = 60;

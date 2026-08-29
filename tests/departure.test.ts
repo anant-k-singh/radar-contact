@@ -15,7 +15,6 @@ import {
   DEPARTURE_MIN_INTERVAL_S,
   GO_AROUND_RUNWAY_OCCUPIED_NM,
   GS_FT_PER_NM,
-  MOVEMENT_RATE_WINDOW_S,
   PHYSICS_DT,
   SEP_HORIZ_NM,
   SEP_VERT_FT,
@@ -615,13 +614,14 @@ describe('departure flow', () => {
     world.traffic.departureQueue = 10;
 
     run(world, 600);
+    // Only the last few roll times are kept — enough to check the interval on.
     const rolls = world.stats.departureTimesS;
-    expect(rolls.length).toBeGreaterThan(4);
+    expect(rolls.length).toBeGreaterThan(2);
     for (let i = 1; i < rolls.length; i += 1) {
       expect(rolls[i]! - rolls[i - 1]!).toBeGreaterThanOrEqual(DEPARTURE_MIN_INTERVAL_S - PHYSICS_DT);
     }
     // And the queue really was the source of them.
-    expect(departureQueueLength(world)).toBe(10 - rolls.length);
+    expect(departureQueueLength(world)).toBe(10 - world.aircraft.length);
   });
 
   it('drains a queue that was built before the flow was turned off', () => {
@@ -642,18 +642,18 @@ describe('departure flow', () => {
     world.departureFlowPerHour = 20;
     world.traffic.nextDepartureAtS = 0;
 
-    // Too young to extrapolate from.
+    // Too few rolls for a gap to mean anything yet.
     run(world, 60);
     expect(departureRatePerHour(world)).toBeNull();
 
     // Timed at the roll rather than at the airspace exit, so the rate is a real
     // number well before the first departure has even finished its SID (§8.2) —
     // which is the whole reason it is not counted off `stats.departures`.
-    run(world, 240);
+    run(world, 480);
     expect(world.stats.departures).toBe(0);
     expect(departureRatePerHour(world)!).toBeGreaterThan(0);
 
-    run(world, MOVEMENT_RATE_WINDOW_S);
+    run(world, 720);
     const rate = departureRatePerHour(world)!;
     // Nothing is landing to hold the runway, so it should track the flow set —
     // within the wake-turbulence interval, which caps it at 30/h.
@@ -665,8 +665,9 @@ describe('departure flow', () => {
     const world = quietWorld();
     world.departureFlowPerHour = 0;
     world.traffic.nextDepartureAtS = 0;
-    run(world, MOVEMENT_RATE_WINDOW_S);
-    expect(departureRatePerHour(world)).toBe(0);
+    run(world, 720);
+    // Nothing ever rolled, so there is no gap to read — not a rate of zero.
+    expect(departureRatePerHour(world)).toBeNull();
   });
 
   it('leaves the arrival sequence a seed produces untouched', () => {

@@ -8,8 +8,8 @@ import {
   ENTRY_ALTITUDE_NEAR_FT,
   ENTRY_SPEED_KTS,
   IN_TRAIL_SEQUENCING_MIN_NM,
-  MOVEMENT_RATE_MIN_ELAPSED_S,
-  MOVEMENT_RATE_WINDOW_S,
+  MOVEMENT_RATE_INTERVALS,
+  MOVEMENT_RATE_STALE_S,
   MIN_SPAWN_INTERVAL_S,
   PILOT_DELAY_MAX_S,
   PHYSICS_DT,
@@ -294,51 +294,104 @@ describe('handover to Tower', () => {
 });
 
 describe('landing rate', () => {
-  it('is withheld until the sample is long enough to mean anything', () => {
+  it('is withheld until there are enough gaps to mean anything', () => {
     const world = quietWorld();
     expect(landingRatePerHour(world)).toBeNull();
-    run(world, MOVEMENT_RATE_MIN_ELAPSED_S - 5);
+    // One landing is no interval at all; two is a single gap, which one tight
+    // pair would set on its own.
+    world.stats.landingTimesS = [60];
+    expect(landingRatePerHour(world)).toBeNull();
+    world.stats.landingTimesS = [60, 120];
     expect(landingRatePerHour(world)).toBeNull();
   });
 
-  it('extrapolates the trailing window to an hourly rate', () => {
+  it('reads the reciprocal of the mean gap between landings', () => {
     const world = quietWorld();
-    world.timeS = 300; // 5 minutes in, so the window is 300 s of elapsed time
-    world.stats.landingTimesS = [60, 120, 180];
-
-    // 3 landings in 5 minutes → 36/h.
-    expect(landingRatePerHour(world)).toBeCloseTo(36, 6);
+    // Read at the moment of the last landing, so no open interval is in play.
+    world.timeS = 300;
+    // Three landings, two 120 s gaps → one every two minutes → 30/h.
+    world.stats.landingTimesS = [60, 180, 300];
+    expect(landingRatePerHour(world)).toBeCloseTo(30, 6);
   });
 
-  it('counts only the trailing window, so an earlier rush stops flattering it', () => {
+  it('averages over the last four gaps and no further back', () => {
     const world = quietWorld();
-    world.timeS = 1800;
-    const since = world.timeS - MOVEMENT_RATE_WINDOW_S;
-    // Six landings early in the session, two inside the window.
-    world.stats.landingTimesS = [60, 120, 180, 240, 300, 360, since + 100, since + 300];
-
-    // 2 across the window — well under the 16/h the whole session would suggest.
-    expect(landingRatePerHour(world)).toBeCloseTo((2 / MOVEMENT_RATE_WINDOW_S) * 3600, 6);
+    world.timeS = 2360;
+    // An early rush, then five landings 90 s apart. Only the last four gaps
+    // count, so the rush cannot flatter it.
+    world.stats.landingTimesS = [10, 20, 30, 2000, 2090, 2180, 2270, 2360];
+    expect(landingRatePerHour(world)).toBeCloseTo(3600 / 90, 6);
   });
 
-  it('drops landings out of the window as the session runs on', () => {
-    const world = quietWorld(
-      makeAircraft({
+  it('holds the last rate through a gap short enough to have been made on purpose', () => {
+    const world = quietWorld();
+    world.stats.landingTimesS = [0, 120, 240];
+    world.timeS = 240;
+    const rate = landingRatePerHour(world)!;
+    expect(rate).toBeCloseTo(30, 6);
+
+    // A gap on final is how departures get out (§4.7), so the rate must not sag
+    // the moment one is left. Right up to the threshold the number is unchanged.
+    world.timeS = 240 + MOVEMENT_RATE_STALE_S;
+    expect(landingRatePerHour(world)).toBeCloseTo(rate, 6);
+  });
+
+  it('decays once the runway has been quiet longer than a deliberate gap', () => {
+    const world = quietWorld();
+    world.stats.landingTimesS = [0, 120, 240];
+    world.timeS = 240 + MOVEMENT_RATE_STALE_S + 60;
+
+    // The elapsed 240 s joins the average as an interval still running, and the
+    // window stays four wide, so it displaces the oldest recorded gap: two 120 s
+    // gaps and one open 240 s → 3 in 480 s.
+    expect(landingRatePerHour(world)).toBeCloseTo((3600 * 3) / 480, 6);
+
+    // And it keeps falling rather than standing at that.
+    const rate = landingRatePerHour(world)!;
+    run(world, 300);
+    expect(landingRatePerHour(world)!).toBeLessThan(rate);
+  });
+
+  it('discards the open interval as soon as something lands', () => {
+    const world = quietWorld();
+    world.stats.landingTimesS = [0, 120, 240];
+    world.timeS = 700;
+    const decayed = landingRatePerHour(world)!;
+    expect(decayed).toBeLessThan(30);
+
+    // The landing replaces the open interval with the real one it turned out to
+    // be — 460 s, not a running count of silence — so the decay is not carried
+    // forward on top of it.
+    world.stats.landingTimesS.push(700);
+    expect(landingRatePerHour(world)).toBeCloseTo((3600 * 3) / 700, 6);
+  });
+
+  it('never conjures a rate out of one gap and a long silence', () => {
+    const world = quietWorld();
+    // Two landings is a single recorded gap, which stays below the minimum
+    // however long the runway is then quiet: an open interval decays a rate that
+    // already meant something, it does not create one.
+    world.stats.landingTimesS = [0, 120];
+    world.timeS = 120 + MOVEMENT_RATE_STALE_S + 600;
+    expect(landingRatePerHour(world)).toBeNull();
+  });
+
+  it('keeps only the timestamps the rate reads', () => {
+    const world = quietWorld();
+    for (let i = 0; i < 8; i += 1) {
+      const ac = makeAircraft({
         ...onFinalApproach(0.4),
         altitudeFt: 127,
         headingDeg: 180,
         iasKts: 140, // on speed, so the stability gate lets it land
         phase: 'gs',
-      }),
-    );
-    run(world, MOVEMENT_RATE_MIN_ELAPSED_S + 10);
-    expect(world.stats.landings).toBe(1);
-    expect(landingRatePerHour(world)).toBeGreaterThan(0);
-
-    // A full window more with nothing landing: the rate decays to zero.
-    run(world, MOVEMENT_RATE_WINDOW_S);
-    expect(world.stats.landings).toBe(1); // the total is untouched
-    expect(landingRatePerHour(world)).toBe(0);
+      });
+      ac.id = 100 + i;
+      world.aircraft.push(ac);
+      run(world, 120); // clear of the runway occupancy that holds the next one
+    }
+    expect(world.stats.landings).toBe(8); // the total is untouched
+    expect(world.stats.landingTimesS).toHaveLength(MOVEMENT_RATE_INTERVALS + 1);
   });
 });
 

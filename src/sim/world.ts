@@ -14,8 +14,9 @@ import {
   FLOW_DEFAULT_PER_HOUR,
   HISTORY_PERIOD_S,
   IN_TRAIL_MIN_NM,
-  MOVEMENT_RATE_MIN_ELAPSED_S,
-  MOVEMENT_RATE_WINDOW_S,
+  MOVEMENT_RATE_INTERVALS,
+  MOVEMENT_RATE_MIN_INTERVALS,
+  MOVEMENT_RATE_STALE_S,
   MESSAGE_LOG_MAX,
   RADAR_PERIOD_S,
   TOWER_FREQUENCY,
@@ -54,17 +55,17 @@ export interface Message {
 
 export interface Stats {
   landings: number;
-  /** Sim time of each landing inside the rate window; older ones are dropped. */
+  /** Sim time of each recent landing; only the gaps between the last few are read. */
   landingTimesS: Sec[];
   /** Departures that got airborne and left the area on their SID (§4.7). */
   departures: number;
   /**
-   * Sim time each departure began its take-off roll, inside the rate window.
+   * Sim time each departure began its take-off roll.
    *
    * Timed at the *roll*, not at the airspace exit that `departures` counts —
    * the departure rate is a measure of what the runway is getting away, and an
    * exit happens eight minutes downstream of the runway decision that caused it
-   * (§8.2). Older entries are dropped, exactly as the landing times are.
+   * (§8.2). Trimmed to the last few, exactly as the landing times are.
    */
   departureTimesS: Sec[];
   handoffs: number;
@@ -195,11 +196,14 @@ export function selectedAircraft(world: World): Aircraft | undefined {
   return findAircraft(world, world.selectedId);
 }
 
-/** Only the window is ever read, so a movement list never grows past it. */
-function trimToRateWindow(timesS: Sec[], nowS: Sec): void {
-  const since = nowS - MOVEMENT_RATE_WINDOW_S;
-  const stale = timesS.findIndex((timeS) => timeS >= since);
-  if (stale > 0) timesS.splice(0, stale);
+/**
+ * Records a movement. Only the last `MOVEMENT_RATE_INTERVALS` gaps are ever
+ * read, so the list is kept to the timestamps that bound them and never grows.
+ */
+function recordMovement(timesS: Sec[], nowS: Sec): void {
+  timesS.push(nowS);
+  const keep = MOVEMENT_RATE_INTERVALS + 1;
+  if (timesS.length > keep) timesS.splice(0, timesS.length - keep);
 }
 
 function remove(world: World, ac: Aircraft): void {
@@ -209,20 +213,41 @@ function remove(world: World, ac: Aircraft): void {
 }
 
 /**
- * Movements per hour over the trailing window (§8.2), or null while the session
- * is too young for the sample to mean anything. Extrapolated from however much
- * of the window has actually elapsed, so it settles rather than ramping up.
+ * Movements per hour from the gaps between the last few movements (§8.2), or
+ * null while too few have happened for a gap to mean anything.
+ *
+ * `3600 * n / (T_latest - T_{latest-n})` — the reciprocal of the mean interval,
+ * which is what a controller reads off a strip: it steps to a new value the
+ * moment a movement lands rather than drifting as a window slides.
+ *
+ * A short quiet spell is left alone and the rate holds, because a gap on final
+ * is usually one the player made on purpose. Once the runway has been quiet for
+ * `MOVEMENT_RATE_STALE_S` the elapsed time joins the average as an *open*
+ * interval, so the number decays from then on rather than standing indefinitely.
+ * Because it is computed here and never recorded, the next movement replaces it
+ * with the real interval it turned out to be — a landing arriving straight after
+ * discards the decay rather than compounding it.
  */
-function ratePerHour(world: World, timesS: readonly Sec[]): number | null {
-  const elapsedS = Math.min(MOVEMENT_RATE_WINDOW_S, world.timeS);
-  if (elapsedS < MOVEMENT_RATE_MIN_ELAPSED_S) return null;
-  const since = world.timeS - MOVEMENT_RATE_WINDOW_S;
-  const count = timesS.filter((timeS) => timeS >= since).length;
-  return (count / elapsedS) * 3600;
+function ratePerHour(timesS: readonly Sec[], nowS: Sec): number | null {
+  const last = timesS[timesS.length - 1];
+  if (last === undefined) return null;
+  const openS = nowS - last;
+  const open = openS > MOVEMENT_RATE_STALE_S;
+  // The window is the same width either way: an open interval pushes the oldest
+  // recorded gap out rather than widening the average.
+  const closed = Math.min(MOVEMENT_RATE_INTERVALS - (open ? 1 : 0), timesS.length - 1);
+  const intervals = closed + (open ? 1 : 0);
+  // Counted against the *recorded* gaps: an open interval decays a rate that
+  // already meant something, and must never be what first conjures one out of a
+  // single movement pair and a long silence.
+  if (closed < MOVEMENT_RATE_MIN_INTERVALS) return null;
+  const spanS = last - timesS[timesS.length - 1 - closed]! + (open ? openS : 0);
+  if (spanS <= 0) return null;
+  return (3600 * intervals) / spanS;
 }
 
 export function landingRatePerHour(world: World): number | null {
-  return ratePerHour(world, world.stats.landingTimesS);
+  return ratePerHour(world.stats.landingTimesS, world.timeS);
 }
 
 /**
@@ -232,7 +257,7 @@ export function landingRatePerHour(world: World): number | null {
  * a busy final quietly eats into (§4.7).
  */
 export function departureRatePerHour(world: World): number | null {
-  return ratePerHour(world, world.stats.departureTimesS);
+  return ratePerHour(world.stats.departureTimesS, world.timeS);
 }
 
 /**
@@ -438,8 +463,7 @@ export function step(world: World, dt: Sec): void {
     if (departure) {
       world.traffic.departureQueue -= 1;
       world.aircraft.push(departure);
-      world.stats.departureTimesS.push(world.timeS);
-      trimToRateWindow(world.stats.departureTimesS, world.timeS);
+      recordMovement(world.stats.departureTimesS, world.timeS);
       const route = departure.sid!.route;
       // The turn is worth saying while the aircraft is still on the ground:
       // it is the one moment the player can see a departure coming before it
@@ -540,8 +564,7 @@ export function step(world: World, dt: Sec): void {
           break;
         case 'landed':
           world.stats.landings += 1;
-          world.stats.landingTimesS.push(world.timeS);
-          trimToRateWindow(world.stats.landingTimesS, world.timeS);
+          recordMovement(world.stats.landingTimesS, world.timeS);
           // The runway is now occupied by an aircraft rolling out, which is what
           // holds the next departure (§4.7).
           world.traffic.lastLandingS = world.timeS;
