@@ -33,7 +33,21 @@ export const THEME = {
   glyph: '#a6c8ea',
   /** A go-around blip, so it is spotted without reading the block. */
   glyphGoAround: '#f2e394',
-  selected: '#ffffff',
+  /**
+   * The selection is a change of *hue*, not a step in brightness. White is the
+   * same colour as `traffic` a little brighter, and at 11.5 px on this
+   * background that difference does not survive being read across a crowd of
+   * blocks. Cyan is the one bright hue the scope has left — the SIDs own amber
+   * and the rings own green — so it never has to be told apart from something
+   * else that means something.
+   */
+  selected: '#5fe3ff',
+  /**
+   * The selected *blip* stays white. The block is what had to be picked out of
+   * a crowd of blocks, and the glyph is already the one inside the ring — a
+   * cyan blip would only weaken the one place the hue has to mean "read this".
+   */
+  selectedGlyph: '#ffffff',
   handedOff: '#5d6f63',
   assigned: '#ffe14d',
   hint: '#f6eba6',

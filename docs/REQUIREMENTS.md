@@ -269,7 +269,7 @@ interface Aircraft {
   entryGate: string;
   trackMilesFlown: Nm;
   directDistanceNm: Nm;
-  trail: Point[];                // history dots, one per 10 s
+  trail: Point[];                // history dots, one per 10 s, 20 retained
   radar: RadarReturn;            // the 1 Hz snapshot the data block shows
   alert: 'none' | 'warning' | 'violation';
 }
@@ -835,7 +835,7 @@ Three distinct rates, which is the whole design of the loop:
 | **20 Hz** (dt = 0.05 s), fixed timestep | Physics: turn, vertical, speed integration, LOC/GS capture, separation checks |
 | **20 fps** | Scope redraw — glyph position, leader line. Motion reads as smooth |
 | **1 Hz** | "Radar return": data-block values (altitude, speed, heading) and conflict-alert level for display |
-| **0.1 Hz** | History dots. At 250 kt a 1 Hz dot moves ~0.6 px on a 50 NM scope — invisible. One dot every 10 s, ten retained, gives 100 s of visible history — longer than the minute the leader line projects forward, so a turn that started before the last instruction is still on the scope, and the dots are spaced far enough apart to read a speed off them. **Drawn only for traffic the player has authority over** — the trail is read on the way to an instruction, and on a departure or an aircraft already with Tower there is no instruction to make, so the dots are clutter over the busiest part of the scope |
+| **0.1 Hz** | History dots. At 250 kt a 1 Hz dot moves ~0.6 px on a 50 NM scope — invisible. One dot every 10 s, ten shown, gives 100 s of visible history — longer than the minute the leader line projects forward, so a turn that started before the last instruction is still on the scope, and the dots are spaced far enough apart to read a speed off them. **Twenty are retained, and the selected aircraft shows all of them** — 200 s of history is worth reading on the one aircraft being worked and is clutter drawn on all twenty-five at once, so the trail doubling is part of what marks the selection (§7.2). **Drawn only for traffic the player has authority over** — the trail is read on the way to an instruction, and on a departure or an aircraft already with Tower there is no instruction to make, so the dots are clutter over the busiest part of the scope |
 
 - Physics and rendering share the 20 Hz tick, so **no interpolation layer is needed** — the glyph
   simply draws wherever the sim currently is. That removes an entire class of "render state drifted
@@ -959,6 +959,14 @@ fixes it, and the sidebar says so continuously for the whole `loc` leg rather th
 - `Tab` cycles selection by distance to the threshold (nearest first) — keyboard-only play.
 - The selected aircraft is highlighted and its data block expands; the sidebar shows its
   Altitude / Speed / Heading exactly like the reference screenshot — each as *current → assigned*.
+- **The selection is marked four ways, because in traffic one is not enough**: the ring round the
+  blip, the cyan block (§7.3), the doubled history trail (§6.2), and — when the block has been
+  pushed away from its blip to avoid an overlap — a thin connector line joining the two. Blocks are
+  placed by trying candidate offsets until one is free, so in busy airspace the selected block can
+  end up nearer another aircraft than its own; proximity is exactly the cue that fails there, and
+  the connector is what answers "which blip is this block about" when it does. It is drawn only
+  when the block is displaced far enough for the question to arise — a block sitting against its
+  own ring has nothing to disambiguate.
 - The sidebar speed pair is **IAS**, because IAS is what an instruction sets. Ground speed is a
   detail row below it, with the altitude bonus printed alongside (`287 kt (IAS +37)`), so the two
   numbers on screen can be reconciled without arithmetic.
@@ -1044,12 +1052,17 @@ Mirroring the reference screenshots:
   `↓60` = descending to 6000, `↑` for climbing.
 - **Colour coding:** data blocks and leader lines are a cool near-white; the blip is a shade bluer
   than its own label so the two read apart. Over that, in order of precedence: **violation** bright
-  red *and ringed*, **conflict warning** light red, **go-around** light yellow, **selected** white,
+  red *and ringed*, **conflict warning** light red, **go-around** light yellow, **selected** cyan,
   **handed off to Tower** dimmed grey. The two alert levels differ in brightness rather than hue —
   a warning is the same problem as a violation a few seconds earlier — and the ring is held back
   for the violation alone so the escalation reads across the scope without the two reds having to
   be told apart. A go-around outranks the selection because the selection already has a ring of its
-  own, while a go-around is the state that must be noticed unprompted.
+  own, while a go-around is the state that must be noticed unprompted. The selection is a change of
+  *hue* rather than a step in brightness: white is the near-white block colour slightly brighter,
+  and at 11.5 px that difference does not survive being read across a crowd of blocks. Cyan is the
+  hue left over once the SIDs have amber and the rings green. The selected *blip* stays white — it
+  is already the one inside the ring, and colouring it too would only dilute the one place the hue
+  has to mean "read this".
 - **Static map layer** (range rings, centerline + 2 NM ticks, gate markers, runway) is drawn once
   to an offscreen canvas and blitted each frame.
 - **Message log**, bottom of the scope: pilot readbacks and system messages, ~4 lines visible,

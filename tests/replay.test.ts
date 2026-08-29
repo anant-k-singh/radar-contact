@@ -193,7 +193,9 @@ describe('rebuilding a frame', () => {
   });
 
   it('rebuilds the history trail on the grid the live scope used', () => {
-    const { world, rec } = session(150);
+    // Long enough for a trail to have filled: a dot every HISTORY_PERIOD_S,
+    // plus a margin for the aircraft that spawned a little after t=0.
+    const { world, rec } = session(TRAIL_LENGTH * HISTORY_PERIOD_S + 50);
     const live = world.aircraft.find((ac) => ac.trail.length === TRAIL_LENGTH);
     expect(live, 'an aircraft with a full trail').toBeDefined();
     if (!live) return;

@@ -6,6 +6,7 @@
 import type { WakeCategory } from '../scenario/aircraftTypes.js';
 import type { Aircraft } from '../sim/aircraft.js';
 import { isDeparture, isDimmed } from '../sim/aircraft.js';
+import { TRAIL_LENGTH } from '../sim/constants.js';
 import { assignedAltitudeFt, assignedHeadingDeg, isPending } from '../sim/pilot.js';
 import { activeFix } from '../sim/star.js';
 import { displayHeading, headingDiff, headingVector } from '../sim/units.js';
@@ -15,6 +16,13 @@ import type { RenderOptions } from './scope.js';
 import { THEME } from './theme.js';
 
 const LINE_HEIGHT = 12;
+/** Clear of the 16 px selection ring, so the connector starts outside it. */
+const CONNECTOR_GAP_PX = 18;
+/**
+ * History dots on an aircraft that is not selected — half of the `TRAIL_LENGTH`
+ * the sim retains, so selecting one doubles the trail it shows.
+ */
+const TRAIL_DOTS_UNSELECTED = TRAIL_LENGTH / 2;
 
 export interface Rect {
   x: number;
@@ -91,7 +99,7 @@ function glyphColor(ac: Aircraft, selected: boolean): string {
   // has to notice without being told: the aircraft is off the approach and
   // climbing, and the selection ring already says which one is selected.
   if (ac.phase === 'goAround') return THEME.glyphGoAround;
-  if (selected) return THEME.selected;
+  if (selected) return THEME.selectedGlyph;
   if (isDimmed(ac)) return THEME.handedOff;
   return THEME.glyph;
 }
@@ -202,6 +210,41 @@ function drawGlyph(
   ctx.restore();
 }
 
+/**
+ * A short line from the blip to the nearest point on its data block. Clamping
+ * the blip's position into the rect finds that point for any of the eight
+ * candidate placements without knowing which one was chosen, and the line is
+ * stopped short at both ends so it neither touches the glyph nor underlines
+ * the text.
+ */
+function drawConnector(
+  ctx: CanvasRenderingContext2D,
+  sx: number,
+  sy: number,
+  rect: Rect,
+  color: string,
+): void {
+  const tx = Math.max(rect.x, Math.min(sx, rect.x + rect.w));
+  const ty = Math.max(rect.y, Math.min(sy, rect.y + rect.h));
+  const dx = tx - sx;
+  const dy = ty - sy;
+  const len = Math.hypot(dx, dy);
+  // Inside the selection ring there is nothing to connect: the block is already
+  // touching the blip.
+  if (len <= CONNECTOR_GAP_PX + 2) return;
+  const ux = dx / len;
+  const uy = dy / len;
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.7;
+  ctx.beginPath();
+  ctx.moveTo(sx + ux * CONNECTOR_GAP_PX, sy + uy * CONNECTOR_GAP_PX);
+  ctx.lineTo(tx - ux * 2, ty - uy * 2);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
 /** Returns where each data block ended up, so clicks can hit the label as well as the blip. */
 export function drawTraffic(
   ctx: CanvasRenderingContext2D,
@@ -223,9 +266,16 @@ export function drawTraffic(
     const sx = screenX(p, ac.x);
     const sy = screenY(p, ac.y);
 
-    // History trail — one dot every 6 s, oldest faintest. The newest is drawn
-    // too and simply disappears under the glyph for the moment after it is laid
-    // down, which keeps the gap behind the blip even instead of doubling.
+    // History trail — one dot every HISTORY_PERIOD_S, oldest faintest. The
+    // newest is drawn too and simply disappears under the glyph for the moment
+    // after it is laid down, which keeps the gap behind the blip even instead
+    // of doubling.
+    //
+    // The selected aircraft shows the whole retained trail; everything else
+    // shows the newest TRAIL_DOTS_UNSELECTED of it. Twice the history is worth
+    // reading on the one aircraft being worked — where it came from, and
+    // whether the turn it is in started before or after the last instruction —
+    // and would be clutter drawn on all twenty-five at once.
     //
     // Only for traffic that is ours. The trail exists to be read — where an
     // aircraft has come from and how fast — and reading it is a step towards an
@@ -233,9 +283,12 @@ export function drawTraffic(
     // instruction to make, so the dots are clutter over the part of the scope
     // that is busiest with it (§11.1).
     if (!isDimmed(ac)) {
-      for (let i = 0; i < ac.trail.length; i += 1) {
-        const point = ac.trail[i]!;
-        ctx.globalAlpha = 0.2 + (i / ac.trail.length) * 0.45;
+      // Sliced from the end, so the dots that drop off an unselected aircraft
+      // are the oldest ones and the trail stays anchored to the blip.
+      const trail = selected ? ac.trail : ac.trail.slice(-TRAIL_DOTS_UNSELECTED);
+      for (let i = 0; i < trail.length; i += 1) {
+        const point = trail[i]!;
+        ctx.globalAlpha = 0.2 + (i / trail.length) * 0.45;
         ctx.fillStyle = THEME.trafficDim;
         ctx.beginPath();
         ctx.arc(screenX(p, point.x), screenY(p, point.y), 1.7, 0, Math.PI * 2);
@@ -333,6 +386,14 @@ export function drawTraffic(
     const rect = placeBlock(ctx, sx, sy, lines, placed, p);
     placed.push(rect);
     blocks.set(ac.id, rect);
+
+    // Connector, for the selected block only. Which blip a block belongs to is
+    // proximity alone, and proximity is exactly what stops answering the
+    // question once two blocks crowd each other — so the one block the player
+    // is reading says which aircraft it is about rather than implying it.
+    if (selected) {
+      drawConnector(ctx, sx, sy, rect, color);
+    }
 
     ctx.fillStyle = color;
     lines.forEach((line, index) => {

@@ -16,9 +16,15 @@ export const RENDER_FPS = 20;
  * the leader line projects forward, so a turn that began before the last
  * instruction is still on the scope, and the dots are far enough apart to read
  * a speed off their spacing.
+ *
+ * Twice that is kept, because the selected aircraft shows twice as many
+ * (`TRAIL_DOTS_UNSELECTED` in the renderer): the extra history is worth having
+ * for the one aircraft being worked, and is clutter on the other twenty-four.
+ * The retained length is the longer of the two — a trail cannot be drawn from
+ * dots that were never kept.
  */
 export const HISTORY_PERIOD_S = 10.0;
-export const TRAIL_LENGTH = 10;
+export const TRAIL_LENGTH = 20;
 
 // ── Airspace (§3) ───────────────────────────────────────────────────────────
 export const AIRSPACE_RADIUS_NM = 50;
