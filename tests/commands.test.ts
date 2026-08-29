@@ -187,7 +187,23 @@ describe('the C key', () => {
     expect(world.messages.at(-1)!.text).toContain('cleared ILS approach runway 18');
   });
 
-  it('refuses and records the reason when the localizer is out of range', () => {
+  it('refuses and records the reason when the aircraft is past the threshold', () => {
+    const ac = makeAircraft({
+      ...onFinalApproach(-4),
+      altitudeFt: 6000,
+      headingDeg: 180,
+      vsFpm: 0,
+    });
+    const world = quietWorld(ac);
+
+    clearForIls(world, ac);
+    pilotActs(world);
+    expect(ac.phase).toBe('inbound');
+    expect(world.stats.rejections.get('pastThreshold')).toBe(1);
+  });
+
+  it('accepts a clearance well outside localizer range', () => {
+    // Range is settled at the intercept now, not at the clearance (§6.1a).
     const ac = makeAircraft({
       ...onFinalApproach(30, 2),
       altitudeFt: 6000,
@@ -198,8 +214,8 @@ describe('the C key', () => {
 
     clearForIls(world, ac);
     pilotActs(world);
-    expect(ac.phase).toBe('inbound');
-    expect(world.stats.rejections.get('outOfRange')).toBe(1);
+    expect(ac.phase).toBe('cleared');
+    expect(world.stats.rejections.size).toBe(0);
   });
 
   it('does not let a vector given in the same breath cancel the clearance', () => {

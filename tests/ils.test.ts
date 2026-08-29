@@ -6,6 +6,7 @@ import {
   evaluateClearance,
   finalGeometry,
   glideslopeAltitudeFt,
+  canCaptureGlideslope,
   isEstablished,
   localizerHeading,
 } from '../src/sim/ils.js';
@@ -96,22 +97,28 @@ describe('the clearance gate', () => {
     expect(result.warnings.join(' ')).toContain('1179 ft above the glideslope');
   });
 
-  it('refuses beyond localizer range', () => {
+  it('clears an aircraft beyond localizer range', () => {
+    // Range is a fact about now, not about the intercept: it is re-tested
+    // continuously and only gates the capture itself (§6.1a).
     const position = onFinalApproach(30, 2);
     const ac = makeAircraft({ ...position, altitudeFt: 8000, headingDeg: 210, vsFpm: 0 });
-    const result = evaluateClearance(ac, finalGeometry(ac));
-    expect(result.ok).toBe(false);
-    expect(result.code).toBe('outOfRange');
+    expect(evaluateClearance(ac, finalGeometry(ac)).ok).toBe(true);
   });
 
-  it('refuses an aircraft that is not closing on the localizer', () => {
-    // Not a prediction that has yet to come true — this track never reaches
-    // the window at all.
+  it('clears an aircraft that has overshot and is still diverging', () => {
+    // The case the split exists for: clear it and turn it back in one go,
+    // instead of watching it until the turn has taken effect.
     const position = onFinalApproach(12, 3);
     const ac = makeAircraft({ ...position, altitudeFt: 3000, headingDeg: 150, vsFpm: 0 });
-    const result = evaluateClearance(ac, finalGeometry(ac));
-    expect(result.ok).toBe(false);
-    expect(result.code).toBe('notClosing');
+    expect(evaluateClearance(ac, finalGeometry(ac)).ok).toBe(true);
+  });
+
+  it('still refuses past the threshold and below the MVA', () => {
+    // What is left in the gate: the clearance could never mean anything.
+    const past = makeAircraft({ ...onFinalApproach(-3), altitudeFt: 3000, headingDeg: 180 });
+    expect(evaluateClearance(past, finalGeometry(past)).code).toBe('pastThreshold');
+    const low = makeAircraft({ ...onFinalApproach(12, 2), altitudeFt: 1500, headingDeg: 210 });
+    expect(evaluateClearance(low, finalGeometry(low)).code).toBe('belowMva');
   });
 });
 
@@ -177,20 +184,67 @@ describe('the intercept window', () => {
     expect(world.stats.goArounds).toBe(0); // it flies through, it does not go around
   });
 
-  it('flies through the localizer when it is still descending', () => {
+  it('captures the localizer while still descending — the vertical is the G/S’s business', () => {
     const position = onFinalApproach(10, 1);
     const ac = makeAircraft({
       ...position,
       altitudeFt: 4000,
-      targetAltitudeFt: 2000, // still 1800 fpm down when it reaches the course
+      targetAltitudeFt: 2000, // still well over 200 fpm down at the course
       headingDeg: 210,
       iasKts: 180,
       phase: 'cleared',
     });
     const world = runToIntercept(ac);
 
-    expect(ac.phase).toBe('inbound');
-    expect(world.stats.missedIntercepts.get('notLevel')).toBe(1);
+    expect(ac.phase).toBe('loc');
+    expect(Math.abs(ac.vsFpm)).toBeGreaterThan(200);
+    expect(world.stats.missedIntercepts.size).toBe(0);
+  });
+
+  it('does not capture the localizer outside 25 NM, and keeps the clearance', () => {
+    // Crossing the centerline at 30 NM is not an intercept — the localizer is
+    // not being received — so nothing is tested and nothing is lost.
+    const ac = makeAircraft({
+      ...onFinalApproach(30, 0.2),
+      altitudeFt: 6000,
+      headingDeg: 240, // crosses the course well outside the service volume
+      iasKts: 250, // would fail the intercept had one been attempted
+      vsFpm: 0,
+      phase: 'cleared',
+    });
+    const world = quietWorld(ac);
+    for (let i = 0; i < 600; i += 1) step(world, PHYSICS_DT);
+
+    expect(finalGeometry(ac).xtkNm).toBeGreaterThan(0.5); // it went through
+    expect(ac.phase).toBe('cleared');
+    expect(world.stats.missedIntercepts.size).toBe(0);
+  });
+
+  it('lands an aircraft cleared while diverging from an overshot final', () => {
+    // The whole point: clear it and turn it back in the same breath, then look
+    // away. The clearance survives the diverging leg and intercepts on its own.
+    const ac = makeAircraft({
+      ...onFinalApproach(18, -2), // west of the centerline, having overshot
+      altitudeFt: 3000,
+      headingDeg: 240, // still tracking away from the course
+      iasKts: 200,
+      vsFpm: 0,
+    });
+    const world = quietWorld(ac);
+    expect(finalGeometry(ac).closing).toBe(false);
+
+    clearForIls(world, ac);
+    for (let i = 0; i < 3; i += 1) adjustHeading(world, ac, 1); // 240 → 270, back through
+    pilotActs(world);
+    expect(ac.phase).toBe('cleared');
+
+    let landed = false;
+    for (let i = 0; i < 40_000 && !landed; i += 1) {
+      step(world, PHYSICS_DT);
+      if (world.aircraft.length === 0) landed = true;
+    }
+    expect(landed).toBe(true);
+    expect(world.stats.missedIntercepts.size).toBe(0);
   });
 
   it('flies through the localizer above 230 kt', () => {
@@ -264,6 +318,89 @@ describe('the intercept window', () => {
     expect(landed).toBe(true);
     expect(world.stats.landings).toBe(1);
     expect(world.stats.missedIntercepts.size).toBe(0);
+  });
+});
+
+describe('the glideslope gate', () => {
+  /** On the localizer at 8 NM, level 40 ft under the path. */
+  function onPath(overrides: Partial<Aircraft> = {}) {
+    const ac = makeAircraft({
+      ...onFinalApproach(8),
+      altitudeFt: glideslopeAltitudeFt(8) - 40,
+      headingDeg: 180,
+      iasKts: 180,
+      vsFpm: 0,
+      ...overrides,
+    });
+    ac.phase = 'loc';
+    return ac;
+  }
+
+  it('captures from below, level, on the localizer', () => {
+    const ac = onPath();
+    expect(canCaptureGlideslope(ac, finalGeometry(ac))).toBe(true);
+  });
+
+  it('refuses to capture while still descending', () => {
+    const ac = onPath({ vsFpm: -800 });
+    expect(canCaptureGlideslope(ac, finalGeometry(ac))).toBe(false);
+  });
+
+  it('refuses to capture above 230 kt', () => {
+    const ac = onPath({ iasKts: 240 });
+    expect(canCaptureGlideslope(ac, finalGeometry(ac))).toBe(false);
+  });
+
+  it('never captures from above', () => {
+    const ac = onPath({ altitudeFt: glideslopeAltitudeFt(8) + 40 });
+    expect(canCaptureGlideslope(ac, finalGeometry(ac))).toBe(false);
+  });
+
+  it('refuses to capture outside 25 NM', () => {
+    const ac = makeAircraft({
+      ...onFinalApproach(30),
+      altitudeFt: glideslopeAltitudeFt(30) - 40,
+      headingDeg: 180,
+      iasKts: 180,
+      vsFpm: 0,
+    });
+    ac.phase = 'loc';
+    expect(canCaptureGlideslope(ac, finalGeometry(ac))).toBe(false);
+  });
+
+  it('flies through the path while descending, and captures once it levels off', () => {
+    // The gate is checked at the path, on its own, so an aircraft descending
+    // through it does not capture — but nothing is lost either: it levels at
+    // its assigned altitude under the path and captures on the way in.
+    const ac = makeAircraft({
+      ...onFinalApproach(14, 1),
+      altitudeFt: 5000,
+      targetAltitudeFt: 2000, // descends straight through the ~4458 ft path
+      headingDeg: 200,
+      iasKts: 190,
+      phase: 'cleared',
+    });
+    const world = quietWorld(ac);
+
+    let crossedDescending = false;
+    let landed = false;
+    for (let i = 0; i < 40_000 && !landed; i += 1) {
+      const above = ac.altitudeFt > finalGeometry(ac).gsAltitudeFt;
+      step(world, PHYSICS_DT);
+      if (world.aircraft.length === 0) {
+        landed = true;
+        break;
+      }
+      if (above && ac.altitudeFt < finalGeometry(ac).gsAltitudeFt && ac.vsFpm < -200) {
+        crossedDescending = true;
+        expect(ac.phase).toBe('loc'); // through the path, not on it
+      }
+    }
+
+    expect(crossedDescending).toBe(true);
+    expect(landed).toBe(true);
+    expect(world.stats.goArounds).toBe(0);
+    expect(world.stats.missedIntercepts.size).toBe(0); // the localizer was fine
   });
 });
 

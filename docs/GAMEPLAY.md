@@ -179,30 +179,42 @@ you why. Inside 5 NM the aircraft flies its own approach speed regardless of wha
 2. **Get it below the glideslope.** The slope is 318 ft per NM from the threshold — 4,882 ft at
    15 NM, 3,180 ft at 10 NM, 1,590 ft at 5 NM. The published platforms already sit under it; keep
    them that way.
-3. **Level it off.** The intercept test wants less than 200 fpm at the moment the aircraft reaches
-   the localizer.
+3. **Level it off.** Less than 200 fpm — needed to capture the *glideslope*, not the localizer, so
+   there is time.
 4. **Slow it down.** Under 230 kt at the intercept.
 5. **Press `C`.**
 
-### The clearance is checked twice
+### The clearance is checked three times
 
 **When you press `C`,** only the things that make a clearance *meaningless* refuse it, and the
 refusal names the condition:
 
 | Refusal | Meaning |
 | --- | --- |
-| `notClosing` | The track takes the aircraft away from the localizer. It will never get there. |
 | `pastThreshold` | Behind the runway. Vector back around. |
-| `outOfRange` | Beyond the 25 NM localizer service volume. |
 | `belowMva` | Below the 2,000 ft minimum vectoring altitude. |
+
+That is all. Range, closing, angle, level and speed describe where the aircraft is *now*, and a
+clearance is about where it will be at the localizer — so you can clear one 40 NM out, still
+descending, still perpendicular, or diverging from a final it has just overshot. Clear it and turn
+it back in the same breath, then go and deal with something else.
 
 Poor technique is *accepted*, with a warning logged: above the glideslope, fast inside 15 NM, a
 rushed intercept inside 6 NM. A clearance is a prediction, and you're allowed to make one that
 hasn't come true yet.
 
-**When the aircraft actually reaches the localizer,** the prediction is tested for real: intercept
-angle ≤ 45°, vertical speed within 200 fpm, speed at or under 230 kt. Fail any one and the aircraft
-flies straight through the centerline, and the stats panel records which test failed.
+**When the aircraft actually reaches the localizer** — inside 25 NM, crossing the centerline on a
+closing track — the prediction is tested: intercept angle ≤ 45° and speed at or under 230 kt. Fail
+either and the aircraft flies straight through the centerline, the clearance is cancelled, and the
+stats panel records which test failed. Until it gets there nothing is tested: an aircraft outside
+25 NM or still tracking away is not intercepting, so it can cross the centerline freely and keeps
+its clearance.
+
+**When the glideslope descends through it,** the second intercept is tested on its own terms: on
+the localizer, inside 25 NM, under 230 kt, level within 200 fpm, and at or just below the path.
+Missing this one is cheap — the clearance survives, and an aircraft that flew through the path
+descending levels off underneath it and captures further in. Only one that never gets level under
+the path goes around at 5 NM.
 
 The sidebar previews all of this live for the selected aircraft — range, cross-track, the glideslope
 altitude at its present position, the intercept angle it would fly, and whether `C` would be

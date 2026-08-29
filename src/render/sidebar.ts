@@ -19,6 +19,7 @@ import {
 import {
   evaluateClearance,
   evaluateIntercept,
+  interceptPending,
   finalGeometry,
   rangeToThresholdNm,
 } from '../sim/ils.js';
@@ -310,14 +311,23 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
         } else if (ac.phase === 'cleared') {
           // The clearance is a prediction; show whether it is currently coming
           // true, so a doomed intercept can be fixed before the localizer.
+          // Not being at the localizer yet is not "doomed" — an aircraft still
+          // outside the service volume or still turning back after an overshoot
+          // is holding a perfectly good clearance, and must not be coloured as
+          // if it had blown one (§6.1a).
+          const pending = interceptPending(geo);
           const intercept = evaluateIntercept(ac, geo);
-          set(
-            'ils',
-            intercept.ok
-              ? 'Cleared ILS — flying the intercept.'
-              : `Cleared, but will not intercept: ${intercept.reason}.`,
-            intercept.ok ? 'ils ok' : 'ils bad',
-          );
+          if (pending) {
+            set('ils', `Cleared ILS — ${pending}.`, 'ils');
+          } else {
+            set(
+              'ils',
+              intercept.ok
+                ? 'Cleared ILS — flying the intercept.'
+                : `Cleared, but will not intercept: ${intercept.reason}.`,
+              intercept.ok ? 'ils ok' : 'ils bad',
+            );
+          }
         } else if (ac.phase === 'goAround') {
           set(
             'ils',

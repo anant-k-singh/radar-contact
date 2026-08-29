@@ -87,14 +87,18 @@ export const GS_ANGLE_DEG = 3;
 export const GS_FT_PER_NM = FT_PER_NM * Math.tan(toRad(GS_ANGLE_DEG));
 export const LOC_RANGE_NM = 25; // localizer service volume
 /**
- * The intercept window (§6.1a). These are tested at the moment the aircraft
- * reaches the localizer, not when the clearance is given: a clearance is a
- * prediction, and the controller is allowed to make one that has not come true
- * yet. Failing any of them at the localizer means the aircraft flies through it.
+ * The two intercept windows (§6.1a, §6.1b). These are tested at the moment the
+ * aircraft reaches the localizer and the moment it reaches the glideslope, not
+ * when the clearance is given: a clearance is a prediction, and the controller
+ * is allowed to make one that has not come true yet. The angle and speed
+ * ceilings are the localizer's; the speed ceiling and the level test are the
+ * glideslope's. Only the localizer's are *failures* — blowing through the
+ * course cancels the clearance, whereas an aircraft that is not yet level under
+ * the path simply has not captured it yet.
  */
 export const MAX_INTERCEPT_ANGLE_DEG = 45;
-export const MAX_INTERCEPT_SPEED_KTS = 230; // ceiling; the platforms sit under it
-export const LEVEL_VS_LIMIT_FPM = 200; // "level" test at the localizer
+export const MAX_INTERCEPT_SPEED_KTS = 230; // ceiling for both intercepts
+export const LEVEL_VS_LIMIT_FPM = 200; // "level" test at the glideslope
 export const IDEAL_INTERCEPT_ANGLE_DEG = 30; // preferred angle; soft warning beyond
 export const LOC_CAPTURE_XTK_NM = 0.5;
 export const ESTABLISHED_XTK_NM = 0.3; // aligned with the centerline
