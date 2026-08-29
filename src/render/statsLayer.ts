@@ -25,34 +25,20 @@ interface Row {
   tone?: 'warn' | 'bad';
 }
 
-/** `AIC 2, QTR 1` — the same tally the sidebar prints. */
-function tally(counts: Map<string, number>): string {
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([code, count]) => `${code} ${count}`)
-    .join(', ');
-}
-
 function rows(world: World): Row[] {
   const stats = world.stats;
   const rate = landingRatePerHour(world);
   const depRate = departureRatePerHour(world);
   const queued = departureQueueLength(world);
-  const missed = tally(stats.missedIntercepts);
-  // On final is a live sequence count rather than a session tally, but it is the
-  // number looked at most often, so it leads the block instead of sitting alone
-  // on the far side of the status line.
-  const onFinal = world.aircraft.filter((ac) => ac.phase === 'loc' || ac.phase === 'gs').length;
   return [
-    { label: 'ON FINAL', value: String(onFinal) },
     { label: 'LANDINGS', value: String(stats.landings) },
-    { label: 'RATE', value: rate === null ? '—' : `${rate.toFixed(1)}/h` },
+    { label: 'RATE', value: rate === null ? '—' : `${Math.round(rate)}/h` },
     // Departures that got away cleanly, and how fast the runway is releasing
     // them. Neither is a score — the player has no authority over a departure —
     // but the rate against the DEP flow in the status line is how you see a
     // tight final starving them (§4.7).
     { label: 'DEPARTURES', value: String(stats.departures) },
-    { label: 'DEP RATE', value: depRate === null ? '—' : `${depRate.toFixed(1)}/h` },
+    { label: 'DEP RATE', value: depRate === null ? '—' : `${Math.round(depRate)}/h` },
     // The queue holding short. It is the only stat here that is *caused* by the
     // player without being about them: they cannot move a departure, but the
     // gaps they leave on final are what lets one go, so a queue that keeps
@@ -63,7 +49,6 @@ function rows(world: World): Row[] {
       tone:
         queued > DEPARTURE_QUEUE_ALERT ? 'bad' : queued > DEPARTURE_QUEUE_WARN ? 'warn' : undefined,
     },
-    { label: 'HANDED OFF', value: String(stats.handoffs) },
     {
       label: 'VIOLATIONS',
       value:
@@ -85,8 +70,6 @@ function rows(world: World): Row[] {
           ? `${(stats.trackMileRatioSum / stats.trackMileSamples).toFixed(2)}×`
           : '—',
     },
-    { label: 'REFUSED ILS', value: tally(stats.rejections) || '0' },
-    { label: 'MISSED INT', value: missed || '0', tone: missed ? 'warn' : undefined },
   ];
 }
 
