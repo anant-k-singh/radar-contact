@@ -44,7 +44,7 @@ function runRecorded(world: World, rec: Recording, seconds: number): void {
 }
 
 function recorded(world: World, seconds: number): Recording {
-  const rec = createRecording();
+  const rec = createRecording(SCENARIO);
   runRecorded(world, rec, seconds);
   return rec;
 }
@@ -148,7 +148,7 @@ describe('rebuilding a frame', () => {
 
   it('separates an assigned target from the one being flown', () => {
     const world = createWorld(SCENARIO, 3);
-    const rec = createRecording();
+    const rec = createRecording(SCENARIO);
     runRecorded(world, rec, 20);
     const ac = world.aircraft[0]!;
     const before = ac.targetAltitudeFt;
@@ -173,7 +173,7 @@ describe('rebuilding a frame', () => {
 
   it('shows an aircraft in the pattern as holding', () => {
     const world = createWorld(SCENARIO, 11);
-    const rec = createRecording();
+    const rec = createRecording(SCENARIO);
     runRecorded(world, rec, 30);
     const ac = world.aircraft.find((other) => other.star !== null)!;
     world.selectedId = ac.id;
@@ -236,7 +236,7 @@ describe('rebuilding a frame', () => {
 describe('the session timeline', () => {
   it('replays only what had been said by that instant', () => {
     const world = quietWorld();
-    const rec = createRecording();
+    const rec = createRecording(SCENARIO);
     runRecorded(world, rec, 5);
     log(world, 'first', 'system');
     runRecorded(world, rec, 5);
@@ -258,7 +258,7 @@ describe('the session timeline', () => {
   it('filters the replayed log to the aircraft being reviewed', () => {
     const ac = makeAircraft({ ...onFinal(12) });
     const world = quietWorld(ac);
-    const rec = createRecording();
+    const rec = createRecording(SCENARIO);
     log(world, 'about it', 'pilot', [ac.id]);
     log(world, 'about nobody', 'system');
     runRecorded(world, rec, 5);
@@ -274,7 +274,7 @@ describe('the session timeline', () => {
 
   it('trims the replayed log the way the live log is capped', () => {
     const world = quietWorld();
-    const rec = createRecording();
+    const rec = createRecording(SCENARIO);
     for (let i = 0; i < MESSAGE_LOG_MAX + 20; i += 1) {
       log(world, `line ${i}`, 'system');
       runRecorded(world, rec, 0.4);
@@ -292,7 +292,7 @@ describe('the session timeline', () => {
 
   it('holds the stats as they stood at that instant', () => {
     const world = quietWorld();
-    const rec = createRecording();
+    const rec = createRecording(SCENARIO);
     runRecorded(world, rec, 4);
     world.stats.landings = 1;
     runRecorded(world, rec, 4);
@@ -337,7 +337,7 @@ describe('the rolling window', () => {
   it('keeps the last hour of sim time and drops what is older', () => {
     const ac = makeAircraft({ ...onFinal(30), altitudeFt: 8000 });
     const world = quietWorld(ac);
-    const rec = createRecording();
+    const rec = createRecording(SCENARIO);
     log(world, 'the very first thing said', 'system');
     fastForward(world, rec, REPLAY_WINDOW_S + 300);
 
@@ -357,7 +357,7 @@ describe('the rolling window', () => {
 
   it('keeps the stats that were still in force when the window slid', () => {
     const world = quietWorld();
-    const rec = createRecording();
+    const rec = createRecording(SCENARIO);
     world.stats.landings = 4;
     fastForward(world, rec, 60);
     fastForward(world, rec, REPLAY_WINDOW_S + 300);
@@ -419,7 +419,7 @@ describe('the transport', () => {
 
   it("shows no selection outside the aircraft's life, and gets it back inside", () => {
     const world = createWorld(SCENARIO, 7);
-    const rec = createRecording();
+    const rec = createRecording(SCENARIO);
     runRecorded(world, rec, 30);
     const ac = world.aircraft[0]!;
     runRecorded(world, rec, 30);

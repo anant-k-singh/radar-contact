@@ -479,7 +479,7 @@ describe('the HOLD tag', () => {
     flyToEstablished(world, ac);
     pressHold(world, ac);
 
-    const rec = createRecording();
+    const rec = createRecording(SCENARIO);
     step(world, PHYSICS_DT);
     sample(rec, world);
     const rebuilt = worldAtFrame(rec, rec.lastFrame, {

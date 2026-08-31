@@ -63,7 +63,7 @@ function start(seed: number, flowPerHour?: number, departureFlowPerHour?: number
 
 let world = start(initialSeed());
 /** The rolling recording of the live session — memory only, lost on refresh. */
-let recording = createRecording();
+let recording = createRecording(SCENARIO);
 /** Non-null once the session has been stopped and its recording is playing. */
 let playback: Playback | null = null;
 /** Whatever was last drawn, which is what a click is hit-tested against. */
@@ -82,7 +82,7 @@ const REPLAY_RENDER: RenderOptions = {
 
 function newSession(): void {
   playback = null;
-  recording = createRecording();
+  recording = createRecording(SCENARIO);
   world = start(Math.floor(Math.random() * 2 ** 31), world.flowPerHour, world.departureFlowPerHour);
   viewWorld = world;
 }
