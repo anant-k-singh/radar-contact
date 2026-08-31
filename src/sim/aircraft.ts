@@ -3,7 +3,7 @@ import type { Airline } from '../scenario/airlines.js';
 import type { SidNav } from './departure.js';
 import type { PendingInstruction } from './pilot.js';
 import type { StarNav } from './star.js';
-import type { Deg, Fpm, Ft, Kts, Nm, Point, Sec } from './units.js';
+import { trueAirspeed, type Deg, type Fpm, type Ft, type Kts, type Nm, type Point, type Sec } from './units.js';
 
 /**
  * Flight state. `handedOff` is deliberately separate from `phase`: an aircraft
@@ -88,6 +88,87 @@ export interface Aircraft {
   trail: Point[];
   radar: RadarReturn;
   alert: AlertLevel;
+}
+
+/**
+ * Everything that differs between the two ways an aircraft comes into being.
+ * Everything that does not is filled in by `newAircraft`, which is the point:
+ * a new field on `Aircraft` is added in one place instead of three.
+ */
+export interface AircraftSeed {
+  id: number;
+  callsign: string;
+  airline: Airline;
+  type: AircraftType;
+  position: Point;
+  altitudeFt: Ft;
+  headingDeg: Deg;
+  iasKts: Kts;
+  /** What it is flying towards. Defaults to the speed it is doing. */
+  targetIasKts?: Kts;
+  star?: StarNav | null;
+  sid?: SidNav | null;
+  phase: Phase;
+  /** Entry gate for an arrival, the runway for a departure — where its track starts. */
+  entryGate: string;
+  spawnedAtS: Sec;
+  /**
+   * Shortest route anyone could reasonably fly, for the track-mile ratio. Zero
+   * on a departure: that ratio is an arrival efficiency measure and a departure
+   * never lands, so it has nothing to be compared against.
+   */
+  directDistanceNm?: Nm;
+}
+
+/**
+ * A new aircraft, level and steady on what it is doing.
+ *
+ * The targets start on the live state — an aircraft is flying its assignment the
+ * moment it appears — and the first radar return is sampled from that state
+ * rather than approximated, so the ground speed on the block agrees with the
+ * one the next tick computes.
+ */
+export function newAircraft(seed: AircraftSeed): Aircraft {
+  const { position, altitudeFt, headingDeg, iasKts } = seed;
+  return {
+    id: seed.id,
+    callsign: seed.callsign,
+    airline: seed.airline,
+    type: seed.type,
+    x: position.x,
+    y: position.y,
+    altitudeFt,
+    headingDeg,
+    iasKts,
+    vsFpm: 0,
+    targetHeadingDeg: headingDeg,
+    targetAltitudeFt: altitudeFt,
+    targetIasKts: seed.targetIasKts ?? iasKts,
+    pending: [],
+    turnDirection: null,
+    star: seed.star ?? null,
+    sid: seed.sid ?? null,
+    phase: seed.phase,
+    handedOff: false,
+    speedAssignedAfterClearance: false,
+    entryGate: seed.entryGate,
+    spawnedAtS: seed.spawnedAtS,
+    trackMilesFlown: 0,
+    directDistanceNm: seed.directDistanceNm ?? 0,
+    goArounds: 0,
+    exitWarned: false,
+    headingHintUntilS: 0,
+    // Starts empty: a freshly handed-over target has no history behind it.
+    trail: [],
+    radar: {
+      altitudeFt,
+      iasKts,
+      headingDeg,
+      groundSpeedKts: trueAirspeed(iasKts, altitudeFt),
+      vsFpm: 0,
+    },
+    alert: 'none',
+  };
 }
 
 export function aircraftPosition(ac: Aircraft): Point {

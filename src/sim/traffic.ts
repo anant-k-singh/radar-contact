@@ -10,7 +10,7 @@ import { AIRLINES, type Airline } from '../scenario/airlines.js';
 import { AIRPORT, type EntryGate } from '../scenario/airport.js';
 import { SIDS, type Sid } from '../scenario/sids.js';
 import { entryFix, starForGate, type Star } from '../scenario/stars.js';
-import type { Aircraft } from './aircraft.js';
+import { newAircraft, type Aircraft } from './aircraft.js';
 import {
   ALTITUDE_STEP_FT,
   CEILING_FT,
@@ -175,45 +175,21 @@ export function createArrival(
       distance(route.waypoints[route.waypoints.length - 1]!.position, AIRPORT.runway.threshold)
     : distance(gate.position, AIRPORT.runway.threshold);
 
-  return {
+  return newAircraft({
     id,
     callsign: text,
     airline,
     type,
-    x: gate.position.x,
-    y: gate.position.y,
+    position: gate.position,
     altitudeFt,
     headingDeg,
     iasKts: ENTRY_SPEED_KTS,
-    vsFpm: 0,
-    targetHeadingDeg: headingDeg,
-    targetAltitudeFt: altitudeFt,
-    targetIasKts: ENTRY_SPEED_KTS,
-    pending: [],
-    turnDirection: null,
     star,
-    sid: null,
     phase: 'inbound',
-    handedOff: false,
-    speedAssignedAfterClearance: false,
     entryGate: gate.name,
     spawnedAtS: timeS,
-    trackMilesFlown: 0,
     directDistanceNm,
-    goArounds: 0,
-    exitWarned: false,
-    headingHintUntilS: 0,
-    // Starts empty: a freshly handed-over target has no history behind it.
-    trail: [],
-    radar: {
-      altitudeFt,
-      iasKts: ENTRY_SPEED_KTS,
-      headingDeg,
-      groundSpeedKts: ENTRY_SPEED_KTS * 1.16,
-      vsFpm: 0,
-    },
-    alert: 'none',
-  };
+  });
 }
 
 /**
@@ -319,50 +295,26 @@ export function createDeparture(
   state.nextId += 1;
 
   const runway = AIRPORT.runway;
-  const altitudeFt = AIRPORT.elevationFt;
 
-  return {
+  return newAircraft({
     id,
     callsign: text,
     airline,
     type,
-    x: runway.threshold.x,
-    y: runway.threshold.y,
-    altitudeFt,
+    position: runway.threshold,
+    altitudeFt: AIRPORT.elevationFt,
     headingDeg: runway.courseDeg,
+    // Stationary on the threshold — the one aircraft in the simulation that is
+    // not flying — and already spooled up to the speed it will rotate at.
     iasKts: 0,
-    vsFpm: 0,
-    targetHeadingDeg: runway.courseDeg,
-    targetAltitudeFt: altitudeFt,
     targetIasKts: type.v2Kts,
-    pending: [],
-    turnDirection: null,
-    star: null,
     sid: joinSid(route),
     phase: 'roll',
-    handedOff: false,
-    speedAssignedAfterClearance: false,
     // The runway is where it entered the airspace, in the sense the entry gate
     // is for an arrival: the one place its track can be said to start.
     entryGate: `RWY${runway.id}`,
     spawnedAtS: timeS,
-    trackMilesFlown: 0,
-    // The track-mile ratio is an arrival efficiency measure and a departure
-    // never lands, so it has no shortest route to be compared against.
-    directDistanceNm: 0,
-    goArounds: 0,
-    exitWarned: false,
-    headingHintUntilS: 0,
-    trail: [],
-    radar: {
-      altitudeFt,
-      iasKts: 0,
-      headingDeg: runway.courseDeg,
-      groundSpeedKts: 0,
-      vsFpm: 0,
-    },
-    alert: 'none',
-  };
+  });
 }
 
 /**
