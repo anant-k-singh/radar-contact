@@ -8,7 +8,6 @@ import { isControllable, isDeparture } from '../src/sim/aircraft.js';
 import { adjustAltitude, adjustHeading, nextSelectableId } from '../src/sim/commands.js';
 import {
   DEPARTURE_CLIMB_SPEED_KTS,
-  DEPARTURE_TOP_FT,
   DEPARTURE_HOLD_FINAL_NM,
   DEPARTURE_AIRBORNE_MARGIN_S,
   DEPARTURE_HOLD_AFTER_LANDING_S,
@@ -218,7 +217,7 @@ describe('SID crossing restrictions', () => {
       // ...and lifts only beyond that fix.
       expect(ceilingAtFt(sid, fix.position)).toBe(fix.maxAltitudeFt);
       const beyond = { x: fix.position.x * 1.2, y: fix.position.y };
-      expect(ceilingAtFt(sid, beyond)).toBe(DEPARTURE_TOP_FT);
+      expect(ceilingAtFt(sid, beyond)).toBe(sid.topFt);
 
       // The point of putting the fix out here rather than on the crossing: at
       // the release the track is already diverging from the arrival route, and
@@ -271,7 +270,7 @@ describe('SID crossing restrictions', () => {
     const levelledEarly = airborne.some(
       (s, i) =>
         i > 0 &&
-        s.altitudeFt < DEPARTURE_TOP_FT - 100 &&
+        s.altitudeFt < sid.topFt - 100 &&
         Math.abs(s.altitudeFt - airborne[i - 1]!.altitudeFt) < 1,
     );
     expect(levelledEarly).toBe(false);
@@ -282,7 +281,7 @@ describe('SID crossing restrictions', () => {
       for (const type of AIRCRAFT_TYPES) {
         const { samples } = flyOut(sid, type);
         const highest = Math.max(...samples.map((s) => s.altitudeFt));
-        expect(highest, `${type.code} on ${sid.name}`).toBeLessThanOrEqual(DEPARTURE_TOP_FT + 1);
+        expect(highest, `${type.code} on ${sid.name}`).toBeLessThanOrEqual(sid.topFt + 1);
       }
     }
   });

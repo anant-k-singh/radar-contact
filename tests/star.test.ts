@@ -3,7 +3,7 @@ import { AIRPORT } from '../src/scenario/airport.js';
 import { STARS, starForGate, starProfileAt, type Star } from '../src/scenario/stars.js';
 import type { Aircraft } from '../src/sim/aircraft.js';
 import { adjustAltitude, adjustHeading, adjustSpeed } from '../src/sim/commands.js';
-import { ENTRY_SPEED_KTS, MVA_FT, SEP_HORIZ_NM, SPEED_FLOOR_CLEAN_KTS } from '../src/sim/constants.js';
+import { MVA_FT, SEP_HORIZ_NM, SPEED_FLOOR_CLEAN_KTS } from '../src/sim/constants.js';
 import { createRng } from '../src/sim/rng.js';
 import { createArrival, createTrafficState } from '../src/sim/traffic.js';
 import { distance, type Point } from '../src/sim/units.js';
@@ -56,7 +56,7 @@ describe('the published routes', () => {
       expect(star).toBeDefined();
       expect(star.waypoints[0]!.position).toEqual(gate.position);
       expect(star.waypoints[0]!.altitudeFt).toBe(gate.entryAltitudeFt);
-      expect(star.waypoints[0]!.speedKts).toBe(ENTRY_SPEED_KTS);
+      expect(star.waypoints[0]!.speedKts).toBe(gate.entrySpeedKts);
 
       // Every fix publishes both, so the profile is fully determined.
       for (const wpt of star.waypoints) {
@@ -75,18 +75,19 @@ describe('the published routes', () => {
 
   it('publishes 250 kt as far as the first fix, and reduces only after it', () => {
     for (const star of STARS) {
+      const entrySpeedKts = star.waypoints[0]!.speedKts!;
       const first = star.waypoints[1]!;
-      expect(first.speedKts).toBe(ENTRY_SPEED_KTS);
+      expect(first.speedKts).toBe(entrySpeedKts);
 
       // Anywhere on the leg from the gate to that fix the profile is still 250.
       const gateDtg = star.waypoints[0]!.dtgNm;
       for (const fraction of [0, 0.25, 0.5, 0.75, 1]) {
         const dtgNm = first.dtgNm + (gateDtg - first.dtgNm) * fraction;
-        expect(starProfileAt(star, dtgNm).speedKts).toBe(ENTRY_SPEED_KTS);
+        expect(starProfileAt(star, dtgNm).speedKts).toBe(entrySpeedKts);
       }
       // And it is coming off by the time the next fix is reached, arriving at
       // each later fix on that fix's own published speed.
-      expect(starProfileAt(star, first.dtgNm - 0.5).speedKts).toBeLessThan(ENTRY_SPEED_KTS);
+      expect(starProfileAt(star, first.dtgNm - 0.5).speedKts).toBeLessThan(entrySpeedKts);
       for (const wpt of star.waypoints.slice(2)) {
         expect(starProfileAt(star, wpt.dtgNm).speedKts).toBe(wpt.speedKts);
       }
@@ -204,6 +205,7 @@ describe('taking an aircraft off its STAR', () => {
   it('drops the route on a vector, and keeps the descent to the next published level', () => {
     const { ac, world } = arrival('VANDA');
     const okpurAltFt = ac.star!.route.waypoints[1]!.altitudeFt!;
+    const entrySpeedKts = ac.star!.route.waypoints[0]!.speedKts!;
     run(world, 60);
     expect(ac.star).not.toBeNull();
 
@@ -216,7 +218,7 @@ describe('taking an aircraft off its STAR', () => {
     // platform speed belongs to the leg after it, which this aircraft has not
     // reached.
     expect(ac.targetAltitudeFt).toBe(okpurAltFt);
-    expect(ac.targetIasKts).toBe(ENTRY_SPEED_KTS);
+    expect(ac.targetIasKts).toBe(entrySpeedKts);
 
     const headingAfter = ac.targetHeadingDeg;
     run(world, 60);

@@ -213,10 +213,12 @@ export const MIN_SPAWN_INTERVAL_S = 45;
 export const GATE_COOLDOWN_S = 90;
 export const SPAWN_VETO_NM = 5;
 export const SPAWN_VETO_FT = 1000;
-export const ENTRY_ALTITUDE_FT = 13_000;
-/** Gates whose geometry gives a short run to the localizer arrive lower. */
-export const ENTRY_ALTITUDE_NEAR_FT = 11_000;
-export const ENTRY_SPEED_KTS = 250;
+/**
+ * The altitude and speed Center hands an arrival over at are *not* here. They are
+ * per-route — a route with a short run to the localizer has to be given the
+ * height off lower — so they are published on the STAR, alongside the geometry
+ * that justifies them (§4.5).
+ */
 
 // ── STARs (§4.5) ────────────────────────────────────────────────────────────
 /**
@@ -331,15 +333,12 @@ export const DEPARTURE_CLIMB_SPEED_KTS = 250;
  */
 export const INITIAL_CLIMB_REDUCTION_FPM = 500;
 /**
- * Where a departure levels off with every restriction behind it — 1000 ft above
- * the airspace ceiling the *player* is held to (`CEILING_FT`).
- *
- * The two are deliberately different numbers. `CEILING_FT` is the top of what
- * the controller may assign, and the south gates now hand arrivals over at
- * exactly that; a departure has to end up above the highest arrival rather than
- * level with it, and it is leaving the terminal area anyway.
+ * Where a departure levels off with every restriction behind it is *not* here
+ * either: it is `Sid.topFt`, a thousand feet above the field's own assignable
+ * ceiling. The two are deliberately different numbers — the ceiling is the top of
+ * what the controller may assign, and a departure has to end up above the highest
+ * arrival rather than level with it.
  */
-export const DEPARTURE_TOP_FT = CEILING_FT + 1000;
 /**
  * Total energy available to an aircraft climbing away on a departure, replacing
  * `THRUST_BUDGET_FPM`. A jet at take-off thrust at low level has far more excess

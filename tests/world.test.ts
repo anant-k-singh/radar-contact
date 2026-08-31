@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { AIRPORT } from '../src/scenario/airport.js';
+import { CEILING_FT, NEAR_ENTRY_FT } from '../src/scenario/fields/zzzz/airport.js';
 import { boundaryRangeAtBearing } from '../src/sim/airspace.js';
 import {
   AIRSPACE_HALF_HEIGHT_NM,
   AIRSPACE_RADIUS_NM,
-  ENTRY_ALTITUDE_FT,
-  ENTRY_ALTITUDE_NEAR_FT,
-  ENTRY_SPEED_KTS,
   IN_TRAIL_SEQUENCING_MIN_NM,
   MOVEMENT_RATE_INTERVALS,
   MOVEMENT_RATE_STALE_S,
@@ -83,7 +81,7 @@ describe('traffic generation', () => {
     const ac = world.aircraft[0]!;
     const gate = AIRPORT.gates.find((g) => g.name === ac.entryGate)!;
     expect(ac.altitudeFt).toBe(gate.entryAltitudeFt);
-    expect(ac.iasKts).toBe(ENTRY_SPEED_KTS);
+    expect(ac.iasKts).toBe(gate.entrySpeedKts);
     // One physics step of flying has already happened since the handover.
     expect(Math.hypot(ac.x, ac.y)).toBeCloseTo(AIRSPACE_RADIUS_NM, 1);
     // Established on the first leg of its STAR.
@@ -91,12 +89,14 @@ describe('traffic generation', () => {
     expect(bearing(gate.position, first.position)).toBeCloseTo(ac.headingDeg, 4);
   });
 
-  it('hands the two northern gates over 1000 ft lower', () => {
+  it('hands the two northern gates over 2000 ft lower', () => {
+    // Which gates those are is a fact about this field's geometry, so the
+    // altitudes come from its own routes rather than from a global constant.
     const byName = new Map(AIRPORT.gates.map((g) => [g.name, g.entryAltitudeFt]));
-    expect(byName.get('KOVAL')).toBe(ENTRY_ALTITUDE_NEAR_FT);
-    expect(byName.get('VANDA')).toBe(ENTRY_ALTITUDE_NEAR_FT);
-    expect(byName.get('TEMBA')).toBe(ENTRY_ALTITUDE_FT);
-    expect(byName.get('RIMOL')).toBe(ENTRY_ALTITUDE_FT);
+    expect(byName.get('KOVAL')).toBe(NEAR_ENTRY_FT);
+    expect(byName.get('VANDA')).toBe(NEAR_ENTRY_FT);
+    expect(byName.get('TEMBA')).toBe(CEILING_FT);
+    expect(byName.get('RIMOL')).toBe(CEILING_FT);
 
     // And an arrival actually spawns at its gate's altitude, level.
     for (const gate of AIRPORT.gates) {
