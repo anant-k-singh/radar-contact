@@ -14,9 +14,9 @@ import { compileScenario } from '../src/scenario/compile.js';
 import { starForGate, starProfileAt } from '../src/scenario/routes.js';
 import { SCENARIOS } from '../src/scenario/registry.js';
 import type { Scenario } from '../src/scenario/types.js';
-import { validateScenario } from '../src/scenario/validate.js';
+import { validateScenario, VALIDATION_GS_FT_PER_NM } from '../src/scenario/validate.js';
 import { isDeparture } from '../src/sim/aircraft.js';
-import { PHYSICS_DT, SEP_HORIZ_NM, SEP_VERT_FT } from '../src/sim/constants.js';
+import { GS_FT_PER_NM, PHYSICS_DT, SEP_HORIZ_NM, SEP_VERT_FT } from '../src/sim/constants.js';
 import { glideslopeAltitudeFt } from '../src/sim/ils.js';
 import { createArrival, createDeparture, createTrafficState } from '../src/sim/traffic.js';
 import { createWorld, step } from '../src/sim/world.js';
@@ -151,6 +151,12 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
 );
 
 describe('the validator', () => {
+  it('agrees with the sim about the glideslope', () => {
+    // It cannot import GS_FT_PER_NM — a scenario may not import the tunables —
+    // so the two are checked against each other instead of drifting quietly.
+    expect(VALIDATION_GS_FT_PER_NM).toBeCloseTo(GS_FT_PER_NM, 1);
+  });
+
   it('catches a departure released under an arrival with no restriction', () => {
     // The rotated field's turning SID crosses a downwind and is held at 4000 to
     // get under it. Take the restriction away and the field must stop validating

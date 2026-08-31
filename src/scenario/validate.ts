@@ -37,11 +37,18 @@ const MIN_LEG_NM: Nm = 0.1;
  */
 const ON_BOUNDARY_NM: Nm = 1e-6;
 
+/**
+ * Feet of glideslope per NM on a 3° path.
+ *
+ * Duplicated from `GS_FT_PER_NM` rather than imported, because a scenario may not
+ * import the tunables — that rule is what stopped a field's own numbers living
+ * there. The duplication is held honest by a test asserting the two agree.
+ */
+export const VALIDATION_GS_FT_PER_NM = 318.4;
+
 /** Glideslope height at an along-track distance, without importing the sim's ILS. */
 function glideslopeFt(scenario: Scenario, alongNm: Nm): number {
-  // 3° is the published angle everywhere the simulator flies; the check only
-  // needs to know the platform is under the path, not by exactly how much.
-  return scenario.runway.elevationFt + alongNm * 318.4;
+  return scenario.runway.elevationFt + alongNm * VALIDATION_GS_FT_PER_NM;
 }
 
 /** Along-track distance from the threshold, as `finalGeometry` measures it. */
@@ -197,7 +204,10 @@ function checkStar(scenario: Scenario, star: Star, problems: Problem[]): void {
   const gsFt = glideslopeFt(scenario, alongFinalNm(scenario, last.position));
   const clearFt = gsFt - (last.altitudeFt ?? 0);
   if (clearFt <= 0) {
-    add('error', `${last.name} is ${-clearFt.toFixed(0)} ft *above* the glideslope where it ends`);
+    add(
+      'error',
+      `${last.name} is ${Math.abs(clearFt).toFixed(0)} ft *above* the glideslope where it ends`,
+    );
   } else if (clearFt < 200) {
     add('warning', `${last.name} is only ${clearFt.toFixed(0)} ft below the glideslope`);
   }
