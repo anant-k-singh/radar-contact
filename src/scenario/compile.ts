@@ -181,7 +181,8 @@ function compileSid(spec: SidSpec, ctx: FixContext, defaultTopFt: Ft): Sid {
 }
 
 export function compileScenario(spec: ScenarioSpec): Scenario {
-  const arp = spec.arp ?? { x: 0, y: 0 };
+  // The local frame is the field's own, so its reference point is the origin.
+  const arp: Point = { x: 0, y: 0 };
   const runway = compileRunway(spec.runway, arp, spec.elevationFt);
   const airspace = compileAirspace(spec.airspace);
   const ctx: FixContext = { runway, arp };

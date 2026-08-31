@@ -24,8 +24,6 @@ export interface ScenarioSpec {
   name: string;
   icao: string;
   elevationFt: Ft;
-  /** Airport reference point. Defaults to the origin of the local frame. */
-  arp?: Point;
   runway: RunwaySpec;
   airspace: AirspaceSpec;
   gates: readonly EntryGateSpec[];
@@ -167,6 +165,15 @@ export interface Scenario {
   name: string;
   icao: string;
   elevationFt: Ft;
+  /**
+   * Airport reference point, and always the origin of the local frame.
+   *
+   * Not something a field states: the frame *is* local to the field, so there is
+   * nothing to be gained by offsetting it, and a good deal that quietly assumes
+   * it — the airspace shape is measured from the origin, and the scope centres on
+   * it. Named rather than written as `{0, 0}` so the code says which point it
+   * means.
+   */
   arp: Point;
   runway: Runway;
   airspace: Airspace;
