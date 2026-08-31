@@ -73,6 +73,25 @@ export function magnitude(p: Point): Nm {
   return Math.hypot(p.x, p.y);
 }
 
+/** Unit vector 90° right of `dir`, which must itself be a unit vector. */
+export function rightOf(dir: Point): Point {
+  return { x: dir.y, y: -dir.x };
+}
+
+/**
+ * `to` expressed in the track-relative frame of a unit vector `dir` based at
+ * `from`: how far along `dir` it lies, and how far to the right of it.
+ *
+ * These are the two numbers the localizer, a SID's crossing test and the
+ * airspace exit check all want, and each of them used to spell the pair of dot
+ * products out by hand.
+ */
+export function project(from: Point, to: Point, dir: Point): { alongNm: Nm; rightNm: Nm } {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  return { alongNm: dx * dir.x + dy * dir.y, rightNm: dx * dir.y - dy * dir.x };
+}
+
 /**
  * True airspeed from indicated airspeed: ~2% per 1000 ft.
  * Reproduces IF ATC manual 6.15.3 (250 KIAS at 9000 ft ≈ 290 kt GS).

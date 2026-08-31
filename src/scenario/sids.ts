@@ -42,7 +42,15 @@
  * thing a STAR does at its last fix, and what the airspace exit check expects.
  */
 import { DEPARTURE_TOP_FT } from '../sim/constants.js';
-import { bearing, distance, headingVector, type Ft, type Nm, type Point } from '../sim/units.js';
+import {
+  bearing,
+  distance,
+  headingVector,
+  project,
+  type Ft,
+  type Nm,
+  type Point,
+} from '../sim/units.js';
 import { AIRPORT } from './airport.js';
 
 export interface SidWaypoint {
@@ -193,8 +201,7 @@ function isPastFix(sid: Sid, index: number, position: Point): boolean {
   const outbound = next
     ? bearing(fix.position, next.position)
     : bearing(waypoints[index - 1]!.position, fix.position);
-  const track = headingVector(outbound);
-  return (position.x - fix.position.x) * track.x + (position.y - fix.position.y) * track.y > 0;
+  return project(fix.position, position, headingVector(outbound)).alongNm > 0;
 }
 
 /**

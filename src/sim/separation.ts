@@ -11,6 +11,9 @@ import {
   ALERT_RED_HORIZ_NM,
   ALERT_RED_VERT_FT,
   CONFLICT_PREDICT_S,
+  CONFLICT_PREDICT_STEP_S,
+  CONFLICT_SCREEN_HORIZ_NM,
+  CONFLICT_SCREEN_VERT_FT,
   IN_TRAIL_MIN_NM,
   IN_TRAIL_SEQUENCING_MIN_NM,
   IN_TRAIL_SEQUENCING_RANGE_NM,
@@ -19,7 +22,7 @@ import {
   SEP_HORIZ_NM,
   SEP_VERT_FT,
 } from './constants.js';
-import { headingVector, type Nm } from './units.js';
+import { distance, headingVector, type Nm } from './units.js';
 
 export interface ConflictPair {
   a: Aircraft;
@@ -69,8 +72,7 @@ function inRunwayEnvironment(ac: Aircraft): boolean {
   if (ac.phase === 'roll') return true;
   return (
     ac.altitudeFt - AIRPORT.elevationFt < RUNWAY_SEP_EXEMPT_FT &&
-    Math.hypot(ac.x - AIRPORT.runway.threshold.x, ac.y - AIRPORT.runway.threshold.y) <
-      RUNWAY_SEP_EXEMPT_NM
+    distance({ x: ac.x, y: ac.y }, AIRPORT.runway.threshold) < RUNWAY_SEP_EXEMPT_NM
   );
 }
 
@@ -117,7 +119,7 @@ export function inTrailSpacing(aircraft: readonly Aircraft[]): {
 }
 
 function horizontalDistance(a: Aircraft, b: Aircraft): Nm {
-  return Math.hypot(a.x - b.x, a.y - b.y);
+  return distance({ x: a.x, y: a.y }, { x: b.x, y: b.y });
 }
 
 /** Closest approach within the prediction window, by straight-line extrapolation. */
@@ -129,11 +131,13 @@ function predictedMinima(a: Aircraft, b: Aircraft): { horizNm: Nm; vertFt: numbe
 
   let bestHoriz = Number.POSITIVE_INFINITY;
   let bestVert = Number.POSITIVE_INFINITY;
-  for (let t = 5; t <= CONFLICT_PREDICT_S; t += 5) {
+  for (let t = CONFLICT_PREDICT_STEP_S; t <= CONFLICT_PREDICT_S; t += CONFLICT_PREDICT_STEP_S) {
     const ax = a.x + va.x * sa * t;
     const ay = a.y + va.y * sa * t;
     const bx = b.x + vb.x * sb * t;
     const by = b.y + vb.y * sb * t;
+    // Left as a raw hypot: this is the inner loop of an O(n²) scan at 20 Hz, and
+    // `distance()` would allocate two points per iteration.
     const horiz = Math.hypot(ax - bx, ay - by);
     const vert = Math.abs(
       a.altitudeFt + (a.vsFpm * t) / 60 - (b.altitudeFt + (b.vsFpm * t) / 60),
@@ -182,9 +186,7 @@ export function analyzeSeparation(aircraft: readonly Aircraft[]): SeparationRepo
         continue;
       }
 
-      // Nothing 20 NM or 6000 ft apart can breach the minima inside the
-      // prediction window — skip the extrapolation for the vast majority of pairs.
-      if (horizNm > 20 || vertFt > 6000) continue;
+      if (horizNm > CONFLICT_SCREEN_HORIZ_NM || vertFt > CONFLICT_SCREEN_VERT_FT) continue;
 
       const predicted = predictedMinima(a, b);
       if (predicted.horizNm < SEP_HORIZ_NM && predicted.vertFt < SEP_VERT_FT) {

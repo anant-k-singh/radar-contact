@@ -35,7 +35,15 @@ import {
   MAX_INTERCEPT_SPEED_KTS,
   MAX_LOC_CORRECTION_DEG,
   MVA_FT,
+  CLEARANCE_FAST_KTS,
+  CLEARANCE_FAST_RANGE_NM,
+  CLEARANCE_RUSHED_NM,
+  PURSUIT_AIM_MIN_NM,
+  PURSUIT_LEAD_FRACTION,
+  PURSUIT_LEAD_MIN_NM,
   PURSUIT_LEAD_NM,
+  TOUCHDOWN_WINDOW_FT,
+  XTK_ON_COURSE_NM,
 } from './constants.js';
 import {
   bearing,
@@ -45,6 +53,8 @@ import {
   headingDiff,
   headingVector,
   normalizeHeading,
+  project,
+  rightOf,
   type Deg,
   type Ft,
   type Nm,
@@ -53,8 +63,11 @@ import {
 } from './units.js';
 
 const RUNWAY = AIRPORT.runway;
-/** Unit vector 90° right of the landing direction. */
-const RIGHT = headingVector(RUNWAY.courseDeg + 90);
+/**
+ * Unit vector 90° right of the landing direction. Derived from `direction`
+ * rather than from the course, so the two cannot disagree.
+ */
+const RIGHT = rightOf(RUNWAY.direction);
 
 export interface FinalGeometry {
   /** Distance to the threshold along the final approach course. Positive = still to fly. */
@@ -83,14 +96,15 @@ export function centerlinePoint(alongNm: Nm): Point {
 }
 
 export function finalGeometry(ac: Aircraft): FinalGeometry {
-  const rx = ac.x - RUNWAY.threshold.x;
-  const ry = ac.y - RUNWAY.threshold.y;
-  const alongNm = -(rx * RUNWAY.direction.x + ry * RUNWAY.direction.y);
-  const xtkNm = rx * RIGHT.x + ry * RIGHT.y;
+  // Along-track is measured *to* the threshold, so it counts down as the
+  // aircraft flies in; `project` measures away from it.
+  const frame = project(RUNWAY.threshold, { x: ac.x, y: ac.y }, RUNWAY.direction);
+  const alongNm = -frame.alongNm;
+  const xtkNm = frame.rightNm;
 
   const track = headingVector(ac.headingDeg);
   const xtkRate = track.x * RIGHT.x + track.y * RIGHT.y;
-  const closing = Math.abs(xtkNm) < 0.05 || xtkNm * xtkRate < 0;
+  const closing = Math.abs(xtkNm) < XTK_ON_COURSE_NM || xtkNm * xtkRate < 0;
 
   return {
     alongNm,
@@ -166,10 +180,14 @@ export function evaluateClearance(ac: Aircraft, geo: FinalGeometry): ClearanceRe
         `${geo.alongNm.toFixed(1)} NM — must be at or below it by the intercept`,
     );
   }
-  if (ac.iasKts > 210 && geo.alongNm < 15) {
-    warnings.push(`${Math.round(ac.iasKts)} kt inside 15 NM is fast`);
+  if (ac.iasKts > CLEARANCE_FAST_KTS && geo.alongNm < CLEARANCE_FAST_RANGE_NM) {
+    warnings.push(
+      `${Math.round(ac.iasKts)} kt inside ${CLEARANCE_FAST_RANGE_NM} NM is fast`,
+    );
   }
-  if (geo.alongNm < 6) warnings.push('rushed intercept inside 6 NM');
+  if (geo.alongNm < CLEARANCE_RUSHED_NM) {
+    warnings.push(`rushed intercept inside ${CLEARANCE_RUSHED_NM} NM`);
+  }
 
   return { ok: true, warnings };
 }
@@ -291,8 +309,8 @@ export function canCaptureGlideslope(ac: Aircraft, geo: FinalGeometry): boolean 
 
 /** Heading that tracks the localizer, by pure pursuit toward a point down the centerline. */
 export function localizerHeading(ac: Aircraft, geo: FinalGeometry): Deg {
-  const lead = clamp(geo.alongNm * 0.4, 0.6, PURSUIT_LEAD_NM);
-  const aim = centerlinePoint(Math.max(0.2, geo.alongNm - lead));
+  const lead = clamp(geo.alongNm * PURSUIT_LEAD_FRACTION, PURSUIT_LEAD_MIN_NM, PURSUIT_LEAD_NM);
+  const aim = centerlinePoint(Math.max(PURSUIT_AIM_MIN_NM, geo.alongNm - lead));
   const desired = bearing({ x: ac.x, y: ac.y }, aim);
   // Never allow a wild correction — clamp to ±25° of the course.
   const offset = clamp(
@@ -427,7 +445,7 @@ export function stepApproach(
 
   // ── Touchdown ────────────────────────────────────────────────────────────
   if (geo.alongNm <= 0) {
-    if (ac.phase === 'gs' && ac.altitudeFt < AIRPORT.elevationFt + 200) {
+    if (ac.phase === 'gs' && ac.altitudeFt < AIRPORT.elevationFt + TOUCHDOWN_WINDOW_FT) {
       events.push({ kind: 'landed' });
     } else {
       goAround(ac);

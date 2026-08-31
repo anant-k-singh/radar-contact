@@ -23,14 +23,18 @@ import {
 } from './constants.js';
 import { isDeparture, type Aircraft } from './aircraft.js';
 import {
+  bearing,
   clamp,
   headingDelta,
+  headingDiff,
   headingVector,
   normalizeHeading,
   toRad,
   trueAirspeed,
   type Deg,
   type Fpm,
+  type Nm,
+  type Point,
   type Sec,
 } from './units.js';
 
@@ -53,16 +57,38 @@ export function turnRadiusNm(tasKts: number): number {
  * flown as a fly-by rather than an overshoot and a correction back.
  * `d = R·tan(θ/2)` is the tangent distance of the turn arc.
  *
- * Shared by the STARs and the SIDs; they differ only in the bounds they clamp
- * it to, which are their own published tolerances.
+ * Shared by the STARs and the SIDs; they differ only in the bounds they clamp it
+ * to, which are their own published tolerances.
  */
-export function flyByAnticipationNm(
-  turnDeg: Deg,
+export function routeAnticipationNm(
+  waypoints: readonly { position: Point }[],
+  index: number,
   tasKts: number,
-  minNm: number,
-  maxNm: number,
-): number {
-  return clamp(turnRadiusNm(tasKts) * Math.tan(toRad(Math.abs(turnDeg) / 2)), minNm, maxNm);
+  minNm: Nm,
+  maxNm: Nm,
+): Nm {
+  const inbound = bearing(waypoints[index - 1]!.position, waypoints[index]!.position);
+  const outbound = bearing(waypoints[index]!.position, waypoints[index + 1]!.position);
+  const turnDeg = Math.abs(headingDelta(inbound, outbound));
+  return clamp(turnRadiusNm(tasKts) * Math.tan(toRad(turnDeg / 2)), minNm, maxNm);
+}
+
+/**
+ * True once a fix has been reached or left behind — the sequencing test every
+ * route follower uses.
+ *
+ * The abeam half is a backstop rather than the normal case: pure pursuit only
+ * leaves a fix behind unreached if an earlier tight turn threw the aircraft off
+ * the leg. Shared by the STARs, the SIDs and the holding patterns, which differ
+ * only in the capture radius they pass.
+ */
+export function fixPassed(
+  rangeNm: Nm,
+  headingDeg: Deg,
+  courseDeg: Deg,
+  captureNm: Nm,
+): boolean {
+  return rangeNm < captureNm || headingDiff(headingDeg, courseDeg) > 90;
 }
 
 export interface RatePlanInput {

@@ -37,7 +37,7 @@ import {
   trySpawn,
   type TrafficState,
 } from './traffic.js';
-import { distance, headingVector, type Nm, type Sec } from './units.js';
+import { bearing, distance, headingDiff, type Nm, type Sec } from './units.js';
 
 export type MessageKind = 'pilot' | 'system' | 'alert';
 
@@ -315,9 +315,12 @@ function tryHandoff(world: World, ac: Aircraft): void {
 }
 
 function checkAirspaceExit(world: World, ac: Aircraft): boolean {
-  const range = distance({ x: ac.x, y: ac.y }, AIRPORT.arp);
-  const track = headingVector(ac.headingDeg);
-  const outbound = range > 0 && (ac.x * track.x + ac.y * track.y) / range > 0;
+  const position = { x: ac.x, y: ac.y };
+  // Outbound means tracking away from the airport, so the test is against the
+  // bearing *from the ARP* — not against the raw position vector, which is the
+  // same thing only while the ARP sits on the origin.
+  const range = distance(position, AIRPORT.arp);
+  const outbound = range > 0 && headingDiff(bearing(AIRPORT.arp, position), ac.headingDeg) < 90;
 
   if (!outbound) {
     ac.exitWarned = false;
@@ -327,7 +330,7 @@ function checkAirspaceExit(world: World, ac: Aircraft): boolean {
   // Against the boundary's actual shape, not just the radius: the airspace is
   // cut off north and south (§3.1), so an aircraft can run out of room while
   // still well inside 50 NM.
-  const marginNm = boundaryMarginNm({ x: ac.x, y: ac.y });
+  const marginNm = boundaryMarginNm(position);
   if (marginNm < 0) {
     // A departure leaving is the whole point of it, not a mistake: it counts in
     // its own tally and says so in the ordinary voice rather than the alert one.

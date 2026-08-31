@@ -6,10 +6,10 @@
  * anything to do with the gates.
  */
 import { AIRCRAFT_TYPES } from '../scenario/aircraftTypes.js';
-import { AIRLINES } from '../scenario/airlines.js';
+import { AIRLINES, type Airline } from '../scenario/airlines.js';
 import { AIRPORT, type EntryGate } from '../scenario/airport.js';
 import { SIDS, type Sid } from '../scenario/sids.js';
-import { starForGate, type Star } from '../scenario/stars.js';
+import { entryFix, starForGate, type Star } from '../scenario/stars.js';
 import type { Aircraft } from './aircraft.js';
 import {
   ALTITUDE_STEP_FT,
@@ -76,7 +76,7 @@ export function scheduleNextSpawn(
   state.nextSpawnAtS = timeS + Math.max(MIN_SPAWN_INTERVAL_S, rng.exponential(mean));
 }
 
-function callsign(rng: Rng, existing: readonly Aircraft[]): { airline: (typeof AIRLINES)[number]; text: string } {
+function callsign(rng: Rng, existing: readonly Aircraft[]): { airline: Airline; text: string } {
   const used = new Set(existing.map((ac) => ac.callsign));
   for (let attempt = 0; attempt < 50; attempt += 1) {
     const airline = rng.pick(AIRLINES);
@@ -105,13 +105,13 @@ function callsign(rng: Rng, existing: readonly Aircraft[]): { airline: (typeof A
  * the published chart and nothing about this exists.
  */
 export function holdingStackLevelFt(route: Star, existing: readonly Aircraft[]): Ft | null {
-  const entryFix = route.waypoints[1]!.name;
+  const fixName = entryFix(route).name;
   let topFt = Number.NEGATIVE_INFINITY;
   for (const ac of existing) {
     const hold = ac.star?.hold;
     // The target rather than the live altitude: an aircraft still descending
     // into the pattern already owns the level it is descending to.
-    if (hold?.fix === entryFix) topFt = Math.max(topFt, ac.targetAltitudeFt);
+    if (hold?.fix === fixName) topFt = Math.max(topFt, ac.targetAltitudeFt);
   }
   if (topFt === Number.NEGATIVE_INFINITY) return null;
   return Math.ceil(topFt / ALTITUDE_STEP_FT) * ALTITUDE_STEP_FT + ALTITUDE_STEP_FT;

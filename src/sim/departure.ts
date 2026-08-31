@@ -39,17 +39,8 @@ import {
   SID_MAX_ANTICIPATION_NM,
   TAKEOFF_ACCEL_KTS_S,
 } from './constants.js';
-import { flyByAnticipationNm } from './dynamics.js';
-import {
-  bearing,
-  distance,
-  headingDelta,
-  headingDiff,
-  headingVector,
-  trueAirspeed,
-  type Nm,
-  type Sec,
-} from './units.js';
+import { fixPassed, routeAnticipationNm } from './dynamics.js';
+import { bearing, distance, headingVector, trueAirspeed, type Sec } from './units.js';
 
 export interface SidNav {
   route: Sid;
@@ -126,19 +117,6 @@ function stepGroundRoll(ac: Aircraft, dt: Sec): boolean {
   return ac.iasKts < ac.type.v2Kts;
 }
 
-/** How far before a fix to start the turn onto the next leg of the SID. */
-function anticipationNm(ac: Aircraft, nav: SidNav): Nm {
-  const waypoints = nav.route.waypoints;
-  const inbound = bearing(waypoints[nav.index - 1]!.position, waypoints[nav.index]!.position);
-  const outbound = bearing(waypoints[nav.index]!.position, waypoints[nav.index + 1]!.position);
-  return flyByAnticipationNm(
-    headingDelta(inbound, outbound),
-    trueAirspeed(ac.iasKts, ac.altitudeFt),
-    SID_FIX_CAPTURE_NM,
-    SID_MAX_ANTICIPATION_NM,
-  );
-}
-
 /**
  * Drive one tick of a departure. Returns the events for `world.ts` to log; the
  * caller decides whether to run kinematics afterwards by reading `ac.phase`,
@@ -183,9 +161,8 @@ export function stepDeparture(ac: Aircraft, dt: Sec): DepartureEvent[] {
   const courseDeg = bearing(position, fix.position);
   ac.targetHeadingDeg = courseDeg;
 
-  // Sequencing, exactly as on a STAR: the abeam test is the backstop for a fix
-  // that a tight turn threw the aircraft past.
-  const passed = rangeNm < SID_FIX_CAPTURE_NM || headingDiff(ac.headingDeg, courseDeg) > 90;
+  // Sequencing, exactly as on a STAR.
+  const passed = fixPassed(rangeNm, ac.headingDeg, courseDeg, SID_FIX_CAPTURE_NM);
   const last = nav.index === nav.route.waypoints.length - 1;
 
   if (last) {
@@ -199,6 +176,13 @@ export function stepDeparture(ac: Aircraft, dt: Sec): DepartureEvent[] {
     return [];
   }
 
-  if (passed || rangeNm <= anticipationNm(ac, nav)) nav.index += 1;
+  const anticipationNm = routeAnticipationNm(
+    nav.route.waypoints,
+    nav.index,
+    trueAirspeed(ac.iasKts, ac.altitudeFt),
+    SID_FIX_CAPTURE_NM,
+    SID_MAX_ANTICIPATION_NM,
+  );
+  if (passed || rangeNm <= anticipationNm) nav.index += 1;
   return [];
 }

@@ -216,6 +216,20 @@ export function starForGate(gateName: string): Star | undefined {
 }
 
 /**
+ * Waypoint 0 of every STAR is the gate itself, so the route proper begins at 1.
+ *
+ * That contract was spelled `waypoints[1]` in three unrelated places — the
+ * sequencer's starting index, the holding-stack scan and the profile raise — and
+ * is now stated here once.
+ */
+export const ENTRY_FIX_INDEX = 1;
+
+/** The first fix after the gate: where the route begins, and where a stack forms. */
+export function entryFix(star: Star): StarWaypoint {
+  return star.waypoints[ENTRY_FIX_INDEX]!;
+}
+
+/**
  * Published value at a point on the route, interpolated between the two
  * constraints that bracket it — a continuous descent rather than dive-and-drive.
  */
@@ -281,7 +295,7 @@ export function altitudeAheadFt(
  * between the two turns the join into a descent rather than a step.
  */
 export function raisedToLevel(star: Star, levelFt: Ft): readonly StarConstraint[] {
-  const entryDtgNm = star.waypoints[1]!.dtgNm;
+  const entryDtgNm = entryFix(star).dtgNm;
   return star.altitudes.map((constraint) =>
     constraint.dtgNm >= entryDtgNm
       ? { ...constraint, value: Math.max(constraint.value, levelFt) }
