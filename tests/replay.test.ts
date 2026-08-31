@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { SIDS } from '../src/scenario/sids.js';
-import { STARS } from '../src/scenario/stars.js';
 import {
   HISTORY_PERIOD_S,
   MESSAGE_LOG_MAX,
@@ -145,7 +143,7 @@ describe('rebuilding a frame', () => {
       expect(copy.star!.speedManual).toBe(live.star!.speedManual);
     }
     // Routes are looked up by chart name, so the recording only holds the name.
-    expect(STARS.some((star) => star.name === rec.tracks[0]!.starName)).toBe(true);
+    expect(SCENARIO.stars.some((star) => star.name === rec.tracks[0]!.starName)).toBe(true);
   });
 
   it('separates an assigned target from the one being flown', () => {
@@ -483,7 +481,7 @@ describe('replaying a departure', () => {
   /** A world holding exactly one departure, rolling from the threshold. */
   function departingWorld() {
     const world = quietWorld();
-    const ac = createDeparture(SCENARIO, createRng(3), createTrafficState(), SIDS[0]!, [], 0);
+    const ac = createDeparture(SCENARIO, createRng(3), createTrafficState(), SCENARIO.sids[0]!, [], 0);
     world.aircraft = [ac];
     return { world, ac };
   }

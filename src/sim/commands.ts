@@ -7,11 +7,9 @@ import type { Aircraft } from './aircraft.js';
 import { isControllable, isDeparture } from './aircraft.js';
 import {
   ALTITUDE_STEP_FT,
-  CEILING_FT,
   CONFIG_RANGE_NM,
   HEADING_HINT_S,
   HEADING_STEP_DEG,
-  MVA_FT,
   SPEED_FLOOR_CLEAN_KTS,
   SPEED_FLOOR_LOW_KTS,
   SPEED_MAX_KTS,
@@ -70,9 +68,9 @@ export function adjustAltitude(world: World, ac: Aircraft, direction: Direction)
   if (!guard(world, ac)) return;
 
   const base = quantize(assignedAltitudeFt(ac), ALTITUDE_STEP_FT);
-  const next = clamp(base + direction * ALTITUDE_STEP_FT, MVA_FT, CEILING_FT);
+  const next = clamp(base + direction * ALTITUDE_STEP_FT, world.scenario.airspace.mvaFt, world.scenario.airspace.ceilingFt);
   if (next === base) {
-    const limit = direction > 0 ? `ceiling ${CEILING_FT} ft` : `MVA ${MVA_FT} ft`;
+    const limit = direction > 0 ? `ceiling ${world.scenario.airspace.ceilingFt} ft` : `MVA ${world.scenario.airspace.mvaFt} ft`;
     log(world, `${ac.callsign} unable — at the ${limit}.`, 'system', [ac.id]);
     return;
   }
@@ -155,7 +153,7 @@ export function clearForIls(world: World, ac: Aircraft): void {
   }
 
   const geo = finalGeometry(world.scenario.runway, ac);
-  const result = evaluateClearance(ac, geo);
+  const result = evaluateClearance(world.scenario.airspace.mvaFt, ac, geo);
 
   if (!result.ok) {
     const code = result.code ?? 'state';

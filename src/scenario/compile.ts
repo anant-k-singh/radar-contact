@@ -8,6 +8,12 @@
  * becomes geometry.
  */
 import { boundaryRangeAtBearing, compileAirspace } from './airspace.js';
+import {
+  DEFAULT_FACILITY,
+  DEFAULT_RUNWAY,
+  DEFAULT_RUNWAY_OPS,
+  DEFAULT_TRAFFIC,
+} from './defaults.js';
 import { lerp, turnOf, type FixContext } from './geometry.js';
 import type {
   EntryGate,
@@ -28,6 +34,16 @@ import { bearing, distance, headingVector, type Ft, type Point } from '../sim/un
 /** How far above the assignable ceiling a departure levels off (§4.7). */
 const DEPARTURE_TOP_MARGIN_FT = 1000;
 
+/**
+ * A spec's own values, with the keys it left out dropped rather than spread as
+ * `undefined` — which would otherwise overwrite the defaults it means to inherit.
+ */
+function definedOnly<T extends object>(spec: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(spec).filter(([, value]) => value !== undefined),
+  ) as Partial<T>;
+}
+
 function compileRunway(spec: RunwaySpec, arp: Point, elevationFt: Ft): Runway {
   const direction = headingVector(spec.courseDeg);
   // Centre the runway on the airport reference point.
@@ -36,6 +52,8 @@ function compileRunway(spec: RunwaySpec, arp: Point, elevationFt: Ft): Runway {
     y: arp.y - (direction.y * spec.lengthNm) / 2,
   };
   return {
+    ...DEFAULT_RUNWAY,
+    ...definedOnly(spec),
     id: spec.id,
     courseDeg: spec.courseDeg,
     lengthNm: spec.lengthNm,
@@ -216,5 +234,8 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     sids,
     fleet: spec.fleet,
     airlines: spec.airlines,
+    traffic: { ...DEFAULT_TRAFFIC, ...definedOnly(spec.traffic ?? {}) },
+    runwayOps: { ...DEFAULT_RUNWAY_OPS, ...definedOnly(spec.runwayOps ?? {}) },
+    facility: { ...DEFAULT_FACILITY, ...definedOnly(spec.facility ?? {}) },
   };
 }

@@ -10,7 +10,7 @@ import {
 } from '../src/sim/ils.js';
 import { step } from '../src/sim/world.js';
 import { headingDiff } from '../src/sim/units.js';
-import { geo, makeAircraft, onFinal, onGlideslope, pilotActs, quietWorld, RUNWAY } from './helpers.js';
+import { geo, makeAircraft, onFinal, onGlideslope, pilotActs, quietWorld, RUNWAY, SCENARIO } from './helpers.js';
 
 /**
  * An aircraft correctly set up for a 30° intercept at 12 NM.
@@ -69,7 +69,7 @@ describe('final approach geometry', () => {
 describe('the clearance gate', () => {
   it('accepts a textbook 30° intercept from below the glideslope', () => {
     const ac = goodSetup();
-    const result = evaluateClearance(ac, geo(ac));
+    const result = evaluateClearance(SCENARIO.airspace.mvaFt, ac, geo(ac));
     expect(result.ok).toBe(true);
     expect(result.warnings).toHaveLength(0);
   });
@@ -79,19 +79,19 @@ describe('the clearance gate', () => {
     // intercept, so it may be given before the turn has even been flown.
     const ac = goodSetup();
     ac.headingDeg = 270;
-    expect(evaluateClearance(ac, geo(ac)).ok).toBe(true);
+    expect(evaluateClearance(SCENARIO.airspace.mvaFt, ac, geo(ac)).ok).toBe(true);
   });
 
   it('clears an aircraft still descending to the intercept altitude', () => {
     const ac = goodSetup();
     ac.vsFpm = -1200;
-    expect(evaluateClearance(ac, geo(ac)).ok).toBe(true);
+    expect(evaluateClearance(SCENARIO.airspace.mvaFt, ac, geo(ac)).ok).toBe(true);
   });
 
   it('clears an aircraft above the glideslope, warning by how much', () => {
     const ac = goodSetup();
     ac.altitudeFt = 5000; // G/S at 12 NM is ~3821 ft
-    const result = evaluateClearance(ac, geo(ac));
+    const result = evaluateClearance(SCENARIO.airspace.mvaFt, ac, geo(ac));
     expect(result.ok).toBe(true);
     expect(result.warnings.join(' ')).toContain('1179 ft above the glideslope');
   });
@@ -101,7 +101,7 @@ describe('the clearance gate', () => {
     // continuously and only gates the capture itself (§6.1a).
     const position = onFinal(30, -2);
     const ac = makeAircraft({ ...position, altitudeFt: 8000, headingDeg: 210, vsFpm: 0 });
-    expect(evaluateClearance(ac, geo(ac)).ok).toBe(true);
+    expect(evaluateClearance(SCENARIO.airspace.mvaFt, ac, geo(ac)).ok).toBe(true);
   });
 
   it('clears an aircraft that has overshot and is still diverging', () => {
@@ -109,15 +109,15 @@ describe('the clearance gate', () => {
     // instead of watching it until the turn has taken effect.
     const position = onFinal(12, -3);
     const ac = makeAircraft({ ...position, altitudeFt: 3000, headingDeg: 150, vsFpm: 0 });
-    expect(evaluateClearance(ac, geo(ac)).ok).toBe(true);
+    expect(evaluateClearance(SCENARIO.airspace.mvaFt, ac, geo(ac)).ok).toBe(true);
   });
 
   it('still refuses past the threshold and below the MVA', () => {
     // What is left in the gate: the clearance could never mean anything.
     const past = makeAircraft({ ...onFinal(-3), altitudeFt: 3000, headingDeg: 180 });
-    expect(evaluateClearance(past, geo(past)).code).toBe('pastThreshold');
+    expect(evaluateClearance(SCENARIO.airspace.mvaFt, past, geo(past)).code).toBe('pastThreshold');
     const low = makeAircraft({ ...onFinal(12, -2), altitudeFt: 1500, headingDeg: 210 });
-    expect(evaluateClearance(low, geo(low)).code).toBe('belowMva');
+    expect(evaluateClearance(SCENARIO.airspace.mvaFt, low, geo(low)).code).toBe('belowMva');
   });
 });
 

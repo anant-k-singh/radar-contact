@@ -1,4 +1,4 @@
-import { AIRSPACE_HALF_HEIGHT_NM, AIRSPACE_RADIUS_NM } from '../sim/constants.js';
+import type { Airspace } from '../scenario/types.js';
 import type { Nm, Point } from '../sim/units.js';
 
 /** Fraction of the canvas the airspace fills, leaving the boundary off the edge. */
@@ -20,7 +20,7 @@ export interface Projection {
   pxPerNm: number;
 }
 
-export function createProjection(width: number, height: number): Projection {
+export function createProjection(airspace: Airspace, width: number, height: number): Projection {
   // The stats overlay owns the right-hand edge, so the airspace gets the rest.
   // Reserving the gutter before fitting is what keeps the boundary off the panel
   // at every window size, rather than only at the one this was eyeballed on.
@@ -30,8 +30,8 @@ export function createProjection(width: number, height: number): Projection {
   // it buys ~20 % more scale than fitting a 100 NM diameter into the same
   // canvas. The circle's full east–west extent still has to fit, so on a narrow
   // window the width takes over.
-  const byHeight = ((height / 2) * FIT) / AIRSPACE_HALF_HEIGHT_NM;
-  const byWidth = ((scopeWidth / 2) * FIT) / AIRSPACE_RADIUS_NM;
+  const byHeight = ((height / 2) * FIT) / airspace.halfHeightNm;
+  const byWidth = ((scopeWidth / 2) * FIT) / airspace.radiusNm;
   return {
     width,
     height,

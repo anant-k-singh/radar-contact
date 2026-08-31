@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { AIRPORT } from '../src/scenario/airport.js';
-import { CEILING_FT, NEAR_ENTRY_FT } from '../src/scenario/fields/zzzz/airport.js';
+import { NEAR_ENTRY_FT } from '../src/scenario/fields/zzzz/airport.js';
 import { boundaryRangeAtBearing } from '../src/scenario/airspace.js';
 import {
-  AIRSPACE_HALF_HEIGHT_NM,
-  AIRSPACE_RADIUS_NM,
   IN_TRAIL_SEQUENCING_MIN_NM,
   MOVEMENT_RATE_INTERVALS,
   MOVEMENT_RATE_STALE_S,
@@ -25,7 +22,7 @@ import {
   projectedSpacingNm,
   step,
 } from '../src/sim/world.js';
-import { makeAircraft, onFinal, quietWorld, RUNWAY, SCENARIO } from './helpers.js';
+import { AIRPORT, makeAircraft, onFinal, quietWorld, RUNWAY, SCENARIO } from './helpers.js';
 
 /** Run the world forward by `seconds` of sim time. */
 function run(world: ReturnType<typeof createWorld>, seconds: number): void {
@@ -83,7 +80,7 @@ describe('traffic generation', () => {
     expect(ac.altitudeFt).toBe(gate.entryAltitudeFt);
     expect(ac.iasKts).toBe(gate.entrySpeedKts);
     // One physics step of flying has already happened since the handover.
-    expect(Math.hypot(ac.x, ac.y)).toBeCloseTo(AIRSPACE_RADIUS_NM, 1);
+    expect(Math.hypot(ac.x, ac.y)).toBeCloseTo(SCENARIO.airspace.radiusNm, 1);
     // Established on the first leg of its STAR.
     const first = ac.star!.route.waypoints[1]!;
     expect(bearing(gate.position, first.position)).toBeCloseTo(ac.headingDeg, 4);
@@ -95,8 +92,8 @@ describe('traffic generation', () => {
     const byName = new Map(AIRPORT.gates.map((g) => [g.name, g.entryAltitudeFt]));
     expect(byName.get('KOVAL')).toBe(NEAR_ENTRY_FT);
     expect(byName.get('VANDA')).toBe(NEAR_ENTRY_FT);
-    expect(byName.get('TEMBA')).toBe(CEILING_FT);
-    expect(byName.get('RIMOL')).toBe(CEILING_FT);
+    expect(byName.get('TEMBA')).toBe(SCENARIO.airspace.ceilingFt);
+    expect(byName.get('RIMOL')).toBe(SCENARIO.airspace.ceilingFt);
 
     // And an arrival actually spawns at its gate's altitude, level.
     for (const gate of AIRPORT.gates) {
@@ -155,7 +152,7 @@ describe('airspace boundary', () => {
   it('hands an outbound aircraft back to Center and scores an exit', () => {
     // Due east, where the boundary is still the 50 NM arc.
     const ac = makeAircraft({
-      x: AIRSPACE_RADIUS_NM - 0.2,
+      x: SCENARIO.airspace.radiusNm - 0.2,
       y: 0,
       headingDeg: 90,
       altitudeFt: 6000,
@@ -174,7 +171,7 @@ describe('airspace boundary', () => {
     // happens at 42 NM — the radius alone would still call this inside.
     const ac = makeAircraft({
       x: 0,
-      y: AIRSPACE_HALF_HEIGHT_NM - 0.2,
+      y: SCENARIO.airspace.halfHeightNm - 0.2,
       headingDeg: 360,
       altitudeFt: 6000,
       iasKts: 250,
@@ -189,7 +186,7 @@ describe('airspace boundary', () => {
   it('leaves inbound traffic at the boundary alone', () => {
     const ac = makeAircraft({
       x: 0,
-      y: AIRSPACE_HALF_HEIGHT_NM,
+      y: SCENARIO.airspace.halfHeightNm,
       headingDeg: 180,
       altitudeFt: 8000,
       iasKts: 250,
@@ -207,10 +204,10 @@ describe('airspace boundary', () => {
     // than beyond a chord — and with enough room left for its marker.
     for (const gate of AIRPORT.gates) {
       expect(boundaryRangeAtBearing(SCENARIO.airspace, gate.bearingDeg)).toBeCloseTo(
-        AIRSPACE_RADIUS_NM,
+        SCENARIO.airspace.radiusNm,
         6,
       );
-      expect(AIRSPACE_HALF_HEIGHT_NM - Math.abs(gate.position.y)).toBeGreaterThan(2);
+      expect(SCENARIO.airspace.halfHeightNm - Math.abs(gate.position.y)).toBeGreaterThan(2);
     }
   });
 });

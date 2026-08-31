@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { AIRPORT } from '../src/scenario/airport.js';
 import type { Aircraft } from '../src/sim/aircraft.js';
 import { adjustAltitude, adjustHeading, adjustSpeed, clearForIls, toggleHold } from '../src/sim/commands.js';
-import { altitudeAheadFt, starProfileAt } from '../src/scenario/stars.js';
+import { altitudeAheadFt, starProfileAt } from '../src/scenario/routes.js';
 import {
-  CEILING_FT,
-  GATE_COOLDOWN_S,
   HOLD_LEG_S,
   HOLD_SPEED_KTS,
   PHYSICS_DT,
@@ -19,7 +16,7 @@ import { worldAtFrame } from '../src/replay/playback.js';
 import { createRecording, sample } from '../src/replay/recorder.js';
 import { stateTag } from '../src/render/trafficLayer.js';
 import { step } from '../src/sim/world.js';
-import { makeAircraft, pilotActs, quietWorld, run, SCENARIO } from './helpers.js';
+import { AIRPORT, makeAircraft, pilotActs, quietWorld, run, SCENARIO } from './helpers.js';
 
 /** A fresh arrival at `gateName`, on its STAR, in an otherwise empty world. */
 function arrival(gateName = 'VANDA'): { ac: Aircraft; world: World } {
@@ -440,13 +437,13 @@ describe('delivering into a holding stack', () => {
 
   it('stops delivering on that route once the stack reaches the ceiling', () => {
     const state = createTrafficState();
-    const full = [holdingAt('KOVAL', CEILING_FT)];
+    const full = [holdingAt('KOVAL', SCENARIO.airspace.ceilingFt)];
     // Every gate is off cooldown, so KOVAL is only missing if the stack vetoed
     // it — checked by spawning many times and never seeing it.
     const rng = createRng(3);
     const gates = new Set<string>();
     for (let i = 0; i < 200; i += 1) {
-      const ac = trySpawn(SCENARIO, rng, state, full, i * GATE_COOLDOWN_S);
+      const ac = trySpawn(SCENARIO, rng, state, full, i * SCENARIO.traffic.gateCooldownS);
       if (ac) gates.add(ac.entryGate);
     }
     expect(gates.has('KOVAL')).toBe(false);

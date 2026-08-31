@@ -27,23 +27,14 @@ export const HISTORY_PERIOD_S = 10.0;
 export const TRAIL_LENGTH = 20;
 
 // ── Airspace (§3) ───────────────────────────────────────────────────────────
-export const AIRSPACE_RADIUS_NM = 50;
 /**
- * The circle's northern and southern caps are cut off by chords at this
- * latitude (§3.1). Those extremities were dead airspace — no gate, no route,
- * nothing but the compass rose — and cutting them lets the scope draw the same
- * 50 NM of usable width at a bigger scale, since the height no longer has to
- * carry 100 NM of it. The four gates sit at |y| = 38.3 NM, so 42 keeps them
- * inside with room for their markers and labels.
+ * The size and shape of the airspace, its MVA, its ceiling, the range rings and
+ * the centreline furniture are all in `Scenario.airspace` and `Scenario.runway`:
+ * they are what distinguishes one field from another, and there is nothing left
+ * to say about them that is true of every field.
  */
-export const AIRSPACE_HALF_HEIGHT_NM = 42;
 /** How close to the boundary an outbound aircraft gets its warning. */
 export const EXIT_WARN_MARGIN_NM = 5;
-export const MVA_FT = 2000;
-export const CEILING_FT = 13_000;
-export const RANGE_RINGS_NM = [10, 20, 30, 40, 50];
-export const CENTERLINE_LENGTH_NM = 20;
-export const CENTERLINE_TICK_NM = 2;
 
 // ── Player authority (§3.3) ─────────────────────────────────────────────────
 export const HEADING_STEP_DEG = 10;
@@ -175,7 +166,11 @@ export const GO_AROUND_GATE_NM = 5.0; // stability is enforced inside this
 export const GO_AROUND_IN_TRAIL_NM = 2.5;
 export const GO_AROUND_ABOVE_GS_FT = 1000;
 export const GO_AROUND_OVERSPEED_KTS = 45; // above Vapp
-export const GO_AROUND_ALT_FT = 3000;
+/**
+ * How close to the missed-approach altitude counts as levelled off, at which
+ * point the aircraft is an ordinary inbound again and takes vectors.
+ */
+export const GO_AROUND_LEVEL_FT = 100;
 /**
  * How close to the threshold an arrival may get with the runway still occupied
  * before it goes around (§6.2, §9.4).
@@ -206,11 +201,14 @@ export const TIME_SCALES: readonly number[] = [1, 2, 4, 8, 16];
 export const TIME_SCALE_BUTTONS: readonly number[] = TIME_SCALES.slice(0, -1);
 
 // ── Traffic generation (§4.4) ───────────────────────────────────────────────
-export const FLOW_DEFAULT_PER_HOUR = 25;
+/**
+ * The flow a field *offers* and how long its gates rest between arrivals are in
+ * `Scenario.traffic`. What is here is the range the player may ask for, which is
+ * a property of the control the sidebar gives them rather than of the field.
+ */
 export const FLOW_MIN_PER_HOUR = 5;
 export const FLOW_MAX_PER_HOUR = 50;
 export const MIN_SPAWN_INTERVAL_S = 45;
-export const GATE_COOLDOWN_S = 90;
 export const SPAWN_VETO_NM = 5;
 export const SPAWN_VETO_FT = 1000;
 /**
@@ -238,7 +236,6 @@ export const STAR_MAX_ANTICIPATION_NM = 6;
  * per-fix and declared alongside the geometry in scenario/sids.ts. Only what is
  * global to every departure lives in this file.
  */
-export const DEPARTURE_FLOW_DEFAULT_PER_HOUR = 10;
 export const DEPARTURE_FLOW_MIN_PER_HOUR = 0;
 export const DEPARTURE_FLOW_MAX_PER_HOUR = 20;
 export const DEPARTURE_FLOW_STEP_PER_HOUR = 5;
@@ -249,55 +246,11 @@ export const DEPARTURE_FLOW_STEP_PER_HOUR = 5;
  */
 export const DEPARTURE_FLOW_IDLE_RECHECK_S = 10;
 /**
- * Runway separation between consecutive departures, roll to roll. It is the
- * interval that applies when nothing lands in between; an arrival between the
- * two adds its own rolling-out interval on top.
- *
- * 90 s covers the wake-turbulence minimum behind a medium and the time the
- * first departure needs to be airborne and clear of the far end. It caps the
- * runway at 40 departures an hour, which is comfortably above the 20/h the
- * player can ask for — so a queue that grows is the *arrivals* eating the
- * runway, never the interval itself.
+ * Sharing the runway between the arrivals and the departures — the release
+ * interval, how close an arrival blocks one, how long a landing holds one, and
+ * the airborne margin — is in `Scenario.runwayOps`. Those are set by the runway's
+ * length and how fast it can be turned round, so they belong to the field.
  */
-export const DEPARTURE_MIN_INTERVAL_S = 90;
-/**
- * The runway is shared (§4.7). No departure is released while an arrival is
- * inside this far on final, or for this long after one has landed and is still
- * rolling out. A saturated final therefore starves the departures, which is the
- * coupling that makes one runway feel like one runway.
- *
- * The distance is a floor, not the test — the test is
- * `DEPARTURE_AIRBORNE_MARGIN_S` below, in time. It is here because the real
- * rule has a distance in it too: nothing is released with an arrival this close
- * however slowly that arrival happens to be flying. At any normal approach
- * speed the time test binds a mile before this does, so the floor only takes
- * over below about 115 kt of ground speed.
- */
-export const DEPARTURE_HOLD_FINAL_NM = 3.5;
-export const DEPARTURE_HOLD_AFTER_LANDING_S = 60;
-/**
- * How long the arrival must still be from the threshold at the moment the
- * departure ahead of it *rotates* (§4.7).
- *
- * This is the safety buffer, and making it a term of its own is the point. The
- * release used to be a bare 3 NM chosen so the slowest type in the fleet would
- * just clear — which meant every release sat at that type's edge, and a heavy
- * rotated with the arrival at 0.8 NM and 300 ft. The gate is now
- * `time to threshold ≥ take-off roll + this`, computed from the arrival's
- * actual ground speed, so an arrival still carrying speed blocks further out
- * than one already at its approach speed.
- *
- * The theoretical floor is about 8 s — the time an arrival takes to cover the
- * 0.3 NM at which `GO_AROUND_RUNWAY_OCCUPIED_NM` would send it around. 40 s is
- * five times that: enough that the release is not one wobble from a go-around,
- * and not so much that the runway sits idle behind a gap it could have used.
- *
- * At this figure the clock and the 3.5 NM floor land almost on top of each
- * other at an approach speed — the time test asks for 3.58 NM, the floor for
- * 3.5 — so the two rules agree there and the clock alone governs anything
- * faster.
- */
-export const DEPARTURE_AIRBORNE_MARGIN_S = 40;
 /**
  * Where the hold-short queue turns amber and then red (§8.2).
  *
@@ -357,8 +310,6 @@ export const DEPARTURE_THRUST_BUDGET_FPM = 4200;
 /** Sequencing tolerance at a SID fix — the same job `STAR_FIX_CAPTURE_NM` does. */
 export const SID_FIX_CAPTURE_NM = 0.5;
 export const SID_MAX_ANTICIPATION_NM = 6;
-/** Frequency the departures are already working, for the handover line. */
-export const DEPARTURE_FREQUENCY = '124.7';
 
 // ── Holding (§4.6) ──────────────────────────────────────────────────────────
 /**
@@ -393,7 +344,7 @@ export const PILOT_DELAY_MAX_S = 3.0;
 export const PILOT_ORDER_GAP_S = 0.05;
 
 // ── Handoff (§10) ───────────────────────────────────────────────────────────
-export const TOWER_FREQUENCY = '119.1';
+/** Tower's and Departure's frequencies are a facility's own: `Scenario.facility`. */
 
 // ── Session stats (§8) ──────────────────────────────────────────────────────
 /**

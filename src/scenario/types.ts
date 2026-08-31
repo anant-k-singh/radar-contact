@@ -11,7 +11,7 @@
  * here or defaulted in `defaults.ts`, so the data layer never reaches back into
  * `src/sim/constants.ts` for a number that is really a property of the field.
  */
-import type { Deg, Ft, Kts, Nm, Point } from '../sim/units.js';
+import type { Deg, Ft, Kts, Nm, Point, Sec } from '../sim/units.js';
 import type { AircraftType } from './aircraftTypes.js';
 import type { Airline } from './airlines.js';
 import type { FixAt } from './geometry.js';
@@ -33,6 +33,9 @@ export interface ScenarioSpec {
   sids: readonly SidSpec[];
   fleet: readonly AircraftType[];
   airlines: readonly Airline[];
+  traffic?: Partial<TrafficSpec>;
+  runwayOps?: Partial<RunwayOpsSpec>;
+  facility?: Partial<FacilitySpec>;
 }
 
 export interface RunwaySpec {
@@ -41,6 +44,40 @@ export interface RunwaySpec {
   /** Final approach course, i.e. the runway's own heading. Magnetic == true (§3.1 A3). */
   courseDeg: Deg;
   lengthNm: Nm;
+  /** Published missed approach altitude. Between the MVA and the ceiling. */
+  missedApproachAltitudeFt?: Ft;
+  /** How far the extended centreline is drawn, and how often it is ticked. */
+  centerlineLengthNm?: Nm;
+  centerlineTickNm?: Nm;
+}
+
+export interface TrafficSpec {
+  /** What Center offers by default; the player can turn it up or down. */
+  arrivalsPerHour: number;
+  departuresPerHour: number;
+  /** How long a gate stays quiet after taking one, so a route is not doubled up. */
+  gateCooldownS: Sec;
+}
+
+/**
+ * Everything about sharing one runway between the arrivals and the departures
+ * (§4.7). Per-field because it is set by the runway's length and how quickly it
+ * can be turned round; a second field inherits the defaults unless it differs.
+ */
+export interface RunwayOpsSpec {
+  /** Roll to roll between consecutive departures, when nothing lands between. */
+  minDepartureIntervalS: Sec;
+  /** No release with an arrival closer in than this, however slowly it is flying. */
+  holdFinalNm: Nm;
+  /** No release for this long after a landing, while it is still rolling out. */
+  holdAfterLandingS: Sec;
+  /** How far the arrival must still be, in time, when the departure ahead rotates. */
+  airborneMarginS: Sec;
+}
+
+export interface FacilitySpec {
+  towerFrequency: string;
+  departureFrequency: string;
 }
 
 export interface AirspaceSpec {
@@ -138,13 +175,12 @@ export interface Scenario {
   sids: readonly Sid[];
   fleet: readonly AircraftType[];
   airlines: readonly Airline[];
+  traffic: TrafficSpec;
+  runwayOps: RunwayOpsSpec;
+  facility: FacilitySpec;
 }
 
-export interface Runway {
-  id: string;
-  /** Final approach course, i.e. the runway's own heading. */
-  courseDeg: Deg;
-  lengthNm: Nm;
+export interface Runway extends Required<RunwaySpec> {
   /**
    * Threshold elevation, i.e. the field's. Carried here so that everything doing
    * approach geometry — the glideslope, the runway environment, a departure's AGL

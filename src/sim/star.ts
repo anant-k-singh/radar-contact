@@ -13,9 +13,8 @@ import {
   raisedToLevel,
   speedAheadKts,
   starProfileAt,
-  type Star,
-  type StarConstraint,
-} from '../scenario/stars.js';
+} from '../scenario/routes.js';
+import type { Star, StarConstraint } from '../scenario/types.js';
 import type { Aircraft } from './aircraft.js';
 import { STAR_FIX_CAPTURE_NM, STAR_MAX_ANTICIPATION_NM } from './constants.js';
 import { fixPassed, routeAnticipationNm } from './dynamics.js';

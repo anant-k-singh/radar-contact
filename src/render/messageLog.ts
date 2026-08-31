@@ -1,5 +1,4 @@
 /** Readback log along the bottom of the scope, and the status line along the top. */
-import { AIRPORT } from '../scenario/airport.js';
 import { MESSAGE_LOG_VISIBLE } from '../sim/constants.js';
 import { messagesFor, type MessageKind, type World } from '../sim/world.js';
 import type { Projection } from './project.js';
@@ -54,7 +53,7 @@ export function drawStatusLine(
   ctx.fillStyle = THEME.logSystem;
 
   const parts = [
-    `${AIRPORT.icao} RWY ${AIRPORT.runway.id} ILS`,
+    `${world.scenario.icao} RWY ${world.scenario.runway.id} ILS`,
     `ARR ${world.flowPerHour}/h`,
     `DEP ${world.departureFlowPerHour === 0 ? 'off' : `${world.departureFlowPerHour}/h`}`,
     `${clockText(world.timeS)}`,

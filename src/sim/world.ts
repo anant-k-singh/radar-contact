@@ -7,11 +7,7 @@ import type { Aircraft } from './aircraft.js';
 import { isDeparture, sampleRadar } from './aircraft.js';
 import { boundaryMarginNm } from '../scenario/airspace.js';
 import {
-  DEPARTURE_FLOW_DEFAULT_PER_HOUR,
-  DEPARTURE_HOLD_AFTER_LANDING_S,
-  DEPARTURE_FREQUENCY,
   EXIT_WARN_MARGIN_NM,
-  FLOW_DEFAULT_PER_HOUR,
   HISTORY_PERIOD_S,
   IN_TRAIL_MIN_NM,
   MOVEMENT_RATE_INTERVALS,
@@ -19,7 +15,6 @@ import {
   MOVEMENT_RATE_STALE_S,
   MESSAGE_LOG_MAX,
   RADAR_PERIOD_S,
-  TOWER_FREQUENCY,
   TRAIL_LENGTH,
 } from './constants.js';
 import { stepDeparture, type DepartureEvent } from './departure.js';
@@ -122,8 +117,8 @@ export interface World {
 export function createWorld(
   scenario: Scenario,
   seed: number,
-  flowPerHour = FLOW_DEFAULT_PER_HOUR,
-  departureFlowPerHour = DEPARTURE_FLOW_DEFAULT_PER_HOUR,
+  flowPerHour = scenario.traffic.arrivalsPerHour,
+  departureFlowPerHour = scenario.traffic.departuresPerHour,
 ): World {
   const traffic = createTrafficState();
   traffic.nextSpawnAtS = 5; // don't stare at an empty scope
@@ -292,7 +287,7 @@ export function departureQueueLength(world: World): number {
  */
 export function runwayOccupied(world: World): boolean {
   const { lastLandingS } = world.traffic;
-  if (lastLandingS !== null && world.timeS - lastLandingS < DEPARTURE_HOLD_AFTER_LANDING_S) {
+  if (lastLandingS !== null && world.timeS - lastLandingS < world.scenario.runwayOps.holdAfterLandingS) {
     return true;
   }
   return world.aircraft.some((ac) => ac.phase === 'roll');
@@ -321,7 +316,7 @@ function tryHandoff(world: World, ac: Aircraft): void {
 
   ac.handedOff = true;
   world.stats.handoffs += 1;
-  log(world, `${ac.callsign}, contact Tower on ${TOWER_FREQUENCY}.`, 'system', [ac.id]);
+  log(world, `${ac.callsign}, contact Tower on ${world.scenario.facility.towerFrequency}.`, 'system', [ac.id]);
 }
 
 function checkAirspaceExit(world: World, ac: Aircraft): boolean {
@@ -382,7 +377,7 @@ function logDepartureEvents(world: World, ac: Aircraft, events: readonly Departu
         log(
           world,
           `${ac.callsign} airborne runway ${world.scenario.runway.id}, ${event.sid} departure, ` +
-            `contact Departure on ${DEPARTURE_FREQUENCY}.`,
+            `contact Departure on ${world.scenario.facility.departureFrequency}.`,
           'system',
           [ac.id],
         );

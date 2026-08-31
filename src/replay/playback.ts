@@ -18,9 +18,7 @@
  *   alert level still comes from the recording: on the scope that colour is a
  *   1 Hz radar sample, not an instantaneous truth (§5).
  */
-import { sidByName } from '../scenario/sids.js';
 import { DEFAULT_SCENARIO } from '../scenario/registry.js';
-import { STARS } from '../scenario/stars.js';
 import type { Aircraft } from '../sim/aircraft.js';
 import type { SidNav } from '../sim/departure.js';
 import {
@@ -123,7 +121,7 @@ function aircraftAt(track: Track, frame: number): Aircraft {
   const i = frame - track.startFrame;
   const flags = decodeFlags(track.flags[i]!);
 
-  const route = track.starName === null ? undefined : STARS.find((s) => s.name === track.starName);
+  const route = track.starName === null ? undefined : DEFAULT_SCENARIO.stars.find((s) => s.name === track.starName);
   let star: StarNav | null = null;
   if (flags.onStar && route) {
     star = {
@@ -145,7 +143,7 @@ function aircraftAt(track: Track, frame: number): Aircraft {
   // Nothing in playback flies a SID, but `sid` being non-null is what makes the
   // aircraft read as a departure everywhere else — muted on the scope,
   // uncontrollable, tagged DEP (§4.7).
-  const sidRoute = track.sidName === null ? undefined : sidByName(track.sidName);
+  const sidRoute = track.sidName === null ? undefined : DEFAULT_SCENARIO.sids.find((sid) => sid.name === track.sidName);
   let sid: SidNav | null = null;
   if (sidRoute) {
     const index = track.sidIndex[i]!;

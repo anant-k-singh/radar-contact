@@ -29,7 +29,7 @@ import {
   STAR_FIX_CAPTURE_NM,
 } from './constants.js';
 import { fixPassed } from './dynamics.js';
-import { altitudeAheadFt, starProfileAt } from '../scenario/stars.js';
+import { altitudeAheadFt, starProfileAt } from '../scenario/routes.js';
 import { activeFix, distanceToGoNm, type StarNav } from './star.js';
 import { bearing, distance, headingDiff, normalizeHeading, type Deg, type Sec } from './units.js';
 

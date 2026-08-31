@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { AIRPORT } from '../src/scenario/airport.js';
-import { STARS, starForGate, starProfileAt, type Star } from '../src/scenario/stars.js';
+import { starForGate, starProfileAt } from '../src/scenario/routes.js';
+import type { Star } from '../src/scenario/types.js';
 import type { Aircraft } from '../src/sim/aircraft.js';
 import { adjustAltitude, adjustHeading, adjustSpeed } from '../src/sim/commands.js';
-import { MVA_FT, SEP_HORIZ_NM, SPEED_FLOOR_CLEAN_KTS } from '../src/sim/constants.js';
+import { SEP_HORIZ_NM, SPEED_FLOOR_CLEAN_KTS } from '../src/sim/constants.js';
 import { createRng } from '../src/sim/rng.js';
 import { createArrival, createTrafficState } from '../src/sim/traffic.js';
 import { distance, type Point } from '../src/sim/units.js';
 import { step } from '../src/sim/world.js';
-import { pilotActs, quietWorld, run, SCENARIO } from './helpers.js';
+import { AIRPORT, pilotActs, quietWorld, run, SCENARIO } from './helpers.js';
 
 /** A fresh arrival at `gateName`, on its STAR, in an otherwise empty world. */
 function arrival(gateName: string): { ac: Aircraft; world: ReturnType<typeof quietWorld> } {
@@ -50,9 +50,9 @@ function offRouteNm(ac: Aircraft, star: Star): number {
 
 describe('the published routes', () => {
   it('gives every entry gate a STAR that ends level at the platform altitude', () => {
-    expect(STARS).toHaveLength(AIRPORT.gates.length);
+    expect(SCENARIO.stars).toHaveLength(AIRPORT.gates.length);
     for (const gate of AIRPORT.gates) {
-      const star = starForGate(gate.name)!;
+      const star = starForGate(SCENARIO, gate.name)!;
       expect(star).toBeDefined();
       expect(star.waypoints[0]!.position).toEqual(gate.position);
       expect(star.waypoints[0]!.altitudeFt).toBe(gate.entryAltitudeFt);
@@ -64,7 +64,7 @@ describe('the published routes', () => {
         expect(wpt.speedKts).toBeDefined();
       }
       const last = star.waypoints[star.waypoints.length - 1]!;
-      expect(last.altitudeFt!).toBeGreaterThan(MVA_FT);
+      expect(last.altitudeFt!).toBeGreaterThan(SCENARIO.airspace.mvaFt);
       expect(last.speedKts!).toBeGreaterThanOrEqual(SPEED_FLOOR_CLEAN_KTS);
       expect(last.dtgNm).toBe(0);
       // Published altitudes only ever come down.
@@ -74,7 +74,7 @@ describe('the published routes', () => {
   });
 
   it('publishes 250 kt as far as the first fix, and reduces only after it', () => {
-    for (const star of STARS) {
+    for (const star of SCENARIO.stars) {
       const entrySpeedKts = star.waypoints[0]!.speedKts!;
       const first = star.waypoints[1]!;
       expect(first.speedKts).toBe(entrySpeedKts);
@@ -105,7 +105,7 @@ describe('the published routes', () => {
       TAVIR: [10_000, 250], DEMUX: [7000, 230], KETAN: [3000, 210],
     };
     const seen = new Set<string>();
-    for (const star of STARS) {
+    for (const star of SCENARIO.stars) {
       // Skip the gate itself: its crossing comes from the gate, not the chart.
       for (const wpt of star.waypoints.slice(1)) {
         const want = expected[wpt.name];
@@ -120,8 +120,8 @@ describe('the published routes', () => {
   it('keeps the four routes clear of each other', () => {
     // Only the two north routes are allowed to point at each other, and even
     // they stop with the width of a separation minimum between them.
-    for (const star of STARS) {
-      for (const other of STARS) {
+    for (const star of SCENARIO.stars) {
+      for (const other of SCENARIO.stars) {
         if (other === star) continue;
         for (let i = 0; i < star.waypoints.length - 1; i += 1) {
           for (const wpt of other.waypoints) {

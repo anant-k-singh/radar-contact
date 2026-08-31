@@ -13,13 +13,7 @@ import type { EntryGate, Scenario, Sid, Star } from '../scenario/types.js';
 import { newAircraft, type Aircraft } from './aircraft.js';
 import {
   ALTITUDE_STEP_FT,
-  CEILING_FT,
-  DEPARTURE_AIRBORNE_MARGIN_S,
   DEPARTURE_FLOW_IDLE_RECHECK_S,
-  DEPARTURE_HOLD_AFTER_LANDING_S,
-  DEPARTURE_HOLD_FINAL_NM,
-  DEPARTURE_MIN_INTERVAL_S,
-  GATE_COOLDOWN_S,
   MIN_SPAWN_INTERVAL_S,
   SPAWN_VETO_FT,
   SPAWN_VETO_NM,
@@ -120,9 +114,14 @@ export function holdingStackLevelFt(route: Star, existing: readonly Aircraft[]):
   return Math.ceil(topFt / ALTITUDE_STEP_FT) * ALTITUDE_STEP_FT + ALTITUDE_STEP_FT;
 }
 
-function gateAvailable(gate: EntryGate, state: TrafficState, timeS: Sec): boolean {
+function gateAvailable(
+  scenario: Scenario,
+  gate: EntryGate,
+  state: TrafficState,
+  timeS: Sec,
+): boolean {
   const last = state.gateLastSpawnS.get(gate.name);
-  return last === undefined || timeS - last >= GATE_COOLDOWN_S;
+  return last === undefined || timeS - last >= scenario.traffic.gateCooldownS;
 }
 
 /**
@@ -139,7 +138,7 @@ function stackFull(scenario: Scenario, gate: EntryGate, existing: readonly Aircr
   const route = starForGate(scenario, gate.name);
   if (!route) return false;
   const levelFt = holdingStackLevelFt(route, existing);
-  return levelFt !== null && levelFt > CEILING_FT;
+  return levelFt !== null && levelFt > scenario.airspace.ceilingFt;
 }
 
 /** Would this spawn appear too close to traffic already in the airspace? */
@@ -209,7 +208,7 @@ export function trySpawn(
 ): Aircraft | null {
   const candidates = scenario.gates.filter(
     (gate) =>
-      gateAvailable(gate, state, timeS) &&
+      gateAvailable(scenario, gate, state, timeS) &&
       !vetoed(gate, existing) &&
       !stackFull(scenario, gate, existing),
   );
@@ -257,10 +256,10 @@ export function runwayBlockedBy(
   existing: readonly Aircraft[],
   timeS: Sec,
 ): string | null {
-  if (state.lastDepartureS !== null && timeS - state.lastDepartureS < DEPARTURE_MIN_INTERVAL_S) {
+  if (state.lastDepartureS !== null && timeS - state.lastDepartureS < scenario.runwayOps.minDepartureIntervalS) {
     return 'departure spacing';
   }
-  if (state.lastLandingS !== null && timeS - state.lastLandingS < DEPARTURE_HOLD_AFTER_LANDING_S) {
+  if (state.lastLandingS !== null && timeS - state.lastLandingS < scenario.runwayOps.holdAfterLandingS) {
     return 'landing traffic rolling out';
   }
   // Anything already on the runway — the previous departure has not lifted off.
@@ -272,12 +271,12 @@ export function runwayBlockedBy(
   // flying — one still carrying speed blocks from further out than one already
   // slowed to its approach speed. The take-off roll is the fleet's longest,
   // since the type is not drawn until the release itself.
-  const requiredS = maxDepartureRollS(scenario.fleet) + DEPARTURE_AIRBORNE_MARGIN_S;
+  const requiredS = maxDepartureRollS(scenario.fleet) + scenario.runwayOps.airborneMarginS;
   const shortFinal = existing.find((ac) => {
     if (ac.phase !== 'loc' && ac.phase !== 'gs') return false;
     const alongNm = finalGeometry(scenario.runway, ac).alongNm;
     if (alongNm <= 0) return false;
-    if (alongNm <= DEPARTURE_HOLD_FINAL_NM) return true;
+    if (alongNm <= scenario.runwayOps.holdFinalNm) return true;
     const speedNmS = groundSpeed(ac) / 3600;
     return speedNmS > 0 && alongNm / speedNmS < requiredS;
   });

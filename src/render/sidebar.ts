@@ -4,13 +4,11 @@
  *
  * Plain DOM on purpose — this is six fields and a log (docs §11.2).
  */
-import { AIRPORT } from '../scenario/airport.js';
 import { speedFloorKts } from '../sim/commands.js';
 import { isDeparture } from '../sim/aircraft.js';
 import { activeSidFix } from '../sim/departure.js';
 import {
   DEPARTURE_FLOW_STEP_PER_HOUR,
-  DEPARTURE_FREQUENCY,
   GS_CAPTURE_WINDOW_FT,
   TIME_SCALE_BUTTONS,
   TIME_SCALES,
@@ -169,7 +167,7 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
     update(world: World, mode: 'live' | 'replay' = 'live'): void {
       if (root.dataset.mode !== mode) root.dataset.mode = mode;
       const replay = mode === 'replay';
-      set('airport', `${AIRPORT.icao} · RWY ${AIRPORT.runway.id}`);
+      set('airport', `${world.scenario.icao} · RWY ${world.scenario.runway.id}`);
       set('clock', clockText(world.timeS));
       set('flow', `${world.flowPerHour}/h`);
       set('depflow', world.departureFlowPerHour === 0 ? 'off' : `${world.departureFlowPerHour}/h`);
@@ -247,8 +245,8 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
           set(
             'ils',
             ac.phase === 'roll'
-              ? `Rolling runway ${AIRPORT.runway.id} — with Departure.`
-              : `With Departure on ${DEPARTURE_FREQUENCY} — not on your frequency.`,
+              ? `Rolling runway ${world.scenario.runway.id} — with Departure.`
+              : `With Departure on ${world.scenario.facility.departureFrequency} — not on your frequency.`,
             'ils done',
           );
           return;
@@ -337,7 +335,7 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
             'ils bad',
           );
         } else {
-          const result = evaluateClearance(ac, geo);
+          const result = evaluateClearance(world.scenario.airspace.mvaFt, ac, geo);
           const ready = replay ? 'ILS available — inside the clearance gate.' : 'ILS ready — press C to clear.';
           set(
             'ils',

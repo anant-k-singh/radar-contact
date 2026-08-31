@@ -4,6 +4,7 @@ import type { World } from '../sim/world.js';
 import { mapLayer } from './mapLayer.js';
 import { drawMessages, drawStatusLine } from './messageLog.js';
 import { drawTrackPath, type TrackPathView } from './pathLayer.js';
+import type { Airspace } from '../scenario/types.js';
 import { createProjection, screenX, screenY, type Projection } from './project.js';
 import { drawStats } from './statsLayer.js';
 import { drawTraffic, type Rect } from './trafficLayer.js';
@@ -44,10 +45,10 @@ export function createScope(canvas: HTMLCanvasElement): Scope {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('2D canvas context unavailable');
 
-  let projection: Projection = createProjection(1, 1);
+  let projection: Projection | null = null;
   let blocks = new Map<number, Rect>();
 
-  const resize = (): void => {
+  const resize = (airspace: Airspace): Projection => {
     const dpr = window.devicePixelRatio || 1;
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
@@ -57,23 +58,27 @@ export function createScope(canvas: HTMLCanvasElement): Scope {
       canvas.width = pixelWidth;
       canvas.height = pixelHeight;
     }
-    projection = createProjection(width, height);
+    projection = createProjection(airspace, width, height);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return projection;
   };
 
   return {
     render(world: World, options: RenderOptions = LIVE_RENDER): void {
-      resize();
+      const p = resize(world.scenario.airspace);
       const dpr = window.devicePixelRatio || 1;
-      ctx.drawImage(mapLayer(projection, dpr), 0, 0, projection.width, projection.height);
-      if (options.path) drawTrackPath(ctx, options.path, projection);
-      blocks = drawTraffic(ctx, world, projection, options);
+      ctx.drawImage(mapLayer(world.scenario, p, dpr), 0, 0, p.width, p.height);
+      if (options.path) drawTrackPath(ctx, options.path, p);
+      blocks = drawTraffic(ctx, world, p, options);
       drawStatusLine(ctx, world, options.mode);
-      drawStats(ctx, world, projection);
-      drawMessages(ctx, world, projection);
+      drawStats(ctx, world, p);
+      drawMessages(ctx, world, p);
     },
 
     pick(world: World, clientX: number, clientY: number): Aircraft | null {
+      // Hit testing projects forward, so it needs the same frame the last render
+      // used. Nothing can be picked before something has been drawn.
+      const p = projection ?? resize(world.scenario.airspace);
       const rect = canvas.getBoundingClientRect();
       const px = clientX - rect.left;
       const py = clientY - rect.top;
@@ -81,7 +86,7 @@ export function createScope(canvas: HTMLCanvasElement): Scope {
       let best: Aircraft | null = null;
       let bestDistance = HIT_RADIUS_PX;
       for (const ac of world.aircraft) {
-        const distance = Math.hypot(screenX(projection, ac.x) - px, screenY(projection, ac.y) - py);
+        const distance = Math.hypot(screenX(p, ac.x) - px, screenY(p, ac.y) - py);
         if (distance < bestDistance) {
           bestDistance = distance;
           best = ac;

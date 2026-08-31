@@ -18,8 +18,8 @@ import {
   APPROACH_SPEED_GATES,
   FINAL_SPEED_NM,
   GO_AROUND_ABOVE_GS_FT,
-  GO_AROUND_ALT_FT,
   GO_AROUND_GATE_NM,
+  GO_AROUND_LEVEL_FT,
   GO_AROUND_IN_TRAIL_NM,
   GO_AROUND_OVERSPEED_KTS,
   GO_AROUND_RUNWAY_OCCUPIED_NM,
@@ -34,7 +34,6 @@ import {
   MAX_INTERCEPT_ANGLE_DEG,
   MAX_INTERCEPT_SPEED_KTS,
   MAX_LOC_CORRECTION_DEG,
-  MVA_FT,
   CLEARANCE_FAST_KTS,
   CLEARANCE_FAST_RANGE_NM,
   CLEARANCE_RUSHED_NM,
@@ -148,7 +147,11 @@ export interface ClearanceResult {
  * refusal still names the condition that failed: this is the app's main
  * teaching surface.
  */
-export function evaluateClearance(ac: Aircraft, geo: FinalGeometry): ClearanceResult {
+export function evaluateClearance(
+  mvaFt: Ft,
+  ac: Aircraft,
+  geo: FinalGeometry,
+): ClearanceResult {
   const warnings: string[] = [];
   const refuse = (code: RefusalCode, reason: string): ClearanceResult => ({
     ok: false,
@@ -164,7 +167,7 @@ export function evaluateClearance(ac: Aircraft, geo: FinalGeometry): ClearanceRe
   if (ac.phase === 'goAround') return refuse('state', 'going around — re-vector first');
 
   if (geo.alongNm <= 0) return refuse('pastThreshold', 'past the threshold — vector back around');
-  if (ac.altitudeFt < MVA_FT - 1) return refuse('belowMva', `below the MVA of ${MVA_FT} ft`);
+  if (ac.altitudeFt < mvaFt - 1) return refuse('belowMva', `below the MVA of ${mvaFt} ft`);
 
   // Accepted, but flag poor technique. Anything the aircraft can still fix on
   // the way in is advisory here and decided for real at the localizer.
@@ -363,10 +366,12 @@ export function stepApproach(
   const events: ApproachEvent[] = [];
 
   if (ac.phase === 'goAround') {
-    ac.targetAltitudeFt = GO_AROUND_ALT_FT;
+    ac.targetAltitudeFt = runway.missedApproachAltitudeFt;
     ac.targetHeadingDeg = runway.courseDeg;
     ac.targetIasKts = ac.type.minCleanKts;
-    if (Math.abs(ac.altitudeFt - GO_AROUND_ALT_FT) < 100) ac.phase = 'inbound';
+    if (Math.abs(ac.altitudeFt - runway.missedApproachAltitudeFt) < GO_AROUND_LEVEL_FT) {
+      ac.phase = 'inbound';
+    }
     return events;
   }
 
@@ -469,7 +474,7 @@ function goAround(runway: Runway, ac: Aircraft): void {
   ac.handedOff = false;
   ac.speedAssignedAfterClearance = false;
   ac.goArounds += 1;
-  ac.targetAltitudeFt = GO_AROUND_ALT_FT;
+  ac.targetAltitudeFt = runway.missedApproachAltitudeFt;
   ac.targetHeadingDeg = runway.courseDeg;
   ac.targetIasKts = ac.type.minCleanKts;
 }

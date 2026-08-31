@@ -7,13 +7,11 @@ import {
   speedFloorKts,
 } from '../src/sim/commands.js';
 import {
-  CEILING_FT,
   HEADING_HINT_S,
-  MVA_FT,
   SPEED_FLOOR_CLEAN_KTS,
 } from '../src/sim/constants.js';
 import { displayHeading } from '../src/sim/units.js';
-import { HEAVY_TYPE, makeAircraft, MEDIUM_TYPE, onFinal, pilotActs, quietWorld, RUNWAY } from './helpers.js';
+import { HEAVY_TYPE, makeAircraft, MEDIUM_TYPE, onFinal, pilotActs, quietWorld, RUNWAY, SCENARIO } from './helpers.js';
 
 describe('heading assignment', () => {
   it('moves in 10° steps and wraps through north', () => {
@@ -83,18 +81,18 @@ describe('heading assignment', () => {
 
 describe('altitude assignment', () => {
   it('clamps to the MVA and the ceiling', () => {
-    const ac = makeAircraft({ altitudeFt: MVA_FT });
+    const ac = makeAircraft({ altitudeFt: SCENARIO.airspace.mvaFt });
     const world = quietWorld(ac);
 
     adjustAltitude(world, ac, -1);
     pilotActs(world);
-    expect(ac.targetAltitudeFt).toBe(MVA_FT);
-    expect(world.messages.at(-1)!.text).toContain(`MVA ${MVA_FT}`);
+    expect(ac.targetAltitudeFt).toBe(SCENARIO.airspace.mvaFt);
+    expect(world.messages.at(-1)!.text).toContain(`MVA ${SCENARIO.airspace.mvaFt}`);
 
-    ac.targetAltitudeFt = CEILING_FT;
+    ac.targetAltitudeFt = SCENARIO.airspace.ceilingFt;
     adjustAltitude(world, ac, 1);
     pilotActs(world);
-    expect(ac.targetAltitudeFt).toBe(CEILING_FT);
+    expect(ac.targetAltitudeFt).toBe(SCENARIO.airspace.ceilingFt);
   });
 });
 
