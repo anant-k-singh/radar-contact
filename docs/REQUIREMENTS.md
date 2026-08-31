@@ -118,8 +118,30 @@ at 290 kt — the "vectors cost more track miles when fast" lesson comes out for
 
 ## 3. Airspace and airport definition
 
-All of this lives in one data file (`scenario/airport.ts`) so a second airport is a data change,
-not a code change.
+**Everything in §3 is a property of a *scenario*, not of the simulator.** The numbers below are the
+default field, ZZZZ; another airport states its own. A field is a folder under
+`src/scenario/fields/` plus a line in `src/scenario/registry.ts`, and nothing outside
+`src/scenario/` names one — see §3.0.
+
+### 3.0 Adding a scenario
+
+1. Create `src/scenario/fields/<icao>/` with `airport.ts` (runway, airspace, gates), `stars.ts`,
+   `sids.ts` and an `index.ts` assembling a `ScenarioSpec`.
+2. Author every fix in the **runway frame**: `final(alongNm, rightNm)` for an arrival,
+   `depart(alongNm, rightNm)` for a departure, `joinsDownwind(rightNm)` for the turn onto a downwind,
+   `radial(bearingDeg, rangeNm)` off the reference point, or `xy()` outright. A fix may also be placed
+   at a `fraction` of the leg between its positioned neighbours. Nothing states a compass direction:
+   which way a route runs is a consequence of the runway, and so is which way each SID turns.
+3. Publish the **entry crossing on each STAR** (`entryAltitudeFt`, `entrySpeedKts`). A gate with no
+   STAR states its own; a gate with neither is a compile error.
+4. Override only what differs from `src/scenario/defaults.ts` — flows, gate cooldown, the
+   shared-runway rules, the frequencies, the missed approach, the centreline furniture.
+5. Add it to the registry, and **make `tests/scenario.test.ts` pass.** That suite is the contract:
+   `validateScenario` plus every route of the field flown by every type in its fleet. `?airport=<id>`
+   then flies it.
+
+The rules a field must satisfy are in `src/scenario/validate.ts`, which also runs in dev at startup
+so an authoring mistake fails in the console rather than eight minutes into a session.
 
 ### 3.1 Geometry
 
@@ -136,7 +158,14 @@ not a code change.
   inside the cuts, and the shape is defined once in `sim/airspace.ts` so the exit check and the
   drawing cannot disagree.
 - **Runway:** single, **RWY 18** (final approach course **180°**), length 1.6 NM. Landing direction
-  is fixed (no runway changes in v1). Magnetic variation = 0, so heading = track = true bearing.
+  is fixed (no runway changes). Magnetic variation = 0, so heading = track = true bearing.
+  The runway id and the course are checked against each other by `validateScenario`.
+- **The reference point is the origin of the frame, always.** The frame is local to the field, so
+  there is nothing to gain by offsetting it and a good deal that assumes it — the airspace shape is
+  measured from it and the scope centres on it. It is not something a scenario can set.
+- **The chords are horizontal in the local frame**, i.e. they cut the north and south caps whatever
+  way the runway points. They exist to reclaim canvas height, so they follow the screen, not the
+  runway.
 - **Threshold of 18** sits at `(0, +0.8)` NM, i.e. the north end. Aircraft land southbound.
 - **Extended centerline:** drawn from the threshold on **000°** out to 20 NM, with **tick marks
   every 2 NM** (10 ticks). This is the primary visual sequencing aid.
@@ -145,8 +174,17 @@ not a code change.
 
 ### 3.2 Entry gates (Center → Approach handover points)
 
-Four gates on the 50 NM boundary, spaced 90° apart and deliberately offset from the final approach
-course so nothing arrives already lined up on the LOC:
+Gates sit **on the boundary** — which past the arcs is a chord rather than the circle, so the range is
+`boundaryRangeAtBearing`, not the radius. Placing them at the radius would put a gate outside the
+drawn shape and several miles from its own marker.
+
+The handover altitude and speed belong to the gate's **STAR**, not to the gate: a route with a short
+run to the localizer is what knows it has to be given the height off lower. The gate carries them as
+derived values so that everything reading them — the spawn veto, the initial state, the gate label —
+needs no special case for a gate delivered on vectors.
+
+ZZZZ has four gates on its 50 NM boundary, spaced 90° apart and deliberately offset from the final
+approach course so nothing arrives already lined up on the LOC:
 
 | Gate | Bearing from ARP | Inbound heading at entry | Handover altitude | STAR |
 | --- | --- | --- | --- | --- |
@@ -160,7 +198,8 @@ course so nothing arrives already lined up on the LOC:
 
 KOVAL and VANDA lie north of the field — the same side as the final approach course for runway 18 —
 so their arrivals reach the localizer with far fewer track miles in which to lose the height. Center
-hands those two over 2000 ft lower, and their STARs are correspondingly shorter. The gate marker on
+hands those two over 2000 ft lower, and their STARs are correspondingly shorter. That is a fact about
+*this field's* geometry, which is why it is stated by the two routes rather than by a constant. The gate marker on
 the scope carries its altitude in hundreds (`KOVAL 100`).
 
 ### 3.3 Player authority limits
@@ -199,8 +238,8 @@ attempt to go below it is rejected with a log message explaining why.
 Everything above 8000 ft sits outside the 25 NM LOC capture window (§6.1a, E2), so those
 levels are for holding traffic down-level and de-conflicting, not for intercepts. The STARs deliver
 arrivals to **3000 ft** on every route. The north platform is the one that has to be an intercept
-platform: those routes end 15.3 NM from the threshold measured along the final approach course,
-where the glideslope is 4882 ft, so the level flown there must be below it — 3000 ft meets the slope
+platform: those routes end 15.2 NM from the threshold measured along the final approach course,
+where the glideslope is 4840 ft, so the level flown there must be below it — 3000 ft meets the slope
 at 9.4 NM, comfortably inside the merge. The south routes end on a downwind that is turned base
 rather than final, so their 3000 ft is where the descent has already been made rather than an
 intercept level; whatever range the base turn is flown at beyond 9.4 NM, the aircraft is under the
@@ -1325,38 +1364,62 @@ to maintain**, **testability of the flight model**, and **absence of dependency 
 
 ### 11.4 Project structure
 
-The one structural rule that keeps this maintainable: **`src/sim/` never imports from `render/`,
-`input/`, or the DOM.** The simulation is a pure function of state and time, which is what makes it
-testable and what will let the same engine drive a replay viewer or a second frontend later.
+Two structural rules, both asserted in `tests/architecture.test.ts`:
+
+1. **`src/sim/` never imports from `render/`, `input/`, or the DOM.** The simulation is a pure
+   function of state and time, which is what makes it testable and what lets the same engine drive
+   the replay viewer.
+2. **Nothing outside `src/scenario/` imports a scenario value.** The field is handed to the sim —
+   `World.scenario`, and then the narrowest slice each function is about — rather than imported.
+   `src/scenario/` in turn may import only `src/sim/units.ts`, so the data layer cannot reach back
+   into the tunables layer for a number that is really its own.
+
+The line between the two files of numbers: **`constants.ts` holds the rules of the job, the
+`Scenario` holds the field.** The flow range the sidebar offers is a property of the control the
+player is given, so it is a constant; the flow a field opens at is the field's.
 
 ```
 src/
-  sim/                 # pure, headless, no DOM
-    units.ts           # unit aliases, geometry, TAS
-    constants.ts       # every tunable number, in one place
+  sim/                 # pure, headless, no DOM — and no field
+    units.ts           # unit aliases, geometry, TAS, along/cross-track projection
+    constants.ts       # every tunable that is a rule of the job, not a fact about a field
     rng.ts             # seeded mulberry32
-    aircraft.ts        # Aircraft type, radar snapshot
-    dynamics.ts        # turn / vertical / speed integration, energy coupling
+    aircraft.ts        # Aircraft type, AircraftSeed + newAircraft, radar snapshot
+    dynamics.ts        # turn / vertical / speed integration, energy coupling, route sequencing
     ils.ts             # clearance gate, LOC/GS capture, landing, go-around
     separation.ts      # pair checks, prediction, alert tiers, in-trail
-    traffic.ts         # Poisson spawner, callsigns, gate assignment
+    traffic.ts         # Poisson arrivals, fixed-interval departures, callsigns, gate assignment
+    departure.ts       # take-off roll, SID following, crossing restrictions
+    hold.ts            # holding patterns
+    star.ts            # STAR following, who owns the vertical
+    pilot.ts           # transmitted vs applied instructions, reaction delay
     commands.ts        # player instructions + readbacks + speed floor
     world.ts           # World type, step(world, dt), stats, handoff, radar sampling
-  scenario/
-    airport.ts         # runway, gates, elevation  ← swap this for a new airport
-    aircraftTypes.ts
+  scenario/            # the field: data, plus the geometry that derives from it
+    types.ts           # ScenarioSpec (authored) and Scenario (compiled)
+    geometry.ts        # the runway frame: final(), depart(), joinsDownwind(), radial(), xy()
+    compile.ts         # spec → Scenario: positions, distances, constraint lists, SID turn
+    airspace.ts        # the boundary shape, and what is inside it
+    routes.ts          # reading a published route: profile, entry fix, SID ceiling
+    defaults.ts        # what a field gets when it does not say otherwise
+    validate.ts        # the rules a field must satisfy
+    registry.ts        # every field, compiled — the only place an airport is named
+    aircraftTypes.ts   # the shared fleet catalogue
     airlines.ts
+    fields/
+      zzzz/            # the default field: airport.ts, stars.ts, sids.ts, index.ts
   render/
-    project.ts         # NM ↔ pixels
-    mapLayer.ts        # static layer: rings, compass, centerline ticks, gates, runway
+    project.ts         # NM ↔ pixels, fitted to a scenario's airspace
+    mapLayer.ts        # static layer, cached per field × canvas size
     trafficLayer.ts    # blips, leader lines, trails, data blocks, de-clutter
     scope.ts           # canvas sizing, DPR, layer order, hit testing
     sidebar.ts         # selected-aircraft readout, live clearance preview, stats
+    statsLayer.ts      # the session stats gutter
     messageLog.ts      # readback log + status line
     theme.ts           # all colours
     pathLayer.ts       # the selected aircraft's whole path, in replay (§17.3)
   replay/              # reads the sim, never writes to it
-    recorder.ts        # rolling 60 min of sim time, sampled at 5 Hz into per-aircraft tracks
+    recorder.ts        # rolling 60 min of sim time at 5 Hz, per-aircraft tracks, bound to a field
     playback.ts        # rebuilds a World at any frame + the transport
     replayBar.ts       # the stop-and-watch button, and the transport controls
   input/
@@ -1364,9 +1427,14 @@ src/
     keyboard.ts
     pointer.ts
   app/
-    main.ts            # loop, wiring, time accel, pause, live/replay switch
+    main.ts            # loop, wiring, ?airport= and ?seed=, time accel, live/replay switch
   style.css
-tests/                 # 135 tests, sim + replay, no DOM needed
+tests/                 # sim, replay, and the field contracts — no DOM needed
+  architecture.test.ts # the two structural rules above
+  scenario.test.ts     # what every field must satisfy, over every field
+  zzzz.chart.test.ts   # the shipped field's published positions, fix by fix
+  fixtures/
+    rotatedField.ts    # a second field, so scenario.test.ts means something
 docs/
   REQUIREMENTS.md      # this file
 ```
@@ -1393,23 +1461,29 @@ Each milestone ends with something visible, so progress is never theoretical.
 ## 13. Assumptions register
 
 Recorded because these were decisions, not givens. Each is cheap to change; none is load-bearing
-for the architecture.
+for the architecture. Where one *was* load-bearing before v2 — "the airport is a singleton", "north is
+where the arrivals are" — it is gone rather than recorded.
 
 | # | Assumption |
 | --- | --- |
-| A1 | Airport elevation 0 ft; AAL = MSL |
+| A1 | ZZZZ's elevation is 0 ft, so AAL = MSL *there*. The engine carries field elevation properly — the runway holds it and a departure captures it at the roll — and the rotated test field flies at 500 ft to keep that honest |
 | A2 | No wind; heading = track; GS = TAS |
 | A3 | No magnetic variation |
-| A4 | Single landing direction, never changes |
-| A5 | Flat MVA of 2000 ft; no terrain model |
+| A4 | One runway per field, one landing direction, never changes. `Airport.runway` is singular; two runways would be a type change, though every consumer already goes through the runway rather than the airport |
+| A5 | A flat MVA per field, no terrain model |
 | A6 | Aircraft always comply, after a 1–3 s reaction; no "unable", no pilot deviations, no emergencies, no fuel state |
 | A7 | Center's handover is always conflict-free, at the gate's altitude (11,000 or 13,000 ft) / 250 kt / on the STAR — or above it, when the entry fix already has a holding stack (§4.5) |
 | A8 | Aircraft turn the short way to an assigned heading; long-way-round vectors aren't expressible |
-| A9 | 4 gates, 90° apart, offset 40° from the cardinals |
+| A9 | ZZZZ has 4 gates, 90° apart, offset 40° from the cardinals. The gate count is per field |
 | A10 | Endless session, no win/lose state; quality is reported, not enforced |
 | A11 | One STAR per gate, never rejoined once vectored off; no route changes. Holding is the one way back onto a route, and only because the aircraft never leaves it (§4.6) |
 | A12 | Departures always fly their SID exactly and are never re-routed, delayed airborne or given a level change by Departure Control. What the player sees is the published route, every time (§4.7) |
 | A13 | A departure's climb rate depends only on type and on whether the flaps are up. No weight, temperature, thrust derate or runway-length effect (§4.7) |
+| A14 | **One active field per session.** Chosen by `?airport=` at load; changing it is a reload. The map cache, the recording and every in-flight route object are bound to the scenario, and nothing needs two at once |
+| A15 | The reference point is the origin of the local frame, always. Not settable |
+| A16 | The airspace chords are horizontal in the local frame — they cut the north and south caps whatever way the runway points, because they exist to reclaim canvas height |
+| A17 | A 3° glideslope everywhere. It is a published per-approach figure in life, but no field the simulator flies differs, so it stays a constant rather than a runway field |
+| A18 | Every field shares one fleet and one airline list. Both are per-scenario in the type, so a regional mix is a data change |
 
 ---
 
@@ -1489,10 +1563,37 @@ for the architecture.
 | What playback shows | **Everything the live scope showed except the instruction artefacts** — no leader line, no assigned-heading vector, no controls (§17.3). Stats, blocks, alert colours and the message log are unchanged, because reviewing them is the point |
 | What playback adds | **The selected aircraft's whole path**, one solid line, the part still to come a shade dimmer. A live scope cannot show it; a recording already contains it |
 
+| Question | Decision (2026-09-01, multi-airport architecture) |
+| --- | --- |
+| How the field reaches the sim | **Threaded, not imported.** `World.scenario`, and then the narrowest slice each function is about — usually a `Runway`. Passing `world` everywhere was the obvious alternative and does not work: `playback.ts` calls `analyzeSeparation` *inside* the `World` literal it is building, and `ils`/`separation`/`dynamics` would all have had to import `World`, which is the runtime cycle `pilot.ts` avoids. A slice comes from `src/scenario/`, so the cycle rule holds structurally instead of by discipline (§11.4) |
+| Where a field's numbers live | **`constants.ts` holds the rules of the job, the `Scenario` holds the field.** Sixteen values moved: the airspace shape and levels, the default flows and gate cooldown, the four shared-runway rules, the two frequencies. Some were *duplicated* — `constants.ts` and the airport file each declared the airspace radius. What stayed is the flow range the sidebar offers, which is a property of the control the player is given |
+| Where the entry crossing lives | **On the STAR.** `ENTRY_ALTITUDE_NEAR_FT` existed only because two of ZZZZ's four gates happen to sit north of its runway — a per-route fact wearing a global constant. A route with a short run to the localizer is what knows it must be given the height off lower; the gate takes the values from it, so nothing reading them needs a special case for a gate delivered on vectors (§3.2) |
+| How routes are authored | **In the runway frame, declared per fix.** `final(15.2, 2)` and `depart(3.2, 8)` are the same numbers `finalGeometry` reports back and the same ones the prose already used. Route *templates* were rejected: `northStar`/`southStar` were parameterised over a shape rather than a runway, so a course-agnostic version would still need a new builder for the next field — and they forced two routes to be exact mirrors, which made an asymmetric ZZZZ inexpressible |
+| Which way a SID turns | **Derived from the resulting track.** It was a hand-written label with a hand-inverted sign, correct only for a southbound runway; a runway-36 field would have mislabelled every departure |
+| Whether to support two fields at once | **No.** One active field per session, chosen by `?airport=`; changing it is a reload (A14). The map cache, the recording and every in-flight route are bound to the scenario, and a switch would have to tear all three down — which is a reload, done worse |
+| How a field is known to be flyable | **`validateScenario` plus a flown conformance suite over every registered field.** And a second, deliberately awkward field in the fixtures: without one, the suite is a `describe.each` over a single element and every runway-relative helper could be wrong in a way that happens to work for a 180° course (§3.0) |
+| Whether the layering rules are documented or tested | **Tested.** `tests/architecture.test.ts`. Every rule it asserts was violated before v2, and every violation was invisible — nothing failed, the code just quietly knew which airport it was flying |
+
 ## 15. Still open
 
 None of these blocks play; each is a small, contained change.
 
+0. **A second shipped field.** The architecture is done and there is a second field in the fixtures
+   proving it; nothing is registered yet. `?airport=` already resolves the registry, and §3.0 is the
+   recipe.
+0a. **Multiple runways per field.** `Airport.runway` is singular. It would become `runways[]` plus an
+   active-runway concept, and since every consumer already goes through the runway rather than the
+   airport, the change lands in the compiler and the few places that pick one — not in fifteen call
+   sites. A runway-in-use *selection*, and the wind that would justify it, is a further step.
+0b. **A per-approach glideslope angle.** 3° is a constant (A17). It is a published per-runway figure,
+   along with the antenna offset and threshold crossing height, and would move onto `Runway` the day
+   a field needs it.
+0c. **A non-horizontal airspace shape** (A16), and **a boundary that is not a chorded circle** — the
+   shape is one function of an `Airspace`, so a general polygon is a contained change.
+0d. **Serialised recordings.** A `Recording` carries its `Scenario`, so it is self-describing, but
+   nothing is persisted. If it ever is: a recording whose field is not registered must be *refused*,
+   with the reason shown. Never draw a recording against a different chart — the aircraft would be
+   right and the charts wrong, which is the worst failure mode a teaching tool has.
 1. **Runway identity** — built as `18` with a 180° final approach course. Match the screenshot's
    `18C` instead? (In reality that implies parallels we are not modelling.)
 2. **Speed floor policy** — currently a hard block below 180 kt (190 for heavies) outside 20 track
@@ -1550,12 +1651,19 @@ None of these blocks play; each is a small, contained change.
 nvm use          # Node 24 LTS, pinned in .nvmrc — the system default is 18 (EOL)
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 161 tests, headless, ~1.5 s
+npm test         # headless, no DOM, a few seconds
 npm run build    # typecheck + static bundle into dist/
 ```
 
-`?seed=1234` in the URL makes a session reproducible. In a dev build, `window.atc` exposes the live
-world for console poking and `window.atcRecording` the rolling recording behind it (§17).
+**URL parameters.** `?airport=ZZZZ` picks the field; an unknown id falls back to the default and says
+so in the message log. `?seed=1234` makes a session reproducible — **for the same `?airport=`**. The
+gate list an arrival is drawn from is scenario data, so one seed at two fields is two different
+sessions.
+
+In a dev build, `window.atc` exposes the live world for console poking, `window.atcRecording` the
+rolling recording behind it (§17), and `window.atcScenarios` the registry. `validateScenario` also
+runs over every registered field at startup and reports to the console, so authoring a field fails
+there rather than eight minutes into a session (§3.0).
 
 ---
 
@@ -1579,6 +1687,7 @@ trade: nothing to manage, nothing to clean up, no storage permission.
 | Window | **3600 s of sim time** | An hour is longer than any session anyone flies in one sitting; the cap exists so an unattended tab at 8× cannot grow without bound |
 | Prune batching | **60 s of slack** | Dropping old frames splices every channel of every track, so it is done once a minute rather than five times a second. A recording is therefore between 60 and 61 minutes long |
 | Storage | **Per aircraft, not per frame** | See below |
+| Field | **The `Scenario` itself, on the recording** | A track stores its route by *chart name*, which only means anything against the field it was flown at. Carrying the scenario means playback resolves names within it rather than against whatever is loaded — and the rebuilt `World` has a real field on it. Nothing is persisted, so a mismatch is impossible today; this is what makes the recording self-describing if that changes (§15.0d) |
 
 A departure track carries two extra channels — the SID's chart name and the index of the fix being
 tracked — for exactly the reason an arrival's carries the STAR's. `sid` being non-null is what makes
