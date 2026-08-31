@@ -22,13 +22,13 @@ import {
   TOWER_FREQUENCY,
   TRAIL_LENGTH,
 } from './constants.js';
-import { stepDeparture } from './departure.js';
+import { stepDeparture, type DepartureEvent } from './departure.js';
 import { groundSpeed, stepKinematics } from './dynamics.js';
-import { finalGeometry, isEstablished, stepApproach } from './ils.js';
+import { finalGeometry, isEstablished, stepApproach, type ApproachEvent } from './ils.js';
 import { applyDueInstructions } from './pilot.js';
 import { createRng, type Rng } from './rng.js';
 import { analyzeSeparation, type SeparationReport } from './separation.js';
-import { starOwnsVertical, stepStar } from './star.js';
+import { starOwnsVertical, stepStar, type StarEvent } from './star.js';
 import {
   createTrafficState,
   scheduleNextDeparture,
@@ -365,8 +365,8 @@ function checkAirspaceExit(world: World, ac: Aircraft): boolean {
  *
  * Returns true when the aircraft has left the airspace and been removed.
  */
-function stepDepartureFlight(world: World, ac: Aircraft, dt: Sec): boolean {
-  for (const event of stepDeparture(ac, dt)) {
+function logDepartureEvents(world: World, ac: Aircraft, events: readonly DepartureEvent[]): void {
+  for (const event of events) {
     switch (event.kind) {
       case 'airborne':
         log(
@@ -382,9 +382,94 @@ function stepDepartureFlight(world: World, ac: Aircraft, dt: Sec): boolean {
         break;
     }
   }
+}
 
+function stepDepartureFlight(world: World, ac: Aircraft, dt: Sec): boolean {
+  logDepartureEvents(world, ac, stepDeparture(ac, dt));
   if (ac.phase !== 'roll') stepKinematics(ac, dt);
   return checkAirspaceExit(world, ac);
+}
+
+function logStarEvents(world: World, ac: Aircraft, events: readonly StarEvent[]): void {
+  for (const event of events) {
+    switch (event.kind) {
+      case 'starComplete':
+        log(
+          world,
+          `${ac.callsign} at ${event.fix}, end of the arrival — maintaining heading, ` +
+            `request further.`,
+          'pilot',
+          [ac.id],
+        );
+        break;
+      case 'holdEntered':
+        log(world, `${ac.callsign} entering the hold at ${event.fix}.`, 'pilot', [ac.id]);
+        break;
+      case 'holdExited':
+        log(world, `${ac.callsign} leaving ${event.fix}, back on the arrival.`, 'pilot', [ac.id]);
+        break;
+    }
+  }
+}
+
+/**
+ * Log the approach events and record what they score. Returns true when the
+ * aircraft has landed and been removed, so the caller stops flying it.
+ *
+ * Not a lookup table: `landed` removes the aircraft and three of the five cases
+ * move a different statistic, so the switch is where the differences belong.
+ */
+function handleApproachEvents(
+  world: World,
+  ac: Aircraft,
+  events: readonly ApproachEvent[],
+): boolean {
+  let removed = false;
+  for (const event of events) {
+    switch (event.kind) {
+      case 'locCaptured':
+        log(world, `${ac.callsign} established on the localizer.`, 'pilot', [ac.id]);
+        for (const warning of event.warnings) {
+          log(world, `Poor practice: ${ac.callsign} — ${warning}.`, 'system', [ac.id]);
+        }
+        break;
+      case 'interceptMissed':
+        world.stats.missedIntercepts.set(
+          event.code,
+          (world.stats.missedIntercepts.get(event.code) ?? 0) + 1,
+        );
+        log(
+          world,
+          `${ac.callsign} unable to intercept — ${event.reason}. Through the localizer, ` +
+            `request vectors.`,
+          'alert',
+          [ac.id],
+        );
+        break;
+      case 'gsCaptured':
+        log(world, `${ac.callsign} glideslope alive, descending on the ILS.`, 'pilot', [ac.id]);
+        break;
+      case 'landed':
+        world.stats.landings += 1;
+        recordMovement(world.stats.landingTimesS, world.timeS);
+        // The runway is now occupied by an aircraft rolling out, which is what
+        // holds the next departure (§4.7).
+        world.traffic.lastLandingS = world.timeS;
+        if (ac.directDistanceNm > 0) {
+          world.stats.trackMileRatioSum += ac.trackMilesFlown / ac.directDistanceNm;
+          world.stats.trackMileSamples += 1;
+        }
+        log(world, `${ac.callsign} landed runway ${AIRPORT.runway.id}.`, 'system', [ac.id]);
+        remove(world, ac);
+        removed = true;
+        break;
+      case 'goAround':
+        world.stats.goArounds += 1;
+        log(world, `${ac.callsign} going around — ${event.reason}.`, 'alert', [ac.id]);
+        break;
+    }
+  }
+  return removed;
 }
 
 function accountViolations(world: World, dt: Sec): void {
@@ -424,65 +509,75 @@ function sampleHistory(world: World): void {
   }
 }
 
+/** Center hands over one arrival, if a gate is free to take it (§4.4). */
+function spawnArrival(world: World): void {
+  if (world.timeS < world.traffic.nextSpawnAtS) return;
+  const arrival = trySpawn(world.rng, world.traffic, world.aircraft, world.timeS);
+  if (!arrival) return;
+
+  world.aircraft.push(arrival);
+  scheduleNextSpawn(world.traffic, world.rng, world.timeS, world.flowPerHour);
+  const routing = arrival.star
+    ? `on the ${arrival.star.route.name} arrival`
+    : `inbound ${arrival.entryGate}`;
+  log(
+    world,
+    `${arrival.callsign} (${arrival.type.code}) with you at ${Math.round(arrival.altitudeFt)} ft, ` +
+      `${Math.round(arrival.iasKts)} knots, ${routing}.`,
+    'pilot',
+    [arrival.id],
+  );
+}
+
+/**
+ * The flow decides how often a departure turns up at the holding point; the
+ * *runway* decides when one rolls. What sits between the two is a queue, and its
+ * length is the player's arrival spacing measured from the other side (§4.7).
+ * Keeping the two apart is the point, so they are two functions.
+ */
+function queueDeparture(world: World): void {
+  if (world.timeS < world.traffic.nextDepartureAtS) return;
+  if (world.departureFlowPerHour > 0) world.traffic.departureQueue += 1;
+  scheduleNextDeparture(world.traffic, world.timeS, world.departureFlowPerHour);
+}
+
+/**
+ * The head of the queue takes the runway the moment it is free, which is any
+ * tick at all rather than only the ones the flow lands on — a departure held for
+ * landing traffic goes as soon as that traffic is out of the way, not at the next
+ * scheduled release. A queue built while the flow was on still drains after it is
+ * turned off: those aircraft are already at the threshold.
+ */
+function releaseDeparture(world: World): void {
+  if (world.traffic.departureQueue === 0) return;
+  const departure = tryDeparture(world.departureRng, world.traffic, world.aircraft, world.timeS);
+  if (!departure) return;
+
+  world.traffic.departureQueue -= 1;
+  world.aircraft.push(departure);
+  recordMovement(world.stats.departureTimesS, world.timeS);
+  const route = departure.sid!.route;
+  // The turn is worth saying while the aircraft is still on the ground: it is
+  // the one moment the player can see a departure coming before it is anywhere,
+  // and which way it goes is what they plan around.
+  const out = route.turn === 'straight' ? 'straight out' : `${route.turn} turn out`;
+  const waiting =
+    world.traffic.departureQueue > 0 ? ` ${world.traffic.departureQueue} more holding.` : '';
+  log(
+    world,
+    `${departure.callsign} (${departure.type.code}) rolling runway ${AIRPORT.runway.id}, ` +
+      `${route.name} departure — ${out}.${waiting}`,
+    'system',
+    [departure.id],
+  );
+}
+
 export function step(world: World, dt: Sec): void {
   world.timeS += dt;
 
-  // ── Arrivals ─────────────────────────────────────────────────────────────
-  if (world.timeS >= world.traffic.nextSpawnAtS) {
-    const arrival = trySpawn(world.rng, world.traffic, world.aircraft, world.timeS);
-    if (arrival) {
-      world.aircraft.push(arrival);
-      scheduleNextSpawn(world.traffic, world.rng, world.timeS, world.flowPerHour);
-      const routing = arrival.star
-        ? `on the ${arrival.star.route.name} arrival`
-        : `inbound ${arrival.entryGate}`;
-      log(
-        world,
-        `${arrival.callsign} (${arrival.type.code}) with you at ${Math.round(arrival.altitudeFt)} ft, ` +
-          `${Math.round(arrival.iasKts)} knots, ${routing}.`,
-        'pilot',
-        [arrival.id],
-      );
-    }
-  }
-
-  // ── Departures ───────────────────────────────────────────────────────────
-  // Two separate things, and keeping them apart is the point (§4.7). The flow
-  // decides how often a departure turns up at the holding point; the *runway*
-  // decides when one rolls. What sits between the two is a queue, and its
-  // length is the player's arrival spacing measured from the other side.
-  if (world.timeS >= world.traffic.nextDepartureAtS) {
-    if (world.departureFlowPerHour > 0) world.traffic.departureQueue += 1;
-    scheduleNextDeparture(world.traffic, world.timeS, world.departureFlowPerHour);
-  }
-
-  // The head of the queue takes the runway the moment it is free, which is any
-  // tick at all rather than only the ones the flow lands on — a departure held
-  // for landing traffic goes as soon as that traffic is out of the way, not at
-  // the next scheduled release. A queue built while the flow was on still
-  // drains after it is turned off: those aircraft are already at the threshold.
-  if (world.traffic.departureQueue > 0) {
-    const departure = tryDeparture(world.departureRng, world.traffic, world.aircraft, world.timeS);
-    if (departure) {
-      world.traffic.departureQueue -= 1;
-      world.aircraft.push(departure);
-      recordMovement(world.stats.departureTimesS, world.timeS);
-      const route = departure.sid!.route;
-      // The turn is worth saying while the aircraft is still on the ground:
-      // it is the one moment the player can see a departure coming before it
-      // is anywhere, and which way it goes is what they plan around.
-      const out = route.turn === 'straight' ? 'straight out' : `${route.turn} turn out`;
-      const waiting =
-        world.traffic.departureQueue > 0 ? ` ${world.traffic.departureQueue} more holding.` : '';
-      log(
-        world,
-        `${departure.callsign} (${departure.type.code}) rolling runway ${AIRPORT.runway.id}, ` +
-          `${route.name} departure — ${out}.${waiting}`,
-        'system',
-        [departure.id],
-      );
-    }
-  }
+  spawnArrival(world);
+  queueDeparture(world);
+  releaseDeparture(world);
 
   // Is there anything on the runway? A departure still rolling, or a landing
   // inside its runway occupancy time — the same 60 s that holds the next
@@ -512,80 +607,13 @@ export function step(world: World, dt: Sec): void {
     for (const readback of applyDueInstructions(ac, world.timeS)) {
       log(world, readback.text, readback.kind, [ac.id]);
     }
-    for (const event of stepStar(ac, dt, world.timeS)) {
-      switch (event.kind) {
-        case 'starComplete':
-          log(
-            world,
-            `${ac.callsign} at ${event.fix}, end of the arrival — maintaining heading, ` +
-              `request further.`,
-            'pilot',
-            [ac.id],
-          );
-          break;
-        case 'holdEntered':
-          log(world, `${ac.callsign} entering the hold at ${event.fix}.`, 'pilot', [ac.id]);
-          break;
-        case 'holdExited':
-          log(world, `${ac.callsign} leaving ${event.fix}, back on the arrival.`, 'pilot', [
-            ac.id,
-          ]);
-          break;
-      }
-    }
+    logStarEvents(world, ac, stepStar(ac, dt, world.timeS));
 
     const geo = finalGeometry(ac);
     const inTrailNm = world.separation.inTrail.get(ac.id) ?? null;
     const events = stepApproach(ac, geo, { inTrailNm, runwayOccupied: occupied }, dt);
 
-    let removed = false;
-    for (const event of events) {
-      switch (event.kind) {
-        case 'locCaptured':
-          log(world, `${ac.callsign} established on the localizer.`, 'pilot', [ac.id]);
-          for (const warning of event.warnings) {
-            log(world, `Poor practice: ${ac.callsign} — ${warning}.`, 'system', [ac.id]);
-          }
-          break;
-        case 'interceptMissed':
-          world.stats.missedIntercepts.set(
-            event.code,
-            (world.stats.missedIntercepts.get(event.code) ?? 0) + 1,
-          );
-          log(
-            world,
-            `${ac.callsign} unable to intercept — ${event.reason}. Through the localizer, ` +
-              `request vectors.`,
-            'alert',
-            [ac.id],
-          );
-          break;
-        case 'gsCaptured':
-          log(world, `${ac.callsign} glideslope alive, descending on the ILS.`, 'pilot', [
-            ac.id,
-          ]);
-          break;
-        case 'landed':
-          world.stats.landings += 1;
-          recordMovement(world.stats.landingTimesS, world.timeS);
-          // The runway is now occupied by an aircraft rolling out, which is what
-          // holds the next departure (§4.7).
-          world.traffic.lastLandingS = world.timeS;
-          if (ac.directDistanceNm > 0) {
-            world.stats.trackMileRatioSum += ac.trackMilesFlown / ac.directDistanceNm;
-            world.stats.trackMileSamples += 1;
-          }
-          log(world, `${ac.callsign} landed runway ${AIRPORT.runway.id}.`, 'system', [ac.id]);
-          remove(world, ac);
-          removed = true;
-          break;
-        case 'goAround':
-          world.stats.goArounds += 1;
-          log(world, `${ac.callsign} going around — ${event.reason}.`, 'alert', [ac.id]);
-          break;
-      }
-    }
-    if (removed) continue;
+    if (handleApproachEvents(world, ac, events)) continue;
 
     // The glideslope and the STAR's published profile each own the vertical
     // while they are being flown; kinematics still pay for it out of the
