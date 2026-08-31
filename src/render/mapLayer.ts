@@ -329,7 +329,7 @@ function drawCompassTicks(ctx: CanvasRenderingContext2D, p: Projection): void {
 /** Extended centerline out to 20 NM with a tick every 2 NM (§3.1). */
 function drawCenterline(ctx: CanvasRenderingContext2D, p: Projection): void {
   const start = toScreen(p, AIRPORT.runway.threshold);
-  const end = toScreen(p, centerlinePoint(CENTERLINE_LENGTH_NM));
+  const end = toScreen(p, centerlinePoint(AIRPORT.runway, CENTERLINE_LENGTH_NM));
 
   ctx.strokeStyle = THEME.centerline;
   ctx.lineWidth = 1.5;
@@ -347,7 +347,7 @@ function drawCenterline(ctx: CanvasRenderingContext2D, p: Projection): void {
   ctx.textBaseline = 'middle';
 
   for (let nm = CENTERLINE_TICK_NM; nm <= CENTERLINE_LENGTH_NM; nm += CENTERLINE_TICK_NM) {
-    const point = centerlinePoint(nm);
+    const point = centerlinePoint(AIRPORT.runway, nm);
     const sx = screenX(p, point.x);
     const sy = screenY(p, point.y);
     const major = nm % 10 === 0;

@@ -2,10 +2,10 @@
  * The world: one mutable state object plus `step(world, dt)`.
  * No DOM, no rendering, no input — see docs §11.4.
  */
-import { AIRPORT } from '../scenario/airport.js';
+import type { Runway, Scenario } from '../scenario/types.js';
 import type { Aircraft } from './aircraft.js';
 import { isDeparture, sampleRadar } from './aircraft.js';
-import { boundaryMarginNm } from './airspace.js';
+import { boundaryMarginNm } from '../scenario/airspace.js';
 import {
   DEPARTURE_FLOW_DEFAULT_PER_HOUR,
   DEPARTURE_HOLD_AFTER_LANDING_S,
@@ -81,6 +81,14 @@ export interface Stats {
 }
 
 export interface World {
+  /**
+   * The field this session is flying: its airport, airspace and charts (§3).
+   *
+   * Fixed at `createWorld` and never reassigned — the offscreen map layer, the
+   * recording and every in-flight route object are all bound to it, so switching
+   * field is a new session rather than an assignment.
+   */
+  readonly scenario: Scenario;
   timeS: Sec;
   aircraft: Aircraft[];
   messages: Message[];
@@ -112,6 +120,7 @@ export interface World {
 }
 
 export function createWorld(
+  scenario: Scenario,
   seed: number,
   flowPerHour = FLOW_DEFAULT_PER_HOUR,
   departureFlowPerHour = DEPARTURE_FLOW_DEFAULT_PER_HOUR,
@@ -122,6 +131,7 @@ export function createWorld(
   // opens on an aircraft already rolling reads as having started without you.
   traffic.nextDepartureAtS = 45;
   return {
+    scenario,
     timeS: 0,
     aircraft: [],
     messages: [],
@@ -289,9 +299,9 @@ export function runwayOccupied(world: World): boolean {
 }
 
 /** Projected in-trail spacing when the aircraft ahead reaches the threshold (§9.3). */
-export function projectedSpacingNm(follower: Aircraft, leader: Aircraft): Nm {
-  const followerAlong = finalGeometry(follower).alongNm;
-  const leaderAlong = finalGeometry(leader).alongNm;
+export function projectedSpacingNm(runway: Runway, follower: Aircraft, leader: Aircraft): Nm {
+  const followerAlong = finalGeometry(runway, follower).alongNm;
+  const leaderAlong = finalGeometry(runway, leader).alongNm;
   const leaderSpeed = groundSpeed(leader) / 3600;
   if (leaderSpeed <= 0) return followerAlong - leaderAlong;
   const secondsToThreshold = leaderAlong / leaderSpeed;
@@ -300,14 +310,14 @@ export function projectedSpacingNm(follower: Aircraft, leader: Aircraft): Nm {
 
 function tryHandoff(world: World, ac: Aircraft): void {
   if (ac.handedOff || ac.phase !== 'gs') return;
-  const geo = finalGeometry(ac);
+  const geo = finalGeometry(world.scenario.runway, ac);
   if (!isEstablished(ac, geo)) return;
 
   const leader = world.separation.inTrailLeader.get(ac.id);
   // Keep it on frequency until the closure rate is acceptable,
   // against whichever in-trail minimum applies at its current range (§9.3).
   const minimumNm = world.separation.inTrailMinimum.get(ac.id) ?? IN_TRAIL_MIN_NM;
-  if (leader && projectedSpacingNm(ac, leader) < minimumNm) return;
+  if (leader && projectedSpacingNm(world.scenario.runway, ac, leader) < minimumNm) return;
 
   ac.handedOff = true;
   world.stats.handoffs += 1;
@@ -319,8 +329,8 @@ function checkAirspaceExit(world: World, ac: Aircraft): boolean {
   // Outbound means tracking away from the airport, so the test is against the
   // bearing *from the ARP* — not against the raw position vector, which is the
   // same thing only while the ARP sits on the origin.
-  const range = distance(position, AIRPORT.arp);
-  const outbound = range > 0 && headingDiff(bearing(AIRPORT.arp, position), ac.headingDeg) < 90;
+  const range = distance(position, world.scenario.arp);
+  const outbound = range > 0 && headingDiff(bearing(world.scenario.arp, position), ac.headingDeg) < 90;
 
   if (!outbound) {
     ac.exitWarned = false;
@@ -330,7 +340,7 @@ function checkAirspaceExit(world: World, ac: Aircraft): boolean {
   // Against the boundary's actual shape, not just the radius: the airspace is
   // cut off north and south (§3.1), so an aircraft can run out of room while
   // still well inside 50 NM.
-  const marginNm = boundaryMarginNm(position);
+  const marginNm = boundaryMarginNm(world.scenario.airspace, position);
   if (marginNm < 0) {
     // A departure leaving is the whole point of it, not a mistake: it counts in
     // its own tally and says so in the ordinary voice rather than the alert one.
@@ -371,7 +381,7 @@ function logDepartureEvents(world: World, ac: Aircraft, events: readonly Departu
       case 'airborne':
         log(
           world,
-          `${ac.callsign} airborne runway ${AIRPORT.runway.id}, ${event.sid} departure, ` +
+          `${ac.callsign} airborne runway ${world.scenario.runway.id}, ${event.sid} departure, ` +
             `contact Departure on ${DEPARTURE_FREQUENCY}.`,
           'system',
           [ac.id],
@@ -459,7 +469,7 @@ function handleApproachEvents(
           world.stats.trackMileRatioSum += ac.trackMilesFlown / ac.directDistanceNm;
           world.stats.trackMileSamples += 1;
         }
-        log(world, `${ac.callsign} landed runway ${AIRPORT.runway.id}.`, 'system', [ac.id]);
+        log(world, `${ac.callsign} landed runway ${world.scenario.runway.id}.`, 'system', [ac.id]);
         remove(world, ac);
         removed = true;
         break;
@@ -512,7 +522,7 @@ function sampleHistory(world: World): void {
 /** Center hands over one arrival, if a gate is free to take it (§4.4). */
 function spawnArrival(world: World): void {
   if (world.timeS < world.traffic.nextSpawnAtS) return;
-  const arrival = trySpawn(world.rng, world.traffic, world.aircraft, world.timeS);
+  const arrival = trySpawn(world.scenario, world.rng, world.traffic, world.aircraft, world.timeS);
   if (!arrival) return;
 
   world.aircraft.push(arrival);
@@ -550,7 +560,7 @@ function queueDeparture(world: World): void {
  */
 function releaseDeparture(world: World): void {
   if (world.traffic.departureQueue === 0) return;
-  const departure = tryDeparture(world.departureRng, world.traffic, world.aircraft, world.timeS);
+  const departure = tryDeparture(world.scenario, world.departureRng, world.traffic, world.aircraft, world.timeS);
   if (!departure) return;
 
   world.traffic.departureQueue -= 1;
@@ -565,7 +575,7 @@ function releaseDeparture(world: World): void {
     world.traffic.departureQueue > 0 ? ` ${world.traffic.departureQueue} more holding.` : '';
   log(
     world,
-    `${departure.callsign} (${departure.type.code}) rolling runway ${AIRPORT.runway.id}, ` +
+    `${departure.callsign} (${departure.type.code}) rolling runway ${world.scenario.runway.id}, ` +
       `${route.name} departure — ${out}.${waiting}`,
     'system',
     [departure.id],
@@ -589,7 +599,7 @@ export function step(world: World, dt: Sec): void {
   // Analysed before flying, so in-trail spacing and the handoff closure check
   // see this tick's picture rather than the previous one's — which on the very
   // first tick of a session would be empty.
-  world.separation = analyzeSeparation(world.aircraft);
+  world.separation = analyzeSeparation(world.scenario.runway, world.aircraft);
   accountViolations(world, dt);
 
   // ── Fly ──────────────────────────────────────────────────────────────────
@@ -604,14 +614,20 @@ export function step(world: World, dt: Sec): void {
 
     // Instructions the crew has now had time to act on, then the route they
     // fly in the absence of one.
-    for (const readback of applyDueInstructions(ac, world.timeS)) {
+    for (const readback of applyDueInstructions(world.scenario.runway, ac, world.timeS)) {
       log(world, readback.text, readback.kind, [ac.id]);
     }
     logStarEvents(world, ac, stepStar(ac, dt, world.timeS));
 
-    const geo = finalGeometry(ac);
+    const geo = finalGeometry(world.scenario.runway, ac);
     const inTrailNm = world.separation.inTrail.get(ac.id) ?? null;
-    const events = stepApproach(ac, geo, { inTrailNm, runwayOccupied: occupied }, dt);
+    const events = stepApproach(
+      world.scenario.runway,
+      ac,
+      geo,
+      { inTrailNm, runwayOccupied: occupied },
+      dt,
+    );
 
     if (handleApproachEvents(world, ac, events)) continue;
 

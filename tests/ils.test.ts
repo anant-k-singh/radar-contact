@@ -4,15 +4,13 @@ import { adjustHeading, adjustSpeed, clearForIls } from '../src/sim/commands.js'
 import { PHYSICS_DT } from '../src/sim/constants.js';
 import {
   evaluateClearance,
-  finalGeometry,
-  glideslopeAltitudeFt,
   canCaptureGlideslope,
   isEstablished,
   localizerHeading,
 } from '../src/sim/ils.js';
 import { step } from '../src/sim/world.js';
 import { headingDiff } from '../src/sim/units.js';
-import { makeAircraft, onFinalApproach, pilotActs, quietWorld } from './helpers.js';
+import { geo, makeAircraft, onFinal, onGlideslope, pilotActs, quietWorld, RUNWAY } from './helpers.js';
 
 /**
  * An aircraft correctly set up for a 30° intercept at 12 NM.
@@ -20,7 +18,7 @@ import { makeAircraft, onFinalApproach, pilotActs, quietWorld } from './helpers.
  * localizer capture at ~9.4 NM, so the two captures stay distinct.
  */
 function goodSetup() {
-  const position = onFinalApproach(12, 2);
+  const position = onFinal(12, -2);
   return makeAircraft({
     x: position.x,
     y: position.y,
@@ -33,10 +31,10 @@ function goodSetup() {
 
 describe('glideslope geometry', () => {
   it('follows a 3° path — the 300 ft per NM rule of thumb', () => {
-    expect(glideslopeAltitudeFt(1)).toBeCloseTo(318, 0);
-    expect(glideslopeAltitudeFt(2)).toBeCloseTo(637, 0);
+    expect(onGlideslope(1)).toBeCloseTo(318, 0);
+    expect(onGlideslope(2)).toBeCloseTo(637, 0);
     // The cone is ~11 NM long, so the G/S there is ~3500 ft.
-    expect(glideslopeAltitudeFt(11)).toBeCloseTo(3503, 0);
+    expect(onGlideslope(11)).toBeCloseTo(3503, 0);
     // The intercept table in the requirements doc.
     expect(3000 / 318.4).toBeCloseTo(9.4, 1);
   });
@@ -44,24 +42,25 @@ describe('glideslope geometry', () => {
 
 describe('final approach geometry', () => {
   it('measures along-track distance from the threshold', () => {
-    const position = onFinalApproach(10);
-    const geo = finalGeometry(makeAircraft({ x: position.x, y: position.y, headingDeg: 180 }));
-    expect(geo.alongNm).toBeCloseTo(10, 6);
-    expect(geo.xtkNm).toBeCloseTo(0, 6);
-    expect(geo.interceptAngleDeg).toBeCloseTo(0, 6);
+    const position = onFinal(10);
+    const g = geo(makeAircraft({ x: position.x, y: position.y, headingDeg: 180 }));
+    expect(g.alongNm).toBeCloseTo(10, 6);
+    expect(g.xtkNm).toBeCloseTo(0, 6);
+    expect(g.interceptAngleDeg).toBeCloseTo(0, 6);
   });
 
   it('puts traffic east of the centerline on the pilot’s left', () => {
-    const position = onFinalApproach(10, 3);
-    const geo = finalGeometry(makeAircraft({ x: position.x, y: position.y, headingDeg: 180 }));
-    // Landing southbound, east is to the left, so the cross-track is negative.
-    expect(geo.xtkNm).toBeCloseTo(-3, 6);
+    const position = onFinal(10, -3);
+    const g = geo(makeAircraft({ x: position.x, y: position.y, headingDeg: 180 }));
+    expect(g.xtkNm).toBeCloseTo(-3, 6);
+    // Landing southbound, left of course is east of the field.
+    expect(position.x).toBeGreaterThan(0);
   });
 
   it('detects whether the track is closing on the localizer', () => {
-    const position = onFinalApproach(12, 3);
-    const closing = finalGeometry(makeAircraft({ ...position, headingDeg: 210 }));
-    const diverging = finalGeometry(makeAircraft({ ...position, headingDeg: 150 }));
+    const position = onFinal(12, -3);
+    const closing = geo(makeAircraft({ ...position, headingDeg: 210 }));
+    const diverging = geo(makeAircraft({ ...position, headingDeg: 150 }));
     expect(closing.closing).toBe(true);
     expect(diverging.closing).toBe(false);
   });
@@ -70,7 +69,7 @@ describe('final approach geometry', () => {
 describe('the clearance gate', () => {
   it('accepts a textbook 30° intercept from below the glideslope', () => {
     const ac = goodSetup();
-    const result = evaluateClearance(ac, finalGeometry(ac));
+    const result = evaluateClearance(ac, geo(ac));
     expect(result.ok).toBe(true);
     expect(result.warnings).toHaveLength(0);
   });
@@ -80,19 +79,19 @@ describe('the clearance gate', () => {
     // intercept, so it may be given before the turn has even been flown.
     const ac = goodSetup();
     ac.headingDeg = 270;
-    expect(evaluateClearance(ac, finalGeometry(ac)).ok).toBe(true);
+    expect(evaluateClearance(ac, geo(ac)).ok).toBe(true);
   });
 
   it('clears an aircraft still descending to the intercept altitude', () => {
     const ac = goodSetup();
     ac.vsFpm = -1200;
-    expect(evaluateClearance(ac, finalGeometry(ac)).ok).toBe(true);
+    expect(evaluateClearance(ac, geo(ac)).ok).toBe(true);
   });
 
   it('clears an aircraft above the glideslope, warning by how much', () => {
     const ac = goodSetup();
     ac.altitudeFt = 5000; // G/S at 12 NM is ~3821 ft
-    const result = evaluateClearance(ac, finalGeometry(ac));
+    const result = evaluateClearance(ac, geo(ac));
     expect(result.ok).toBe(true);
     expect(result.warnings.join(' ')).toContain('1179 ft above the glideslope');
   });
@@ -100,25 +99,25 @@ describe('the clearance gate', () => {
   it('clears an aircraft beyond localizer range', () => {
     // Range is a fact about now, not about the intercept: it is re-tested
     // continuously and only gates the capture itself (§6.1a).
-    const position = onFinalApproach(30, 2);
+    const position = onFinal(30, -2);
     const ac = makeAircraft({ ...position, altitudeFt: 8000, headingDeg: 210, vsFpm: 0 });
-    expect(evaluateClearance(ac, finalGeometry(ac)).ok).toBe(true);
+    expect(evaluateClearance(ac, geo(ac)).ok).toBe(true);
   });
 
   it('clears an aircraft that has overshot and is still diverging', () => {
     // The case the split exists for: clear it and turn it back in one go,
     // instead of watching it until the turn has taken effect.
-    const position = onFinalApproach(12, 3);
+    const position = onFinal(12, -3);
     const ac = makeAircraft({ ...position, altitudeFt: 3000, headingDeg: 150, vsFpm: 0 });
-    expect(evaluateClearance(ac, finalGeometry(ac)).ok).toBe(true);
+    expect(evaluateClearance(ac, geo(ac)).ok).toBe(true);
   });
 
   it('still refuses past the threshold and below the MVA', () => {
     // What is left in the gate: the clearance could never mean anything.
-    const past = makeAircraft({ ...onFinalApproach(-3), altitudeFt: 3000, headingDeg: 180 });
-    expect(evaluateClearance(past, finalGeometry(past)).code).toBe('pastThreshold');
-    const low = makeAircraft({ ...onFinalApproach(12, 2), altitudeFt: 1500, headingDeg: 210 });
-    expect(evaluateClearance(low, finalGeometry(low)).code).toBe('belowMva');
+    const past = makeAircraft({ ...onFinal(-3), altitudeFt: 3000, headingDeg: 180 });
+    expect(evaluateClearance(past, geo(past)).code).toBe('pastThreshold');
+    const low = makeAircraft({ ...onFinal(12, -2), altitudeFt: 1500, headingDeg: 210 });
+    expect(evaluateClearance(low, geo(low)).code).toBe('belowMva');
   });
 });
 
@@ -150,7 +149,7 @@ describe('the intercept window', () => {
   it('captures the localizer above the glideslope, but says it cannot capture it', () => {
     // The path falls away inbound, so this one is a 5 NM go-around already.
     // The intercept is the last moment the controller can still be told.
-    const position = onFinalApproach(16, 2.5);
+    const position = onFinal(16, -2.5);
     const ac = makeAircraft({
       ...position,
       altitudeFt: 5000, // G/S at the ~13.6 NM capture is ~4335 ft
@@ -167,7 +166,7 @@ describe('the intercept window', () => {
   });
 
   it('flies through the localizer when the angle is still beyond 45°', () => {
-    const position = onFinalApproach(12, 3);
+    const position = onFinal(12, -3);
     const ac = makeAircraft({
       ...position,
       altitudeFt: 2500,
@@ -185,7 +184,7 @@ describe('the intercept window', () => {
   });
 
   it('captures the localizer while still descending — the vertical is the G/S’s business', () => {
-    const position = onFinalApproach(10, 1);
+    const position = onFinal(10, -1);
     const ac = makeAircraft({
       ...position,
       altitudeFt: 4000,
@@ -205,7 +204,7 @@ describe('the intercept window', () => {
     // Crossing the centerline at 30 NM is not an intercept — the localizer is
     // not being received — so nothing is tested and nothing is lost.
     const ac = makeAircraft({
-      ...onFinalApproach(30, 0.2),
+      ...onFinal(30, -0.2),
       altitudeFt: 6000,
       headingDeg: 240, // crosses the course well outside the service volume
       iasKts: 250, // would fail the intercept had one been attempted
@@ -215,7 +214,7 @@ describe('the intercept window', () => {
     const world = quietWorld(ac);
     for (let i = 0; i < 600; i += 1) step(world, PHYSICS_DT);
 
-    expect(finalGeometry(ac).xtkNm).toBeGreaterThan(0.5); // it went through
+    expect(geo(ac).xtkNm).toBeGreaterThan(0.5); // it went through
     expect(ac.phase).toBe('cleared');
     expect(world.stats.missedIntercepts.size).toBe(0);
   });
@@ -224,14 +223,14 @@ describe('the intercept window', () => {
     // The whole point: clear it and turn it back in the same breath, then look
     // away. The clearance survives the diverging leg and intercepts on its own.
     const ac = makeAircraft({
-      ...onFinalApproach(18, -2), // west of the centerline, having overshot
+      ...onFinal(18, 2), // right of course, having overshot
       altitudeFt: 3000,
       headingDeg: 240, // still tracking away from the course
       iasKts: 200,
       vsFpm: 0,
     });
     const world = quietWorld(ac);
-    expect(finalGeometry(ac).closing).toBe(false);
+    expect(geo(ac).closing).toBe(false);
 
     clearForIls(world, ac);
     for (let i = 0; i < 3; i += 1) adjustHeading(world, ac, 1); // 240 → 270, back through
@@ -248,7 +247,7 @@ describe('the intercept window', () => {
   });
 
   it('flies through the localizer above 230 kt', () => {
-    const position = onFinalApproach(12, 1.5);
+    const position = onFinal(12, -1.5);
     const ac = makeAircraft({
       ...position,
       altitudeFt: 2500,
@@ -268,7 +267,7 @@ describe('the intercept window', () => {
     // follows it. That must not read as "maintain 200 to 5 mile final" and
     // strand the aircraft 60 kt fast over the threshold.
     const ac = makeAircraft({
-      ...onFinalApproach(22, 4),
+      ...onFinal(22, -4),
       altitudeFt: 3000,
       headingDeg: 210,
       iasKts: 230,
@@ -294,7 +293,7 @@ describe('the intercept window', () => {
   it('lands an aircraft cleared while perpendicular, then turned onto the intercept', () => {
     // The scenario the mechanic exists for: turn onto a 30° intercept and
     // clear in the same breath, from a downwind heading well off the course.
-    const position = onFinalApproach(22, 6);
+    const position = onFinal(22, -6);
     const ac = makeAircraft({
       ...position,
       altitudeFt: 3000,
@@ -325,8 +324,8 @@ describe('the glideslope gate', () => {
   /** On the localizer at 8 NM, level 40 ft under the path. */
   function onPath(overrides: Partial<Aircraft> = {}) {
     const ac = makeAircraft({
-      ...onFinalApproach(8),
-      altitudeFt: glideslopeAltitudeFt(8) - 40,
+      ...onFinal(8),
+      altitudeFt: onGlideslope(8, -40),
       headingDeg: 180,
       iasKts: 180,
       vsFpm: 0,
@@ -338,34 +337,34 @@ describe('the glideslope gate', () => {
 
   it('captures from below, level, on the localizer', () => {
     const ac = onPath();
-    expect(canCaptureGlideslope(ac, finalGeometry(ac))).toBe(true);
+    expect(canCaptureGlideslope(ac, geo(ac))).toBe(true);
   });
 
   it('refuses to capture while still descending', () => {
     const ac = onPath({ vsFpm: -800 });
-    expect(canCaptureGlideslope(ac, finalGeometry(ac))).toBe(false);
+    expect(canCaptureGlideslope(ac, geo(ac))).toBe(false);
   });
 
   it('refuses to capture above 230 kt', () => {
     const ac = onPath({ iasKts: 240 });
-    expect(canCaptureGlideslope(ac, finalGeometry(ac))).toBe(false);
+    expect(canCaptureGlideslope(ac, geo(ac))).toBe(false);
   });
 
   it('never captures from above', () => {
-    const ac = onPath({ altitudeFt: glideslopeAltitudeFt(8) + 40 });
-    expect(canCaptureGlideslope(ac, finalGeometry(ac))).toBe(false);
+    const ac = onPath({ altitudeFt: onGlideslope(8, +40) });
+    expect(canCaptureGlideslope(ac, geo(ac))).toBe(false);
   });
 
   it('refuses to capture outside 25 NM', () => {
     const ac = makeAircraft({
-      ...onFinalApproach(30),
-      altitudeFt: glideslopeAltitudeFt(30) - 40,
+      ...onFinal(30),
+      altitudeFt: onGlideslope(30, -40),
       headingDeg: 180,
       iasKts: 180,
       vsFpm: 0,
     });
     ac.phase = 'loc';
-    expect(canCaptureGlideslope(ac, finalGeometry(ac))).toBe(false);
+    expect(canCaptureGlideslope(ac, geo(ac))).toBe(false);
   });
 
   it('flies through the path while descending, and captures once it levels off', () => {
@@ -373,7 +372,7 @@ describe('the glideslope gate', () => {
     // through it does not capture — but nothing is lost either: it levels at
     // its assigned altitude under the path and captures on the way in.
     const ac = makeAircraft({
-      ...onFinalApproach(14, 1),
+      ...onFinal(14, -1),
       altitudeFt: 5000,
       targetAltitudeFt: 2000, // descends straight through the ~4458 ft path
       headingDeg: 200,
@@ -385,13 +384,13 @@ describe('the glideslope gate', () => {
     let crossedDescending = false;
     let landed = false;
     for (let i = 0; i < 40_000 && !landed; i += 1) {
-      const above = ac.altitudeFt > finalGeometry(ac).gsAltitudeFt;
+      const above = ac.altitudeFt > geo(ac).gsAltitudeFt;
       step(world, PHYSICS_DT);
       if (world.aircraft.length === 0) {
         landed = true;
         break;
       }
-      if (above && ac.altitudeFt < finalGeometry(ac).gsAltitudeFt && ac.vsFpm < -200) {
+      if (above && ac.altitudeFt < geo(ac).gsAltitudeFt && ac.vsFpm < -200) {
         crossedDescending = true;
         expect(ac.phase).toBe('loc'); // through the path, not on it
       }
@@ -406,12 +405,12 @@ describe('the glideslope gate', () => {
 
 describe('localizer tracking', () => {
   it('steers back toward the centerline from the right', () => {
-    const position = onFinalApproach(8, -0.4); // west of the centerline
+    const position = onFinal(8, 0.4); // right of course
     const ac = makeAircraft({ ...position, headingDeg: 180 });
-    const geo = finalGeometry(ac);
-    expect(geo.xtkNm).toBeGreaterThan(0); // right of course
+    const g = geo(ac);
+    expect(g.xtkNm).toBeGreaterThan(0); // right of course
     // Correcting left of the 180° course.
-    expect(localizerHeading(ac, geo)).toBeLessThan(180);
+    expect(localizerHeading(RUNWAY, ac, g)).toBeLessThan(180);
   });
 });
 
@@ -446,15 +445,15 @@ describe('a complete approach', () => {
     expect(ac.phase).toBe('loc');
     // At the moment of capture it is still turning, so not yet established.
     expect(headingDiff(ac.headingDeg, 180)).toBeGreaterThan(5);
-    expect(isEstablished(ac, finalGeometry(ac))).toBe(false);
+    expect(isEstablished(ac, geo(ac))).toBe(false);
 
     // A little later — the 5° alignment test is the last one to come good.
     for (let i = 0; i < 1200; i += 1) step(world, PHYSICS_DT);
-    expect(isEstablished(ac, finalGeometry(ac))).toBe(true);
+    expect(isEstablished(ac, geo(ac))).toBe(true);
   });
 
   it('goes around when the approach is unstable inside 5 NM', () => {
-    const position = onFinalApproach(4.5, 0);
+    const position = onFinal(4.5);
     // Aligned on the localizer but far above the glideslope (~1433 ft at 4.5 NM),
     // so the path never passes through its level and it stays high.
     const ac = makeAircraft({
@@ -476,14 +475,14 @@ describe('a complete approach', () => {
     // The 4 NM gap is a sequencing requirement out at 10 NM (§9.3). This close
     // in, squeezing the aircraft achieves nothing, so it is left alone.
     const lead = makeAircraft({
-      ...onFinalApproach(1),
+      ...onFinal(1),
       altitudeFt: 318,
       headingDeg: 180,
       iasKts: 140,
       phase: 'gs',
     });
     const follower = makeAircraft({
-      ...onFinalApproach(4.5),
+      ...onFinal(4.5),
       altitudeFt: 1433,
       headingDeg: 180,
       iasKts: 150,
@@ -500,14 +499,14 @@ describe('a complete approach', () => {
 
   it('still goes around as a backstop below 2.5 NM', () => {
     const lead = makeAircraft({
-      ...onFinalApproach(2),
+      ...onFinal(2),
       altitudeFt: 637,
       headingDeg: 180,
       iasKts: 140,
       phase: 'gs',
     });
     const follower = makeAircraft({
-      ...onFinalApproach(4),
+      ...onFinal(4),
       altitudeFt: 1274,
       headingDeg: 180,
       iasKts: 150,

@@ -17,6 +17,7 @@ import {
   SPEED_MAX_KTS,
   SPEED_STEP_KTS,
 } from './constants.js';
+import type { Runway } from '../scenario/types.js';
 import { evaluateClearance, finalGeometry, rangeToThresholdNm } from './ils.js';
 import {
   assignedAltitudeFt,
@@ -35,8 +36,8 @@ export type Direction = -1 | 1;
  * Slowest speed the player may assign.
  * Don't make an aircraft configure until it is within 20 track miles.
  */
-export function speedFloorKts(ac: Aircraft): number {
-  if (rangeToThresholdNm(ac) <= CONFIG_RANGE_NM) return SPEED_FLOOR_LOW_KTS;
+export function speedFloorKts(runway: Runway, ac: Aircraft): number {
+  if (rangeToThresholdNm(runway, ac) <= CONFIG_RANGE_NM) return SPEED_FLOOR_LOW_KTS;
   return Math.max(SPEED_FLOOR_CLEAN_KTS, ac.type.minCleanKts);
 }
 
@@ -82,12 +83,12 @@ export function adjustAltitude(world: World, ac: Aircraft, direction: Direction)
 export function adjustSpeed(world: World, ac: Aircraft, direction: Direction): void {
   if (!guard(world, ac)) return;
 
-  const floor = speedFloorKts(ac);
+  const floor = speedFloorKts(world.scenario.runway, ac);
   const base = quantize(assignedIasKts(ac), SPEED_STEP_KTS);
   const requested = base + direction * SPEED_STEP_KTS;
 
   if (requested < floor) {
-    const withinConfigRange = rangeToThresholdNm(ac) <= CONFIG_RANGE_NM;
+    const withinConfigRange = rangeToThresholdNm(world.scenario.runway, ac) <= CONFIG_RANGE_NM;
     log(
       world,
       withinConfigRange
@@ -153,7 +154,7 @@ export function clearForIls(world: World, ac: Aircraft): void {
     return;
   }
 
-  const geo = finalGeometry(ac);
+  const geo = finalGeometry(world.scenario.runway, ac);
   const result = evaluateClearance(ac, geo);
 
   if (!result.ok) {
@@ -179,7 +180,10 @@ export function clearForIls(world: World, ac: Aircraft): void {
 export function nextSelectableId(world: World): number | null {
   const ordered = world.aircraft
     .filter((ac) => !isDeparture(ac))
-    .sort((a, b) => rangeToThresholdNm(a) - rangeToThresholdNm(b));
+    .sort(
+      (a, b) =>
+        rangeToThresholdNm(world.scenario.runway, a) - rangeToThresholdNm(world.scenario.runway, b),
+    );
   if (ordered.length === 0) return null;
   const index = ordered.findIndex((ac) => ac.id === world.selectedId);
   return ordered[(index + 1) % ordered.length]!.id;

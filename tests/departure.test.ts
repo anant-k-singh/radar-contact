@@ -18,9 +18,8 @@ import {
   SEP_HORIZ_NM,
   SEP_VERT_FT,
 } from '../src/sim/constants.js';
-import { MAX_DEPARTURE_ROLL_S } from '../src/sim/departure.js';
+import { maxDepartureRollS } from '../src/sim/departure.js';
 import { groundSpeed } from '../src/sim/dynamics.js';
-import { finalGeometry } from '../src/sim/ils.js';
 import { createRng } from '../src/sim/rng.js';
 import { createDeparture, createTrafficState, runwayBlockedBy } from '../src/sim/traffic.js';
 import { distance, type Point } from '../src/sim/units.js';
@@ -31,7 +30,7 @@ import {
   step,
   type World,
 } from '../src/sim/world.js';
-import { makeAircraft, MEDIUM_TYPE, onFinalApproach, quietWorld, run } from './helpers.js';
+import { geo, makeAircraft, MEDIUM_TYPE, onFinal, quietWorld, run, SCENARIO } from './helpers.js';
 
 const sidNamed = (name: string): Sid => SIDS.find((sid) => sid.name === name)!;
 /**
@@ -63,7 +62,7 @@ const crossingPoint = (side: number): Point => ({
 
 /** A departure of a given type at the holding point, in an otherwise empty world. */
 function departure(sid: Sid, type: AircraftType): { ac: Aircraft; world: World } {
-  const ac = createDeparture(createRng(7), createTrafficState(), sid, [], 0);
+  const ac = createDeparture(SCENARIO, createRng(7), createTrafficState(), sid, [], 0);
   ac.type = type;
   ac.targetIasKts = type.v2Kts;
   return { ac, world: quietWorld(ac) };
@@ -391,7 +390,7 @@ describe('the shared runway', () => {
   /** An arrival on the glideslope at `alongNm`, flying `iasKts`. */
   const onApproach = (alongNm: number, iasKts: number): Aircraft =>
     makeAircraft({
-      ...onFinalApproach(alongNm),
+      ...onFinal(alongNm),
       phase: 'gs',
       altitudeFt: alongNm * GS_FT_PER_NM,
       headingDeg: AIRPORT.runway.courseDeg,
@@ -401,17 +400,17 @@ describe('the shared runway', () => {
   it('holds a departure while an arrival is on short final', () => {
     const state = createTrafficState();
     const vapp = MEDIUM_TYPE.vappKts;
-    expect(runwayBlockedBy(state, [onApproach(DEPARTURE_HOLD_FINAL_NM - 1, vapp)], 0)).toBe(
+    expect(runwayBlockedBy(SCENARIO, state, [onApproach(DEPARTURE_HOLD_FINAL_NM - 1, vapp)], 0)).toBe(
       'arrival on short final',
     );
-    expect(runwayBlockedBy(state, [onApproach(DEPARTURE_HOLD_FINAL_NM + 3, vapp)], 0)).toBeNull();
+    expect(runwayBlockedBy(SCENARIO, state, [onApproach(DEPARTURE_HOLD_FINAL_NM + 3, vapp)], 0)).toBeNull();
   });
 
   it('measures the arrival in time, so a fast one blocks from further out', () => {
     // The gate is "will the departure be airborne with the margin to spare",
     // not a fixed distance — the whole reason it reads the ground speed (§4.7).
     const state = createTrafficState();
-    const requiredS = MAX_DEPARTURE_ROLL_S + DEPARTURE_AIRBORNE_MARGIN_S;
+    const requiredS = maxDepartureRollS(SCENARIO.fleet) + DEPARTURE_AIRBORNE_MARGIN_S;
 
     // One distance, two speeds: far enough at an approach speed, not far enough
     // at 210 kt. The two time assertions below state that premise explicitly, so
@@ -419,37 +418,37 @@ describe('the shared runway', () => {
     // "expected null".
     const slow = onApproach(4.5, MEDIUM_TYPE.vappKts);
     const fast = onApproach(4.5, 210);
-    expect(finalGeometry(slow).alongNm / (groundSpeed(slow) / 3600)).toBeGreaterThan(requiredS);
-    expect(finalGeometry(fast).alongNm / (groundSpeed(fast) / 3600)).toBeLessThan(requiredS);
-    expect(runwayBlockedBy(state, [slow], 0)).toBeNull();
-    expect(runwayBlockedBy(state, [fast], 0)).toBe('arrival on short final');
+    expect(geo(slow).alongNm / (groundSpeed(slow) / 3600)).toBeGreaterThan(requiredS);
+    expect(geo(fast).alongNm / (groundSpeed(fast) / 3600)).toBeLessThan(requiredS);
+    expect(runwayBlockedBy(SCENARIO, state, [slow], 0)).toBeNull();
+    expect(runwayBlockedBy(SCENARIO, state, [fast], 0)).toBe('arrival on short final');
   });
 
   it('never releases inside the distance floor, however slow the arrival is', () => {
     const state = createTrafficState();
     // Slow enough that the time test alone would let it go.
     const crawling = onApproach(DEPARTURE_HOLD_FINAL_NM - 0.1, 90);
-    expect(runwayBlockedBy(state, [crawling], 0)).toBe('arrival on short final');
+    expect(runwayBlockedBy(SCENARIO, state, [crawling], 0)).toBe('arrival on short final');
   });
 
   it('holds a departure behind a landing and behind the one before it', () => {
     const state = createTrafficState();
     state.lastLandingS = 1000;
-    expect(runwayBlockedBy(state, [], 1010)).toBe('landing traffic rolling out');
-    expect(runwayBlockedBy(state, [], 1100)).toBeNull();
+    expect(runwayBlockedBy(SCENARIO, state, [], 1010)).toBe('landing traffic rolling out');
+    expect(runwayBlockedBy(SCENARIO, state, [], 1100)).toBeNull();
 
     state.lastLandingS = null;
     state.lastDepartureS = 1000;
-    expect(runwayBlockedBy(state, [], 1000 + DEPARTURE_MIN_INTERVAL_S - 1)).toBe(
+    expect(runwayBlockedBy(SCENARIO, state, [], 1000 + DEPARTURE_MIN_INTERVAL_S - 1)).toBe(
       'departure spacing',
     );
-    expect(runwayBlockedBy(state, [], 1000 + DEPARTURE_MIN_INTERVAL_S)).toBeNull();
+    expect(runwayBlockedBy(SCENARIO, state, [], 1000 + DEPARTURE_MIN_INTERVAL_S)).toBeNull();
   });
 
   it('does not release a second departure onto an occupied runway', () => {
     const { ac, world } = departure(sidNamed('RAMOX1A'), AIRCRAFT_TYPES[0]!);
     expect(ac.phase).toBe('roll');
-    expect(runwayBlockedBy(world.traffic, world.aircraft, 0)).toBe('runway occupied');
+    expect(runwayBlockedBy(SCENARIO, world.traffic, world.aircraft, 0)).toBe('runway occupied');
   });
 
   it('gets every type airborne before an arrival released at 3 NM reaches the threshold', () => {
@@ -463,7 +462,7 @@ describe('the shared runway', () => {
     for (const depType of AIRCRAFT_TYPES) {
       for (const arrType of AIRCRAFT_TYPES) {
         const arrival = makeAircraft({
-          ...onFinalApproach(DEPARTURE_HOLD_FINAL_NM),
+          ...onFinal(DEPARTURE_HOLD_FINAL_NM),
           type: arrType,
           phase: 'gs',
           altitudeFt: DEPARTURE_HOLD_FINAL_NM * GS_FT_PER_NM,
@@ -483,7 +482,7 @@ describe('the shared runway', () => {
           `${arrType.code} landed over ${depType.code} while it was still rolling`,
         ).toContain(arrival);
 
-        const marginS = finalGeometry(arrival).alongNm / (groundSpeed(arrival) / 3600);
+        const marginS = geo(arrival).alongNm / (groundSpeed(arrival) / 3600);
         expect(marginS).toBeGreaterThan(0);
         if (marginS < worstMarginS) {
           worstMarginS = marginS;
@@ -544,7 +543,7 @@ describe('the shared runway', () => {
     // business, not ours (§9.4) — it must not be logged as a violation.
     const { ac: dep } = departure(sidNamed('RAMOX1A'), AIRCRAFT_TYPES[0]!);
     const landing = makeAircraft({
-      ...onFinalApproach(1.5),
+      ...onFinal(1.5),
       phase: 'gs',
       altitudeFt: 480,
       headingDeg: AIRPORT.runway.courseDeg,
@@ -695,7 +694,7 @@ describe('a session flown entirely as published', () => {
    * there to solve — so only pairs involving a departure are examined.
    */
   it('never loses separation against a departure, over two hours', () => {
-    const world = createWorld(20260825, 50, 20);
+    const world = createWorld(SCENARIO, 20260825, 50, 20);
     const violations: string[] = [];
     // Predicted conflicts are counted rather than banned. The 90 s look-ahead
     // takes the closest horizontal and closest vertical approach *independently*
@@ -728,7 +727,7 @@ describe('a session flown entirely as published', () => {
   });
 
   it('keeps the runway sequence sane under a saturated arrival flow', () => {
-    const world = createWorld(20260825, 50, 20);
+    const world = createWorld(SCENARIO, 20260825, 50, 20);
     run(world, 3600);
     // Departures are held for arrivals, so the flow set is an upper bound that
     // a busy final eats into — but the runway must not deadlock either.

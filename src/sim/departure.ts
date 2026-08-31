@@ -28,9 +28,9 @@
  * published profile to sit on, so kinematics own the vertical throughout and the
  * `controlVertical: false` seam is not one of this module's problems.
  */
-import { AIRCRAFT_TYPES, type AircraftType } from '../scenario/aircraftTypes.js';
-import { AIRPORT } from '../scenario/airport.js';
-import { ceilingAtFt, type Sid, type SidWaypoint } from '../scenario/sids.js';
+import type { AircraftType } from '../scenario/aircraftTypes.js';
+import { ceilingAtFt } from '../scenario/routes.js';
+import type { Sid, SidWaypoint } from '../scenario/types.js';
 import type { Aircraft } from './aircraft.js';
 import {
   DEPARTURE_ACCEL_ALT_FT,
@@ -40,7 +40,14 @@ import {
   TAKEOFF_ACCEL_KTS_S,
 } from './constants.js';
 import { fixPassed, routeAnticipationNm } from './dynamics.js';
-import { bearing, distance, headingVector, trueAirspeed, type Sec } from './units.js';
+import {
+  bearing,
+  distance,
+  headingVector,
+  trueAirspeed,
+  type Ft,
+  type Sec,
+} from './units.js';
 
 export interface SidNav {
   route: Sid;
@@ -52,6 +59,16 @@ export interface SidNav {
    * departure the whole way.
    */
   complete: boolean;
+  /**
+   * Elevation of the field it left, and therefore the datum every AGL number on
+   * this departure is measured from — the acceleration altitude, and the
+   * initial-climb rate reduction.
+   *
+   * A fact about this flight, captured at the roll, in the same way
+   * `Aircraft.directDistanceNm` is. Holding it here is what keeps `dynamics.ts`
+   * free of any scenario at all.
+   */
+  fieldElevationFt: Ft;
 }
 
 export type DepartureEvent =
@@ -78,11 +95,13 @@ export function departureRollTimeS(type: AircraftType): Sec {
  * type it might be about to build. Being conservative for a medium is the right
  * way round: the cost is a departure held slightly longer than it needed to be.
  */
-export const MAX_DEPARTURE_ROLL_S: Sec = Math.max(...AIRCRAFT_TYPES.map(departureRollTimeS));
+export function maxDepartureRollS(fleet: readonly AircraftType[]): Sec {
+  return Math.max(...fleet.map(departureRollTimeS));
+}
 
 /** Put a departure at the holding point, tracking the first fix after the runway. */
-export function joinSid(route: Sid): SidNav {
-  return { route, index: 1, complete: false };
+export function joinSid(route: Sid, fieldElevationFt: Ft): SidNav {
+  return { route, index: 1, complete: false, fieldElevationFt };
 }
 
 export function activeSidFix(nav: SidNav): SidWaypoint {
@@ -141,7 +160,7 @@ export function stepDeparture(ac: Aircraft, dt: Sec): DepartureEvent[] {
   // Speed: the initial-climb IAS until the flaps are up, then the 250 kt climb
   // speed. Measured above the *field*, not above sea level — an acceleration
   // altitude is an AGL number.
-  const aglFt = ac.altitudeFt - AIRPORT.elevationFt;
+  const aglFt = ac.altitudeFt - nav.fieldElevationFt;
   ac.targetIasKts =
     aglFt < DEPARTURE_ACCEL_ALT_FT ? ac.type.initialClimbKts : DEPARTURE_CLIMB_SPEED_KTS;
 

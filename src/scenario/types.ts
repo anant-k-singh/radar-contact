@@ -145,6 +145,12 @@ export interface Runway {
   /** Final approach course, i.e. the runway's own heading. */
   courseDeg: Deg;
   lengthNm: Nm;
+  /**
+   * Threshold elevation, i.e. the field's. Carried here so that everything doing
+   * approach geometry — the glideslope, the runway environment, a departure's AGL
+   * — needs the runway and nothing else.
+   */
+  elevationFt: Ft;
   /** Landing threshold — the point the glideslope aims at. */
   threshold: Point;
   /** Unit vector along the landing direction. */

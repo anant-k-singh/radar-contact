@@ -1,14 +1,26 @@
-import { AIRCRAFT_TYPES } from '../src/scenario/aircraftTypes.js';
-import { AIRPORT } from '../src/scenario/airport.js';
+import { DEFAULT_SCENARIO } from '../src/scenario/registry.js';
 import type { Aircraft } from '../src/sim/aircraft.js';
 import { PHYSICS_DT, PILOT_DELAY_MAX_S } from '../src/sim/constants.js';
+import { finalGeometry, glideslopeAltitudeFt, type FinalGeometry } from '../src/sim/ils.js';
 import { applyDueInstructions } from '../src/sim/pilot.js';
 import { createRng } from '../src/sim/rng.js';
 import { createArrival, createTrafficState } from '../src/sim/traffic.js';
+import { normalizeHeading, rightOf, type Deg, type Ft, type Nm, type Point } from '../src/sim/units.js';
 import { createWorld, log, step, type World } from '../src/sim/world.js';
 
-export const MEDIUM_TYPE = AIRCRAFT_TYPES.find((t) => t.code === 'A320')!;
-export const HEAVY_TYPE = AIRCRAFT_TYPES.find((t) => t.code === 'A332')!;
+/**
+ * The field the *specific* assertions in these tests are about.
+ *
+ * Anything true of every field belongs in the conformance suite, which runs over
+ * the whole registry. Anything true of this one — that its two northern gates get
+ * the lower crossing, that its north routes end 4 NM apart — belongs here.
+ */
+export const SCENARIO = DEFAULT_SCENARIO;
+export const AIRPORT = SCENARIO;
+export const RUNWAY = SCENARIO.runway;
+
+export const MEDIUM_TYPE = SCENARIO.fleet.find((t) => t.code === 'A320')!;
+export const HEAVY_TYPE = SCENARIO.fleet.find((t) => t.code === 'A332')!;
 
 /**
  * An aircraft at a known state, built through the real spawn path.
@@ -20,7 +32,7 @@ export const HEAVY_TYPE = AIRCRAFT_TYPES.find((t) => t.code === 'A332')!;
 export function makeAircraft(overrides: Partial<Aircraft> = {}): Aircraft {
   const rng = createRng(1);
   const state = createTrafficState();
-  const ac = createArrival(rng, state, AIRPORT.gates[0]!, [], 0);
+  const ac = createArrival(SCENARIO, rng, state, SCENARIO.gates[0]!, [], 0);
   ac.type = MEDIUM_TYPE;
   ac.star = null;
   Object.assign(ac, overrides);
@@ -38,12 +50,35 @@ export function makeAircraft(overrides: Partial<Aircraft> = {}): Aircraft {
   return ac;
 }
 
-/** A point on the extended centerline, `alongNm` from the threshold, offset east. */
-export function onFinalApproach(alongNm: number, eastOffsetNm = 0): { x: number; y: number } {
+/**
+ * A point on the final approach course: `alongNm` before the threshold, `xtkNm`
+ * to the *right* of the centreline facing the landing direction.
+ *
+ * Runway-relative on purpose, and in `FinalGeometry`'s own sign convention — so a
+ * test can place an aircraft and assert `geo.xtkNm` without a mental flip, and so
+ * none of this depends on which way this particular runway points.
+ */
+export function onFinal(alongNm: Nm, xtkNm: Nm = 0): Point {
+  const right = rightOf(RUNWAY.direction);
   return {
-    x: AIRPORT.runway.threshold.x + eastOffsetNm,
-    y: AIRPORT.runway.threshold.y + alongNm,
+    x: RUNWAY.threshold.x - RUNWAY.direction.x * alongNm + right.x * xtkNm,
+    y: RUNWAY.threshold.y - RUNWAY.direction.y * alongNm + right.y * xtkNm,
   };
+}
+
+/** A heading `deg` off the final approach course; positive is right of it. */
+export function offCourse(deg: Deg): Deg {
+  return normalizeHeading(RUNWAY.courseDeg + deg);
+}
+
+/** The glideslope altitude `alongNm` out, plus an offset — on, above or below it. */
+export function onGlideslope(alongNm: Nm, offsetFt: Ft = 0): Ft {
+  return glideslopeAltitudeFt(RUNWAY, alongNm) + offsetFt;
+}
+
+/** This field's final approach geometry for an aircraft. */
+export function geo(ac: Aircraft): FinalGeometry {
+  return finalGeometry(RUNWAY, ac);
 }
 
 /**
@@ -52,7 +87,7 @@ export function onFinalApproach(alongNm: number, eastOffsetNm = 0): { x: number;
  * which a departure rolling in the background would quietly break.
  */
 export function quietWorld(...aircraft: Aircraft[]): World {
-  const world = createWorld(42);
+  const world = createWorld(SCENARIO, 42);
   world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
   world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
   world.departureFlowPerHour = 0;
@@ -80,7 +115,7 @@ export function pilotActs(world: World, ...aircraft: Aircraft[]): void {
     ...targets.flatMap((ac) => ac.pending.map((item) => item.atS)),
   );
   for (const ac of targets) {
-    for (const readback of applyDueInstructions(ac, world.timeS)) {
+    for (const readback of applyDueInstructions(world.scenario.runway, ac, world.timeS)) {
       log(world, readback.text, readback.kind);
     }
   }

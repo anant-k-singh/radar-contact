@@ -28,7 +28,7 @@ import { bearing, distance, headingVector, type Ft, type Point } from '../sim/un
 /** How far above the assignable ceiling a departure levels off (§4.7). */
 const DEPARTURE_TOP_MARGIN_FT = 1000;
 
-function compileRunway(spec: RunwaySpec, arp: Point): Runway {
+function compileRunway(spec: RunwaySpec, arp: Point, elevationFt: Ft): Runway {
   const direction = headingVector(spec.courseDeg);
   // Centre the runway on the airport reference point.
   const threshold: Point = {
@@ -39,6 +39,7 @@ function compileRunway(spec: RunwaySpec, arp: Point): Runway {
     id: spec.id,
     courseDeg: spec.courseDeg,
     lengthNm: spec.lengthNm,
+    elevationFt,
     threshold,
     direction,
     farEnd: {
@@ -163,7 +164,7 @@ function compileSid(spec: SidSpec, ctx: FixContext, defaultTopFt: Ft): Sid {
 
 export function compileScenario(spec: ScenarioSpec): Scenario {
   const arp = spec.arp ?? { x: 0, y: 0 };
-  const runway = compileRunway(spec.runway, arp);
+  const runway = compileRunway(spec.runway, arp, spec.elevationFt);
   const airspace = compileAirspace(spec.airspace);
   const ctx: FixContext = { runway, arp };
 

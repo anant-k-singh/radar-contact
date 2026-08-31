@@ -9,7 +9,7 @@
  * Only one instruction of each kind can be outstanding: pressing `D` four times
  * in a second is one turn instruction, not four, so it is read back once.
  */
-import { AIRPORT } from '../scenario/airport.js';
+import type { Runway } from '../scenario/types.js';
 import type { Aircraft } from './aircraft.js';
 import {
   HOLD_SPEED_KTS,
@@ -105,7 +105,7 @@ function cancelApproach(ac: Aircraft): Readback | null {
   return { text: `${ac.callsign}, cancelling the approach clearance.`, kind: 'pilot' };
 }
 
-function apply(ac: Aircraft, instruction: Instruction): Readback[] {
+function apply(runway: Runway, ac: Aircraft, instruction: Instruction): Readback[] {
   const readbacks: Readback[] = [];
 
   switch (instruction.kind) {
@@ -219,7 +219,7 @@ function apply(ac: Aircraft, instruction: Instruction): Readback[] {
       ac.phase = 'cleared';
       ac.speedAssignedAfterClearance = false;
       readbacks.push({
-        text: `${ac.callsign}, cleared ILS approach runway ${AIRPORT.runway.id}.`,
+        text: `${ac.callsign}, cleared ILS approach runway ${runway.id}.`,
         kind: 'pilot',
       });
       for (const warning of instruction.warnings) {
@@ -231,11 +231,13 @@ function apply(ac: Aircraft, instruction: Instruction): Readback[] {
 }
 
 /** Fly everything the crew has had time to act on. Returns what they said. */
-export function applyDueInstructions(ac: Aircraft, timeS: Sec): Readback[] {
+export function applyDueInstructions(runway: Runway, ac: Aircraft, timeS: Sec): Readback[] {
   if (ac.pending.length === 0) return [];
   const due = ac.pending.filter((item) => item.atS <= timeS);
   if (due.length === 0) return [];
 
   ac.pending = ac.pending.filter((item) => item.atS > timeS);
-  return due.sort((a, b) => a.atS - b.atS).flatMap((item) => apply(ac, item.instruction));
+  return due
+    .sort((a, b) => a.atS - b.atS)
+    .flatMap((item) => apply(runway, ac, item.instruction));
 }

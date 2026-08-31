@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AIRPORT } from '../src/scenario/airport.js';
 import { CEILING_FT, NEAR_ENTRY_FT } from '../src/scenario/fields/zzzz/airport.js';
-import { boundaryRangeAtBearing } from '../src/sim/airspace.js';
+import { boundaryRangeAtBearing } from '../src/scenario/airspace.js';
 import {
   AIRSPACE_HALF_HEIGHT_NM,
   AIRSPACE_RADIUS_NM,
@@ -25,7 +25,7 @@ import {
   projectedSpacingNm,
   step,
 } from '../src/sim/world.js';
-import { makeAircraft, onFinalApproach, quietWorld } from './helpers.js';
+import { makeAircraft, onFinal, quietWorld, RUNWAY, SCENARIO } from './helpers.js';
 
 /** Run the world forward by `seconds` of sim time. */
 function run(world: ReturnType<typeof createWorld>, seconds: number): void {
@@ -53,7 +53,7 @@ describe('traffic generation', () => {
   });
 
   it('delivers close to the configured flow rate over an hour', () => {
-    const world = createWorld(7, 25);
+    const world = createWorld(SCENARIO, 7, 25);
     let spawned = 0;
     const seen = new Set<number>();
 
@@ -75,7 +75,7 @@ describe('traffic generation', () => {
   });
 
   it('hands over at the contracted altitude, speed and position', () => {
-    const world = createWorld(3, 40);
+    const world = createWorld(SCENARIO, 3, 40);
     while (world.aircraft.length === 0) step(world, PHYSICS_DT);
 
     const ac = world.aircraft[0]!;
@@ -100,7 +100,7 @@ describe('traffic generation', () => {
 
     // And an arrival actually spawns at its gate's altitude, level.
     for (const gate of AIRPORT.gates) {
-      const ac = createArrival(createRng(7), createTrafficState(), gate, [], 0);
+      const ac = createArrival(SCENARIO, createRng(7), createTrafficState(), gate, [], 0);
       expect(ac.altitudeFt).toBe(gate.entryAltitudeFt);
       expect(ac.targetAltitudeFt).toBe(gate.entryAltitudeFt);
       expect(ac.radar.altitudeFt).toBe(gate.entryAltitudeFt);
@@ -108,7 +108,7 @@ describe('traffic generation', () => {
   });
 
   it('never hands over traffic that is already in conflict', () => {
-    const world = createWorld(11, 40);
+    const world = createWorld(SCENARIO, 11, 40);
     const steps = Math.round(1800 / PHYSICS_DT);
     for (let i = 0; i < steps; i += 1) {
       step(world, PHYSICS_DT);
@@ -126,7 +126,7 @@ describe('traffic generation', () => {
 
 describe('the radar return', () => {
   it('updates the data block once a second while the aircraft moves smoothly', () => {
-    const ac = makeAircraft({ ...onFinalApproach(20), headingDeg: 180, iasKts: 250 });
+    const ac = makeAircraft({ ...onFinal(20), headingDeg: 180, iasKts: 250 });
     const world = quietWorld(ac);
     // The first sample lands on the first step; the next is due at 1.05 s.
     run(world, 0.5);
@@ -206,7 +206,10 @@ describe('airspace boundary', () => {
     // boundary, so the test is that each one still meets it at the arc rather
     // than beyond a chord — and with enough room left for its marker.
     for (const gate of AIRPORT.gates) {
-      expect(boundaryRangeAtBearing(gate.bearingDeg)).toBeCloseTo(AIRSPACE_RADIUS_NM, 6);
+      expect(boundaryRangeAtBearing(SCENARIO.airspace, gate.bearingDeg)).toBeCloseTo(
+        AIRSPACE_RADIUS_NM,
+        6,
+      );
       expect(AIRSPACE_HALF_HEIGHT_NM - Math.abs(gate.position.y)).toBeGreaterThan(2);
     }
   });
@@ -217,14 +220,14 @@ describe('handover to Tower', () => {
     // Follower 3.2 NM behind but 60 kt faster: it will be inside 3 NM by the
     // time the lead touches down.
     const lead = makeAircraft({
-      ...onFinalApproach(5),
+      ...onFinal(5),
       altitudeFt: 1592,
       headingDeg: 180,
       iasKts: 140,
       phase: 'gs',
     });
     const follower = makeAircraft({
-      ...onFinalApproach(8.2),
+      ...onFinal(8.2),
       altitudeFt: 2611,
       headingDeg: 180,
       iasKts: 200,
@@ -232,7 +235,7 @@ describe('handover to Tower', () => {
     });
     follower.id = 2;
 
-    expect(projectedSpacingNm(follower, lead)).toBeLessThan(SEP_HORIZ_NM);
+    expect(projectedSpacingNm(RUNWAY, follower, lead)).toBeLessThan(SEP_HORIZ_NM);
 
     const world = quietWorld(lead, follower);
     step(world, PHYSICS_DT);
@@ -243,14 +246,14 @@ describe('handover to Tower', () => {
     // Matched speeds, so the spacing at the threshold is what it is now: 3.5 NM
     // clears radar separation but not the sequencing gap owed out here (§9.3).
     const lead = makeAircraft({
-      ...onFinalApproach(8),
+      ...onFinal(8),
       altitudeFt: 2547,
       headingDeg: 180,
       iasKts: 150,
       phase: 'gs',
     });
     const follower = makeAircraft({
-      ...onFinalApproach(11.5),
+      ...onFinal(11.5),
       altitudeFt: 3662,
       headingDeg: 180,
       iasKts: 150,
@@ -258,7 +261,7 @@ describe('handover to Tower', () => {
     });
     follower.id = 2;
 
-    const spacing = projectedSpacingNm(follower, lead);
+    const spacing = projectedSpacingNm(RUNWAY, follower, lead);
     expect(spacing).toBeGreaterThan(SEP_HORIZ_NM);
     expect(spacing).toBeLessThan(IN_TRAIL_SEQUENCING_MIN_NM);
 
@@ -272,14 +275,14 @@ describe('handover to Tower', () => {
     // Identical 3.5 NM gap, 3 NM closer in: the sequencing requirement is
     // behind them, so 3 NM radar separation is the test and it passes.
     const lead = makeAircraft({
-      ...onFinalApproach(5),
+      ...onFinal(5),
       altitudeFt: 1592,
       headingDeg: 180,
       iasKts: 150,
       phase: 'gs',
     });
     const follower = makeAircraft({
-      ...onFinalApproach(8.5),
+      ...onFinal(8.5),
       altitudeFt: 2706,
       headingDeg: 180,
       iasKts: 150,
@@ -380,7 +383,7 @@ describe('landing rate', () => {
     const world = quietWorld();
     for (let i = 0; i < 8; i += 1) {
       const ac = makeAircraft({
-        ...onFinalApproach(0.4),
+        ...onFinal(0.4),
         altitudeFt: 127,
         headingDeg: 180,
         iasKts: 140, // on speed, so the stability gate lets it land
@@ -399,8 +402,8 @@ describe('the message log follows the selection', () => {
   it('shows only the selected aircraft, and the whole frequency when nothing is', () => {
     // `makeAircraft` builds each one through its own traffic state, so the ids
     // have to be separated by hand here.
-    const one = makeAircraft({ ...onFinalApproach(12), callsign: 'AAA111', id: 1 });
-    const two = makeAircraft({ ...onFinalApproach(20), callsign: 'BBB222', id: 2 });
+    const one = makeAircraft({ ...onFinal(12), callsign: 'AAA111', id: 1 });
+    const two = makeAircraft({ ...onFinal(20), callsign: 'BBB222', id: 2 });
     const world = quietWorld(one, two);
     log(world, 'one', 'pilot', [one.id]);
     log(world, 'two', 'pilot', [two.id]);
@@ -417,7 +420,7 @@ describe('the message log follows the selection', () => {
   });
 
   it('tags what an aircraft says with the aircraft that said it', () => {
-    const ac = makeAircraft({ ...onFinalApproach(12), headingDeg: 360 });
+    const ac = makeAircraft({ ...onFinal(12), headingDeg: 360 });
     const world = quietWorld(ac);
     world.selectedId = ac.id;
     adjustHeading(world, ac, 1);

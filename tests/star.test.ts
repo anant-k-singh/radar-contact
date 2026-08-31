@@ -8,12 +8,12 @@ import { createRng } from '../src/sim/rng.js';
 import { createArrival, createTrafficState } from '../src/sim/traffic.js';
 import { distance, type Point } from '../src/sim/units.js';
 import { step } from '../src/sim/world.js';
-import { pilotActs, quietWorld, run } from './helpers.js';
+import { pilotActs, quietWorld, run, SCENARIO } from './helpers.js';
 
 /** A fresh arrival at `gateName`, on its STAR, in an otherwise empty world. */
 function arrival(gateName: string): { ac: Aircraft; world: ReturnType<typeof quietWorld> } {
   const gate = AIRPORT.gates.find((candidate) => candidate.name === gateName)!;
-  const ac = createArrival(createRng(5), createTrafficState(), gate, [], 0);
+  const ac = createArrival(SCENARIO, createRng(5), createTrafficState(), gate, [], 0);
   return { ac, world: quietWorld(ac) };
 }
 

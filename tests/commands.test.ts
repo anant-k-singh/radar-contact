@@ -13,14 +13,7 @@ import {
   SPEED_FLOOR_CLEAN_KTS,
 } from '../src/sim/constants.js';
 import { displayHeading } from '../src/sim/units.js';
-import {
-  HEAVY_TYPE,
-  MEDIUM_TYPE,
-  makeAircraft,
-  onFinalApproach,
-  pilotActs,
-  quietWorld,
-} from './helpers.js';
+import { HEAVY_TYPE, makeAircraft, MEDIUM_TYPE, onFinal, pilotActs, quietWorld, RUNWAY } from './helpers.js';
 
 describe('heading assignment', () => {
   it('moves in 10° steps and wraps through north', () => {
@@ -111,8 +104,8 @@ describe('speed assignment', () => {
     // of that and SPEED_FLOOR_CLEAN_KTS is higher, so retuning either must not
     // silently retune the rule.
     const floorKts = Math.max(SPEED_FLOOR_CLEAN_KTS, MEDIUM_TYPE.minCleanKts);
-    const far = makeAircraft({ ...onFinalApproach(30), iasKts: floorKts, targetIasKts: floorKts });
-    expect(speedFloorKts(far)).toBe(floorKts);
+    const far = makeAircraft({ ...onFinal(30), iasKts: floorKts, targetIasKts: floorKts });
+    expect(speedFloorKts(RUNWAY, far)).toBe(floorKts);
 
     const world = quietWorld(far);
     adjustSpeed(world, far, -1);
@@ -122,14 +115,14 @@ describe('speed assignment', () => {
   });
 
   it('gives heavies a higher clean minimum', () => {
-    const heavy = makeAircraft({ ...onFinalApproach(30), type: HEAVY_TYPE });
-    expect(speedFloorKts(heavy)).toBe(HEAVY_TYPE.minCleanKts);
+    const heavy = makeAircraft({ ...onFinal(30), type: HEAVY_TYPE });
+    expect(speedFloorKts(RUNWAY, heavy)).toBe(HEAVY_TYPE.minCleanKts);
     expect(HEAVY_TYPE.minCleanKts).toBeGreaterThan(MEDIUM_TYPE.minCleanKts);
   });
 
   it('allows 160 kt once inside 20 track miles', () => {
-    const near = makeAircraft({ ...onFinalApproach(12), iasKts: 170, targetIasKts: 170 });
-    expect(speedFloorKts(near)).toBe(160);
+    const near = makeAircraft({ ...onFinal(12), iasKts: 170, targetIasKts: 170 });
+    expect(speedFloorKts(RUNWAY, near)).toBe(160);
 
     const world = quietWorld(near);
     adjustSpeed(world, near, -1);
@@ -141,7 +134,7 @@ describe('speed assignment', () => {
   });
 
   it('marks a speed issued once established so it survives to 5 NM', () => {
-    const ac = makeAircraft({ ...onFinalApproach(12), iasKts: 200, targetIasKts: 200 });
+    const ac = makeAircraft({ ...onFinal(12), iasKts: 200, targetIasKts: 200 });
     ac.phase = 'loc';
     const world = quietWorld(ac);
 
@@ -156,7 +149,7 @@ describe('speed assignment', () => {
     // "maintain XXX until X mile final" would switch off the deceleration
     // schedule and carry the speed to 5 NM — a go-around for excessive speed
     // on an approach that was set up correctly.
-    const ac = makeAircraft({ ...onFinalApproach(20), iasKts: 230, targetIasKts: 230 });
+    const ac = makeAircraft({ ...onFinal(20), iasKts: 230, targetIasKts: 230 });
     ac.phase = 'cleared';
     const world = quietWorld(ac);
 
@@ -170,7 +163,7 @@ describe('speed assignment', () => {
 describe('the C key', () => {
   it('clears a good setup and records nothing against the player', () => {
     const ac = makeAircraft({
-      ...onFinalApproach(12, 2),
+      ...onFinal(12, -2),
       altitudeFt: 3000,
       headingDeg: 210,
       iasKts: 180,
@@ -189,7 +182,7 @@ describe('the C key', () => {
 
   it('refuses and records the reason when the aircraft is past the threshold', () => {
     const ac = makeAircraft({
-      ...onFinalApproach(-4),
+      ...onFinal(-4),
       altitudeFt: 6000,
       headingDeg: 180,
       vsFpm: 0,
@@ -205,7 +198,7 @@ describe('the C key', () => {
   it('accepts a clearance well outside localizer range', () => {
     // Range is settled at the intercept now, not at the clearance (§6.1a).
     const ac = makeAircraft({
-      ...onFinalApproach(30, 2),
+      ...onFinal(30, -2),
       altitudeFt: 6000,
       headingDeg: 210,
       vsFpm: 0,
@@ -223,7 +216,7 @@ describe('the C key', () => {
     // time, so without the ordering rule the turn can land after the clearance
     // and read as a vector off the approach (§7.2).
     const ac = makeAircraft({
-      ...onFinalApproach(14, 4),
+      ...onFinal(14, -4),
       altitudeFt: 3000,
       headingDeg: 270,
       iasKts: 200,
@@ -242,7 +235,7 @@ describe('the C key', () => {
 
   it('still cancels the clearance for a vector given after it', () => {
     const ac = makeAircraft({
-      ...onFinalApproach(14, 4),
+      ...onFinal(14, -4),
       altitudeFt: 3000,
       headingDeg: 210,
       iasKts: 200,
@@ -261,7 +254,7 @@ describe('the C key', () => {
   });
 
   it('is ignored once the aircraft is with Tower', () => {
-    const ac = makeAircraft({ ...onFinalApproach(6), phase: 'gs', handedOff: true });
+    const ac = makeAircraft({ ...onFinal(6), phase: 'gs', handedOff: true });
     const world = quietWorld(ac);
 
     adjustHeading(world, ac, 1);
@@ -272,7 +265,7 @@ describe('the C key', () => {
 
 describe('vectoring off an approach', () => {
   it('cancels the clearance when a heading is assigned', () => {
-    const ac = makeAircraft({ ...onFinalApproach(9), phase: 'loc', headingDeg: 180 });
+    const ac = makeAircraft({ ...onFinal(9), phase: 'loc', headingDeg: 180 });
     const world = quietWorld(ac);
 
     adjustHeading(world, ac, 1);

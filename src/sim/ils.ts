@@ -12,7 +12,7 @@
  * `canCaptureGlideslope` (§6.1b), each against its own conditions at its own
  * moment.
  */
-import { AIRPORT } from '../scenario/airport.js';
+import type { Runway } from '../scenario/types.js';
 import type { Aircraft } from './aircraft.js';
 import {
   APPROACH_SPEED_GATES,
@@ -62,13 +62,6 @@ import {
   type Sec,
 } from './units.js';
 
-const RUNWAY = AIRPORT.runway;
-/**
- * Unit vector 90° right of the landing direction. Derived from `direction`
- * rather than from the course, so the two cannot disagree.
- */
-const RIGHT = rightOf(RUNWAY.direction);
-
 export interface FinalGeometry {
   /** Distance to the threshold along the final approach course. Positive = still to fly. */
   alongNm: Nm;
@@ -83,40 +76,41 @@ export interface FinalGeometry {
 }
 
 /** Glideslope altitude at a distance from the threshold: 318.4 ft/NM on a 3° path. */
-export function glideslopeAltitudeFt(alongNm: Nm): Ft {
-  return Math.max(AIRPORT.elevationFt, alongNm * GS_FT_PER_NM + AIRPORT.elevationFt);
+export function glideslopeAltitudeFt(runway: Runway, alongNm: Nm): Ft {
+  return Math.max(runway.elevationFt, alongNm * GS_FT_PER_NM + runway.elevationFt);
 }
 
 /** A point on the extended centerline, `alongNm` before the threshold. */
-export function centerlinePoint(alongNm: Nm): Point {
+export function centerlinePoint(runway: Runway, alongNm: Nm): Point {
   return {
-    x: RUNWAY.threshold.x - RUNWAY.direction.x * alongNm,
-    y: RUNWAY.threshold.y - RUNWAY.direction.y * alongNm,
+    x: runway.threshold.x - runway.direction.x * alongNm,
+    y: runway.threshold.y - runway.direction.y * alongNm,
   };
 }
 
-export function finalGeometry(ac: Aircraft): FinalGeometry {
+export function finalGeometry(runway: Runway, ac: Aircraft): FinalGeometry {
   // Along-track is measured *to* the threshold, so it counts down as the
   // aircraft flies in; `project` measures away from it.
-  const frame = project(RUNWAY.threshold, { x: ac.x, y: ac.y }, RUNWAY.direction);
+  const frame = project(runway.threshold, { x: ac.x, y: ac.y }, runway.direction);
   const alongNm = -frame.alongNm;
   const xtkNm = frame.rightNm;
 
+  const right = rightOf(runway.direction);
   const track = headingVector(ac.headingDeg);
-  const xtkRate = track.x * RIGHT.x + track.y * RIGHT.y;
+  const xtkRate = track.x * right.x + track.y * right.y;
   const closing = Math.abs(xtkNm) < XTK_ON_COURSE_NM || xtkNm * xtkRate < 0;
 
   return {
     alongNm,
     xtkNm,
-    gsAltitudeFt: glideslopeAltitudeFt(alongNm),
-    interceptAngleDeg: headingDiff(ac.headingDeg, RUNWAY.courseDeg),
+    gsAltitudeFt: glideslopeAltitudeFt(runway, alongNm),
+    interceptAngleDeg: headingDiff(ac.headingDeg, runway.courseDeg),
     closing,
   };
 }
 
-export function rangeToThresholdNm(ac: Aircraft): Nm {
-  return distance({ x: ac.x, y: ac.y }, RUNWAY.threshold);
+export function rangeToThresholdNm(runway: Runway, ac: Aircraft): Nm {
+  return distance({ x: ac.x, y: ac.y }, runway.threshold);
 }
 
 /**
@@ -308,17 +302,17 @@ export function canCaptureGlideslope(ac: Aircraft, geo: FinalGeometry): boolean 
 }
 
 /** Heading that tracks the localizer, by pure pursuit toward a point down the centerline. */
-export function localizerHeading(ac: Aircraft, geo: FinalGeometry): Deg {
+export function localizerHeading(runway: Runway, ac: Aircraft, geo: FinalGeometry): Deg {
   const lead = clamp(geo.alongNm * PURSUIT_LEAD_FRACTION, PURSUIT_LEAD_MIN_NM, PURSUIT_LEAD_NM);
-  const aim = centerlinePoint(Math.max(PURSUIT_AIM_MIN_NM, geo.alongNm - lead));
+  const aim = centerlinePoint(runway, Math.max(PURSUIT_AIM_MIN_NM, geo.alongNm - lead));
   const desired = bearing({ x: ac.x, y: ac.y }, aim);
   // Never allow a wild correction — clamp to ±25° of the course.
   const offset = clamp(
-    headingDelta(RUNWAY.courseDeg, desired),
+    headingDelta(runway.courseDeg, desired),
     -MAX_LOC_CORRECTION_DEG,
     MAX_LOC_CORRECTION_DEG,
   );
-  return normalizeHeading(RUNWAY.courseDeg + offset);
+  return normalizeHeading(runway.courseDeg + offset);
 }
 
 /**
@@ -360,6 +354,7 @@ export interface ApproachContext {
  * altitude is taken straight from the geometry.
  */
 export function stepApproach(
+  runway: Runway,
   ac: Aircraft,
   geo: FinalGeometry,
   ctx: ApproachContext,
@@ -369,7 +364,7 @@ export function stepApproach(
 
   if (ac.phase === 'goAround') {
     ac.targetAltitudeFt = GO_AROUND_ALT_FT;
-    ac.targetHeadingDeg = RUNWAY.courseDeg;
+    ac.targetHeadingDeg = runway.courseDeg;
     ac.targetIasKts = ac.type.minCleanKts;
     if (Math.abs(ac.altitudeFt - GO_AROUND_ALT_FT) < 100) ac.phase = 'inbound';
     return events;
@@ -402,7 +397,7 @@ export function stepApproach(
   }
 
   if (ac.phase === 'loc' || ac.phase === 'gs') {
-    ac.targetHeadingDeg = localizerHeading(ac, geo);
+    ac.targetHeadingDeg = localizerHeading(runway, ac, geo);
     ac.targetIasKts = approachSpeedTargetKts(ac, geo.alongNm);
   }
 
@@ -418,7 +413,7 @@ export function stepApproach(
     // Fly the path exactly; derive the vertical rate for display (~740 fpm at 140 kt).
     const previous = ac.altitudeFt;
     ac.altitudeFt = Math.min(previous, geo.gsAltitudeFt);
-    ac.targetAltitudeFt = AIRPORT.elevationFt;
+    ac.targetAltitudeFt = runway.elevationFt;
     ac.vsFpm = dt > 0 ? ((ac.altitudeFt - previous) / dt) * 60 : 0;
   }
 
@@ -428,7 +423,7 @@ export function stepApproach(
   // A release decision made a minute ago cannot bind an aircraft about to land
   // on an occupied runway, so this is the backstop that overrides it.
   if (geo.alongNm > 0 && geo.alongNm <= GO_AROUND_RUNWAY_OCCUPIED_NM && ctx.runwayOccupied) {
-    goAround(ac);
+    goAround(runway, ac);
     events.push({ kind: 'goAround', reason: 'runway occupied' });
     return events;
   }
@@ -437,7 +432,7 @@ export function stepApproach(
   if (geo.alongNm > 0 && geo.alongNm <= GO_AROUND_GATE_NM) {
     const reason = unstableReason(ac, geo, ctx);
     if (reason) {
-      goAround(ac);
+      goAround(runway, ac);
       events.push({ kind: 'goAround', reason });
       return events;
     }
@@ -445,10 +440,10 @@ export function stepApproach(
 
   // ── Touchdown ────────────────────────────────────────────────────────────
   if (geo.alongNm <= 0) {
-    if (ac.phase === 'gs' && ac.altitudeFt < AIRPORT.elevationFt + TOUCHDOWN_WINDOW_FT) {
+    if (ac.phase === 'gs' && ac.altitudeFt < runway.elevationFt + TOUCHDOWN_WINDOW_FT) {
       events.push({ kind: 'landed' });
     } else {
-      goAround(ac);
+      goAround(runway, ac);
       events.push({ kind: 'goAround', reason: 'crossed the threshold without a stable approach' });
     }
   }
@@ -469,12 +464,12 @@ function unstableReason(ac: Aircraft, geo: FinalGeometry, ctx: ApproachContext):
   return null;
 }
 
-function goAround(ac: Aircraft): void {
+function goAround(runway: Runway, ac: Aircraft): void {
   ac.phase = 'goAround';
   ac.handedOff = false;
   ac.speedAssignedAfterClearance = false;
   ac.goArounds += 1;
   ac.targetAltitudeFt = GO_AROUND_ALT_FT;
-  ac.targetHeadingDeg = RUNWAY.courseDeg;
+  ac.targetHeadingDeg = runway.courseDeg;
   ac.targetIasKts = ac.type.minCleanKts;
 }

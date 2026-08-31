@@ -204,7 +204,7 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
         }
         set('ils', 'Click an aircraft or press Tab.', 'ils idle');
       } else {
-        const geo = finalGeometry(ac);
+        const geo = finalGeometry(world.scenario.runway, ac);
         set('callsign', ac.callsign);
         set('actype', `${ac.type.code} ${ac.type.wake}`);
 
@@ -268,7 +268,7 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
           set('nextfix', '—');
         }
 
-        set('range', `${rangeToThresholdNm(ac).toFixed(1)} NM`);
+        set('range', `${rangeToThresholdNm(world.scenario.runway, ac).toFixed(1)} NM`);
         set(
           'xtk',
           geo.alongNm > 0
@@ -291,7 +291,7 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
             spacingNm < minimumNm ? 'bad' : '',
           );
         }
-        set('minspd', `${speedFloorKts(ac)} kt`);
+        set('minspd', `${speedFloorKts(world.scenario.runway, ac)} kt`);
 
         if (ac.handedOff) {
           set('ils', 'With Tower.', 'ils done');

@@ -18,6 +18,14 @@ import { bearing } from '../sim/units.js';
  */
 export const ENTRY_FIX_INDEX = 1;
 
+/** The published arrival from a gate, or undefined for one delivered on vectors. */
+export function starForGate(
+  scenario: { stars: readonly Star[] },
+  gateName: string,
+): Star | undefined {
+  return scenario.stars.find((star) => star.gate === gateName);
+}
+
 /** The first fix after the gate: where the route begins, and where a stack forms. */
 export function entryFix(star: Star): StarWaypoint {
   return star.waypoints[ENTRY_FIX_INDEX]!;

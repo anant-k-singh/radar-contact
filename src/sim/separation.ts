@@ -2,7 +2,7 @@
  * Separation monitoring (docs §9). IF ATC manual 6.2.2: no closer than 3 NM
  * laterally *or* 1000 ft vertically — so a violation needs both to be breached.
  */
-import { AIRPORT } from '../scenario/airport.js';
+import type { Runway } from '../scenario/types.js';
 import type { Aircraft, AlertLevel } from './aircraft.js';
 import { isDeparture } from './aircraft.js';
 import { groundSpeed } from './dynamics.js';
@@ -67,12 +67,12 @@ function onFinal(ac: Aircraft): boolean {
  * with an aircraft the player has managed to get in front of somewhere else, and
  * the distance alone would exempt one still sitting on the runway at 5 NM.
  */
-function inRunwayEnvironment(ac: Aircraft): boolean {
+function inRunwayEnvironment(runway: Runway, ac: Aircraft): boolean {
   if (!isDeparture(ac)) return false;
   if (ac.phase === 'roll') return true;
   return (
-    ac.altitudeFt - AIRPORT.elevationFt < RUNWAY_SEP_EXEMPT_FT &&
-    distance({ x: ac.x, y: ac.y }, AIRPORT.runway.threshold) < RUNWAY_SEP_EXEMPT_NM
+    ac.altitudeFt - runway.elevationFt < RUNWAY_SEP_EXEMPT_FT &&
+    distance({ x: ac.x, y: ac.y }, runway.threshold) < RUNWAY_SEP_EXEMPT_NM
   );
 }
 
@@ -94,7 +94,7 @@ export function inTrailMinimumNm(alongNm: Nm): Nm {
  * In-trail spacing on final. Aircraft on the same localizer are not laterally
  * separated in the usual sense, so they are measured nose-to-tail instead.
  */
-export function inTrailSpacing(aircraft: readonly Aircraft[]): {
+export function inTrailSpacing(runway: Runway, aircraft: readonly Aircraft[]): {
   spacing: Map<number, Nm>;
   leader: Map<number, Aircraft>;
   minimum: Map<number, Nm>;
@@ -104,7 +104,7 @@ export function inTrailSpacing(aircraft: readonly Aircraft[]): {
   const minimum = new Map<number, Nm>();
   const queue = aircraft
     .filter((ac) => onFinal(ac))
-    .map((ac) => ({ ac, along: finalGeometry(ac).alongNm }))
+    .map((ac) => ({ ac, along: finalGeometry(runway, ac).alongNm }))
     .filter((entry) => entry.along > 0)
     .sort((p, q) => p.along - q.along);
 
@@ -148,14 +148,14 @@ function predictedMinima(a: Aircraft, b: Aircraft): { horizNm: Nm; vertFt: numbe
   return { horizNm: bestHoriz, vertFt: bestVert };
 }
 
-export function analyzeSeparation(aircraft: readonly Aircraft[]): SeparationReport {
+export function analyzeSeparation(runway: Runway, aircraft: readonly Aircraft[]): SeparationReport {
   const alerts = new Map<number, AlertLevel>();
   const pairs: ConflictPair[] = [];
   const {
     spacing: inTrail,
     leader: inTrailLeader,
     minimum: inTrailMinimum,
-  } = inTrailSpacing(aircraft);
+  } = inTrailSpacing(runway, aircraft);
 
   const raise = (ac: Aircraft, level: AlertLevel): void => {
     const current = alerts.get(ac.id);
@@ -173,7 +173,7 @@ export function analyzeSeparation(aircraft: readonly Aircraft[]): SeparationRepo
       if (onFinal(a) && onFinal(b)) continue;
       // One of them is still on or just off the runway: runway separation
       // applies instead, and it is the tower's to apply (§9.4).
-      if (inRunwayEnvironment(a) || inRunwayEnvironment(b)) continue;
+      if (inRunwayEnvironment(runway, a) || inRunwayEnvironment(runway, b)) continue;
 
       const horizNm = horizontalDistance(a, b);
       const vertFt = Math.abs(a.altitudeFt - b.altitudeFt);

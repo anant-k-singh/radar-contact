@@ -3,7 +3,6 @@
  * bounded rate. The interesting part is `planRates`, which makes descending and
  * decelerating compete for one energy budget (docs §4.3).
  */
-import { AIRPORT } from '../scenario/airport.js';
 import {
   ALT_CAPTURE_FT,
   ALT_CAPTURE_MIN_FRACTION,
@@ -201,7 +200,7 @@ export function planRates(input: RatePlanInput): RatePlan {
  * does once cleaned up, which is what the initial climb actually looks like.
  */
 export function departureClimbRateFpm(ac: Aircraft): Fpm {
-  const aglFt = ac.altitudeFt - AIRPORT.elevationFt;
+  const aglFt = ac.altitudeFt - (ac.sid?.fieldElevationFt ?? 0);
   if (aglFt >= DEPARTURE_ACCEL_ALT_FT) return ac.type.departureClimbFpm;
   return Math.max(0, ac.type.departureClimbFpm - INITIAL_CLIMB_REDUCTION_FPM);
 }

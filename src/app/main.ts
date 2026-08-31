@@ -35,7 +35,11 @@ import {
   RENDER_FPS,
 } from '../sim/constants.js';
 import { clamp } from '../sim/units.js';
+import { DEFAULT_SCENARIO } from '../scenario/registry.js';
 import { createWorld, log, step, type World } from '../sim/world.js';
+
+/** The field this session is flying. Fixed for the life of the page (§3). */
+const SCENARIO = DEFAULT_SCENARIO;
 
 const canvas = document.getElementById('scope') as HTMLCanvasElement | null;
 const sidebarRoot = document.getElementById('sidebar');
@@ -52,7 +56,7 @@ function initialSeed(): number {
 }
 
 function start(seed: number, flowPerHour?: number, departureFlowPerHour?: number): World {
-  const created = createWorld(seed, flowPerHour, departureFlowPerHour);
+  const created = createWorld(SCENARIO, seed, flowPerHour, departureFlowPerHour);
   log(created, `Session seed ${seed}. Arrivals inbound — good luck.`, 'system');
   return created;
 }

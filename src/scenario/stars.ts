@@ -17,3 +17,4 @@ export const STARS: readonly Star[] = DEFAULT_SCENARIO.stars;
 export function starForGate(gateName: string): Star | undefined {
   return STARS.find((star) => star.gate === gateName);
 }
+

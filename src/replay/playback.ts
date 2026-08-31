@@ -19,6 +19,7 @@
  *   1 Hz radar sample, not an instantaneous truth (§5).
  */
 import { sidByName } from '../scenario/sids.js';
+import { DEFAULT_SCENARIO } from '../scenario/registry.js';
 import { STARS } from '../scenario/stars.js';
 import type { Aircraft } from '../sim/aircraft.js';
 import type { SidNav } from '../sim/departure.js';
@@ -152,6 +153,7 @@ function aircraftAt(track: Track, frame: number): Aircraft {
       route: sidRoute,
       index: index < 0 ? sidRoute.waypoints.length - 1 : index,
       complete: index < 0,
+      fieldElevationFt: DEFAULT_SCENARIO.elevationFt,
     };
   }
 
@@ -276,6 +278,7 @@ export function worldAtFrame(
   const { flowPerHour, departureFlowPerHour, departureQueue, stats } = sessionAt(rec, frame);
 
   return {
+    scenario: DEFAULT_SCENARIO,
     timeS,
     aircraft,
     messages: messagesAt(rec, timeS),
@@ -296,7 +299,7 @@ export function worldAtFrame(
       lastDepartureS: null,
       lastLandingS: null,
     },
-    separation: analyzeSeparation(aircraft),
+    separation: analyzeSeparation(DEFAULT_SCENARIO.runway, aircraft),
     selectedId: aircraft.some((ac) => ac.id === view.selectedId) ? view.selectedId : null,
     paused: view.paused,
     timeScale: view.timeScale,
