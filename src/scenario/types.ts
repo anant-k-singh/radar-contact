@@ -118,8 +118,21 @@ export interface AirspaceSpec {
 
 export interface EntryGateSpec {
   name: string;
-  /** Bearing from the ARP. The gate is placed on the boundary along it. */
-  bearingDeg: Deg;
+  /**
+   * Bearing from the ARP. Without `at`, the gate is placed on the boundary along
+   * it — which is what a field whose gates are *designed* wants. With `at`, it is
+   * derived from the position instead and this is ignored.
+   */
+  bearingDeg?: Deg;
+  /**
+   * Where the gate actually is, for a field transcribing published fixes.
+   *
+   * A real TMA's entry fixes are at real coordinates and are not all the same
+   * range from the field, so forcing them onto one boundary circle moves them —
+   * at VABB by up to 8 NM, which bends the first leg of the arrival. When this is
+   * given the gate sits exactly here and the airspace simply has to contain it.
+   */
+  at?: FixAt;
   /**
    * Share of the arrivals this gate is offered, relative to the field's other
    * gates. Defaults to 1, i.e. an even split.

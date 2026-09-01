@@ -1,12 +1,15 @@
 /**
  * The VABB chart, fix by fix.
  *
- * A snapshot, for the same reason ZZZZ has one: every position here is derived —
- * the runway frame places the arrival platforms, and the SIDs are chains of
- * published bearings and distances resolved at compile time — so a change to the
- * frame, to the compiler or to one of the offsets can move a fix without any
- * behavioural test noticing. Generated from the compiled field once it validated
- * clean, and checked against the hand-solved geometry it was authored from.
+ * A snapshot, for the same reason ZZZZ has one — but of a different kind of claim.
+ * ZZZZ's positions are *designed*, generated from the runway frame, so its snapshot
+ * guards against the frame or the compiler moving one. VABB's are *transcribed*:
+ * every position here is a published WGS84 coordinate converted into the local
+ * frame, so this file pins the transcription and the conversion together, and a
+ * value that drifts means one of the two changed.
+ *
+ * Generated from the compiled field once it validated clean, and cross-checked
+ * against the ranges and bearings the AIP's own tabular coding implies.
  *
  * Nothing generic belongs here. The rules every field must satisfy are asserted
  * over the whole registry in `scenario.test.ts`; this is what *this* chart says.
@@ -17,6 +20,7 @@ import { scenarioById } from '../src/scenario/registry.js';
 const VABB = scenarioById('VABB')!;
 const nm = (v: number) => Number(v.toFixed(6)) + 0;
 const at = (p: { x: number; y: number }) => [nm(p.x), nm(p.y)];
+const range = (p: { x: number; y: number }) => Math.hypot(p.x, p.y);
 
 describe('the VABB chart', () => {
   it('sets the runway and the airport reference point', () => {
@@ -25,8 +29,8 @@ describe('the VABB chart', () => {
     expect(at(VABB.arp)).toEqual([0, 0]);
     expect(VABB.runway.id).toBe('27');
     expect(VABB.runway.courseDeg).toBe(270);
-    // Landing westbound: the threshold is the east end, so arrivals finish east
-    // of the field and departures leave over the sea.
+    // Landing westbound: the threshold is the east end, so arrivals finish east of
+    // the field and departures leave over the sea.
     expect(at(VABB.runway.threshold)).toEqual([0.99, 0]);
     expect(at(VABB.runway.farEnd)).toEqual([-0.99, 0]);
   });
@@ -37,19 +41,14 @@ describe('the VABB chart', () => {
     ]);
   });
 
-  it('places the five entry gates on the boundary, in their charted sectors', () => {
-    expect(VABB.gates.map((g) => g.name)).toEqual(['MOLGO', 'IGBAN', 'POKON', 'KETOR', 'EMRAK']);
-    const byName = new Map(VABB.gates.map((g) => [g.name, g]));
-
-    // The two near-cardinal gates land on the chords rather than the 60 NM arc,
-    // which is why their y is exactly the airspace half-height.
-    expect(at(byName.get('MOLGO')!.position)).toEqual([8.816349, -50]);
-    expect(at(byName.get('IGBAN')!.position)).toEqual([3.496341, 50]);
-    // The other three are on the arc.
-    expect(at(byName.get('POKON')!.position)).toEqual([-50.320234, 32.678342]);
-    expect(at(byName.get('KETOR')!.position)).toEqual([-52.976856, -28.168294]);
-    expect(at(byName.get('EMRAK')!.position)).toEqual([56.381557, 20.521209]);
-
+  it('puts the five entry gates at their published coordinates', () => {
+    expect(VABB.gates.map((g) => [g.name, at(g.position), nm(g.bearingDeg), g.weight])).toEqual([
+      ['MOLGO', [29.431953, -55.866717], 152.218641, 34],
+      ['IGBAN', [18.633155, 57.324283], 18.00666, 22],
+      ['POKON', [-44.731111, 40.825117], 312.386027, 19],
+      ['KETOR', [-44.903416, -39.83155], 228.425389, 13],
+      ['EMRAK', [56.989331, 19.733783], 70.900487, 12],
+    ]);
     for (const gate of VABB.gates) {
       expect(gate.inboundHeadingDeg).toBeCloseTo((gate.bearingDeg + 180) % 360, 6);
       // All five charts publish the same handover.
@@ -58,121 +57,123 @@ describe('the VABB chart', () => {
     }
   });
 
-  it("weights the gates by where Mumbai's traffic comes from", () => {
-    expect(VABB.gates.map((g) => [g.name, g.weight])).toEqual([
-      ['MOLGO', 34],
-      ['IGBAN', 22],
-      ['POKON', 19],
-      ['KETOR', 13],
-      ['EMRAK', 12],
+  it('finds all five convergence fixes on a 60 NM arc', () => {
+    // Not a coincidence and not a design choice of ours: these are the TMA entry
+    // fixes, and it is why the airspace here is 60-odd miles across. Four are
+    // within 0.6 NM of 60; MOLGO is the outlier at 63.2.
+    const ranges = VABB.gates.map((g) => range(g.position));
+    for (const r of ranges) expect(r).toBeGreaterThan(59.5);
+    expect(Math.max(...ranges)).toBeLessThan(63.5);
+    // And they are inside the airspace at their true positions, not pulled onto it.
+    for (const gate of VABB.gates) {
+      expect(range(gate.position)).toBeLessThan(VABB.airspace.radiusNm);
+    }
+  });
+
+  it('publishes the five arrivals, merging into two streams', () => {
+    expect(
+      VABB.stars.map((star) => [
+        star.name,
+        nm(star.lengthNm),
+        star.waypoints.map((w) => [w.name, at(w.position), w.altitudeFt, w.speedKts]),
+      ]),
+    ).toEqual([
+      ['IGBAN2A', 68.91711, [
+        ['IGBAN', [18.633155, 57.324283], 12000, 250],
+        ['MB392', [16.101035, 25.618617], 10000, 230],
+        ['EMROS', [15.701932, 7.239117], 8000, 220],
+        ['OLGUS', [34.427681, 7.423783], 6000, 210],
+      ]],
+      ['POKON2A', 94.075162, [
+        ['POKON', [-44.731111, 40.825117], 12000, 250],
+        ['MB379', [-14.86794, 7.459783], 12000, 230],
+        ['EMROS', [15.701932, 7.239117], 11000, 230],
+        ['OLGUS', [34.427681, 7.423783], 9000, 210],
+      ]],
+      ['EMRAK2A', 25.701443, [
+        ['EMRAK', [56.989331, 19.733783], 12000, 250],
+        ['OLGUS', [34.427681, 7.423783], 7500, 230],
+      ]],
+      ['KETOR2A', 85.394077, [
+        ['KETOR', [-44.903416, -39.83155], 12000, 250],
+        ['MB393', [-14.252904, -11.134383], 11000, 230],
+        ['LIKTA', [16.21097, -9.860717], 10000, 230],
+        ['MB395', [29.114434, -9.298217], 8000, 210],
+      ]],
+      ['MOLGO2A', 61.530197, [
+        ['MOLGO', [29.431953, -55.866717], 12000, 250],
+        ['DUGED', [16.597789, -25.53755], 9000, 230],
+        ['LIKTA', [16.21097, -9.860717], 7000, 230],
+        ['MB395', [29.114434, -9.298217], 5000, 210],
+      ]],
     ]);
   });
 
-  it('publishes the five arrivals', () => {
-    const chart = VABB.stars.map((star) => [
-      star.name,
-      nm(star.lengthNm),
-      star.waypoints.map((w) => [w.name, at(w.position), w.altitudeFt, w.speedKts]),
-    ]);
-    expect(chart).toEqual([
-      ['IGBAN2A', 51.317655, [
-        ['IGBAN', [3.496341, 50], 12000, 250],
-        ['MB392', [10.74317, 35], 9000, 250],
-        ['EMROS', [17.99, 20], 7000, 230],
-        ['OLGUS', [17.99, 2], 3000, 200],
-      ]],
-      ['MOLGO2A', 49.371259, [
-        ['MOLGO', [8.816349, -50], 12000, 250],
-        ['DUGED', [13.403175, -35], 9000, 250],
-        ['LIKTA', [17.99, -20], 7000, 230],
-        ['MB395', [17.99, -2], 3000, 200],
-      ]],
-      ['POKON2A', 70.916506, [
-        ['POKON', [-50.320234, 32.678342], 12000, 250],
-        ['MB379', [-30.549644, 19.839171], 10000, 250],
-        ['MB377', [-10.779055, 7], 7000, 230],
-        ['MB378', [12.99, 7], 3000, 210],
-      ]],
-      ['KETOR2A', 71.244704, [
-        ['KETOR', [-52.976856, -28.168294], 12000, 250],
-        ['MB393', [-33.07097, -17.584147], 10000, 250],
-        ['MB371', [-13.165085, -7], 7000, 230],
-        ['MB372', [12.99, -7], 3000, 210],
-      ]],
-      ['EMRAK2A', 35.080472, [
-        ['EMRAK', [56.381557, 20.521209], 12000, 250],
-        ['MB386', [45.744512, 14.388786], 9000, 250],
-        ['MB387', [35.107467, 8.256363], 6000, 230],
-        ['MB388', [25.99, 3], 4000, 210],
-      ]],
-    ]);
-  });
-
-  it('ends the two approach-side arrivals pointing at each other, 4 NM apart', () => {
-    // The sequencing problem the field is built around, and the one thing the two
-    // designed platforms have to get right.
+  it('shares the merge fixes between routes, at the same place and different levels', () => {
+    // The thing that made this field worth transcribing. A fix on two STARs is one
+    // fix — same coordinate — and what keeps the two streams apart is the level.
     const byName = new Map(VABB.stars.map((star) => [star.name, star]));
-    const north = byName.get('IGBAN2A')!.waypoints.at(-1)!;
-    const south = byName.get('MOLGO2A')!.waypoints.at(-1)!;
-    expect(north.position.x).toBeCloseTo(south.position.x, 9);
-    expect(north.position.y - south.position.y).toBeCloseTo(4, 9);
+    const fix = (star: string, name: string) =>
+      byName.get(star)!.waypoints.find((w) => w.name === name)!;
+
+    for (const name of ['EMROS', 'OLGUS'] as const) {
+      expect(at(fix('IGBAN2A', name).position)).toEqual(at(fix('POKON2A', name).position));
+    }
+    expect(at(fix('KETOR2A', 'LIKTA').position)).toEqual(at(fix('MOLGO2A', 'LIKTA').position));
+
+    // EMROS: the chart's own FL80 against FL110.
+    expect(fix('POKON2A', 'EMROS').altitudeFt! - fix('IGBAN2A', 'EMROS').altitudeFt!).toBe(3000);
+    // LIKTA: the same 3000 ft split on the southern pair.
+    expect(fix('KETOR2A', 'LIKTA').altitudeFt! - fix('MOLGO2A', 'LIKTA').altitudeFt!).toBe(3000);
+    // OLGUS: three flows terminate there, stacked 1500 ft apart.
+    expect(
+      [fix('IGBAN2A', 'OLGUS'), fix('EMRAK2A', 'OLGUS'), fix('POKON2A', 'OLGUS')].map(
+        (w) => w.altitudeFt,
+      ),
+    ).toEqual([6000, 7500, 9000]);
   });
 
-  it('flattens the three departures into eight ways out', () => {
-    expect(VABB.sids.map((sid) => sid.name)).toEqual([
-      'ANOLI2A/SEKVI',
-      'ANOLI2A/MB361',
-      'ANOLI2A/MB381',
-      'RAXET2A/MB370',
-      'RAXET2A/SAKUN',
-      'VEVAK2A/PPN',
-      'VEVAK2A/ONAPA',
-      'VEVAK2A/MB362',
+  it('flattens the three departures into seven ways out, all through MB364', () => {
+    expect(VABB.sids.map((sid) => [sid.name, sid.turn, nm(sid.lengthNm)])).toEqual([
+      ['ANOLI2A/SEKVI', 'right', 77.074904],
+      ['ANOLI2A/MB361', 'right', 65.823801],
+      ['ANOLI2A/MB381', 'right', 63.997394],
+      ['RAXET2A/MB370', 'left', 64.731727],
+      ['VEVAK2A/DOGAP', 'left', 62.381985],
+      ['VEVAK2A/ONAPA', 'left', 44.117843],
+      ['VEVAK2A/MB362', 'left', 67.718937],
     ]);
-    // All three charts leave the runway through MB364, at or above 2600.
     for (const sid of VABB.sids) {
       expect(sid.waypoints[1]!.name).toBe('MB364');
-      expect(at(sid.waypoints[1]!.position)).toEqual([-7.49, 0]);
+      expect(at(sid.waypoints[1]!.position)).toEqual([-6.507865, -0.269717]);
       expect(sid.waypoints[1]!.minAltitudeFt).toBe(2600);
       expect(sid.topFt).toBe(14_000);
     }
   });
 
-  it('holds the two trunks that pass under an arrival downwind', () => {
-    // MB367 and MB368 are 9.1 NM north and south of MB364, two miles past where
-    // the downwinds cross at 7 NM abeam. Both carry the crossing ceiling.
+  it('keeps the chart restrictions in both senses', () => {
     const byName = new Map(VABB.sids.map((sid) => [sid.name, sid]));
-    const north = byName.get('ANOLI2A/MB361')!.waypoints[2]!;
-    const south = byName.get('VEVAK2A/ONAPA')!.waypoints[2]!;
-    expect([north.name, south.name]).toEqual(['MB367', 'MB368']);
-    expect(at(north.position)).toEqual([-7.807585, 9.094457]);
-    expect(at(south.position)).toEqual([-7.807585, -9.094457]);
-    expect(north.maxAltitudeFt).toBe(4000);
-    expect(south.maxAltitudeFt).toBe(4000);
-  });
+    const wpt = (sid: string, name: string) =>
+      byName.get(sid)!.waypoints.find((w) => w.name === name)!;
 
-  it('keeps the chart floors that separate the two long branches from above', () => {
-    const byName = new Map(VABB.sids.map((sid) => [sid.name, sid]));
-    const xopal = byName.get('ANOLI2A/SEKVI')!.waypoints.find((w) => w.name === 'XOPAL')!;
-    const omgix = byName.get('VEVAK2A/PPN')!.waypoints.find((w) => w.name === 'OMGIX')!;
-    // The chart's own "at or above FL120" and "FL100".
-    expect(xopal.minAltitudeFt).toBe(12_000);
-    expect(omgix.minAltitudeFt).toBe(10_000);
+    // Under: the two trunks that pass beneath an arrival stream close to the field.
+    expect(wpt('ANOLI2A/SEKVI', 'ANOLI').maxAltitudeFt).toBe(10_000);
+    expect(wpt('VEVAK2A/DOGAP', 'VEVAK').maxAltitudeFt).toBe(9000);
+    // Over: the two branches that cross an arrival track well out, where the
+    // arrival is below them. These are the chart's own "at or above".
+    expect(wpt('ANOLI2A/SEKVI', 'XOPAL').minAltitudeFt).toBe(12_000);
+    expect(wpt('VEVAK2A/DOGAP', 'OMGIX').minAltitudeFt).toBe(10_000);
   });
 
   it("reads each branch's turn off the track it flies", () => {
-    // The ANOLI and VEVAK trunks turn before they split, so their branches agree.
-    // RAXET's runs within 7° of the runway course, so its two branches take their
-    // own — one leaves southwest and one northwest, and they say so.
-    expect(VABB.sids.map((sid) => [sid.name, sid.turn])).toEqual([
-      ['ANOLI2A/SEKVI', 'right'],
-      ['ANOLI2A/MB361', 'right'],
-      ['ANOLI2A/MB381', 'right'],
-      ['RAXET2A/MB370', 'left'],
-      ['RAXET2A/SAKUN', 'right'],
-      ['VEVAK2A/PPN', 'left'],
-      ['VEVAK2A/ONAPA', 'left'],
-      ['VEVAK2A/MB362', 'left'],
-    ]);
+    // ANOLI turns right off 270° and VEVAK left, before either splits, so their
+    // branches agree. RAXET's trunk runs within 7° of the runway course — straight
+    // out — and its single branch takes its own turn from the leg to MB370.
+    expect(new Set(VABB.sids.filter((s) => s.chart === 'ANOLI2A').map((s) => s.turn))).toEqual(
+      new Set(['right']),
+    );
+    expect(new Set(VABB.sids.filter((s) => s.chart === 'VEVAK2A').map((s) => s.turn))).toEqual(
+      new Set(['left']),
+    );
   });
 });

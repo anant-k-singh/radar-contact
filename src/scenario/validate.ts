@@ -256,6 +256,81 @@ function checkSid(scenario: Scenario, sid: Sid, problems: Problem[]): void {
 }
 
 /**
+ * The rule that makes two arrival streams share a terminal area: wherever two
+ * STARs come within `CONFLICT_HORIZ_NM` of each other, their published profiles
+ * must differ by `CONFLICT_VERT_FT` there.
+ *
+ * Real STARs merge — that is what a merge fix is for — so "keep the routes apart"
+ * cannot mean laterally. What keeps two converging streams safe is the level each
+ * is published at: VABB's IGBAN 2A crosses EMROS at FL80 and POKON 2A crosses the
+ * same fix at FL110, and an arrival on either flies its own chart onto the aircraft
+ * (§4.5), so the 3000 ft is what makes the merge work without the controller.
+ *
+ * The exception is the last fix of a route. Where two routes *terminate* together
+ * the published procedure has ended and the aircraft are a queue for the controller
+ * to sequence, which is the job rather than a design error — three of VABB's five
+ * end at OLGUS. Everywhere else, a merge must be flyable with nobody watching.
+ */
+function checkStarSeparation(scenario: Scenario, problems: Problem[]): void {
+  const stars = scenario.stars;
+  for (let i = 0; i < stars.length; i += 1) {
+    for (let j = i + 1; j < stars.length; j += 1) {
+      const a = stars[i]!;
+      const b = stars[j]!;
+      const sharedEnd =
+        distance(
+          a.waypoints[a.waypoints.length - 1]!.position,
+          b.waypoints[b.waypoints.length - 1]!.position,
+        ) < 0.01;
+      let worst: { apartNm: Nm; apartFt: number } | null = null;
+
+      for (const pa of sampleStar(a)) {
+        for (const pb of sampleStar(b)) {
+          const apartNm = distance(pa, pb);
+          if (apartNm > CONFLICT_HORIZ_NM) continue;
+          // Where both routes end together, the last mile is the controller's.
+          if (sharedEnd && Math.min(pa.dtgNm, pb.dtgNm) < CONFLICT_HORIZ_NM) continue;
+          const apartFt = Math.abs(
+            starProfileAt(a, pa.dtgNm).altitudeFt - starProfileAt(b, pb.dtgNm).altitudeFt,
+          );
+          if (!worst || apartFt < worst.apartFt) worst = { apartNm, apartFt };
+        }
+      }
+
+      if (worst && worst.apartFt < CONFLICT_VERT_FT) {
+        problems.push({
+          severity: 'error',
+          where: `${a.name} × ${b.name}`,
+          message:
+            `they pass ${worst.apartNm.toFixed(1)} NM apart with only ` +
+            `${Math.round(worst.apartFt)} ft between their published profiles`,
+        });
+      }
+    }
+  }
+}
+
+/** Points along a STAR every `SAMPLE_STEP_NM`, each carrying its distance to go. */
+function sampleStar(star: Star): { x: number; y: number; dtgNm: Nm }[] {
+  const out: { x: number; y: number; dtgNm: Nm }[] = [];
+  for (let i = 1; i < star.waypoints.length; i += 1) {
+    const from = star.waypoints[i - 1]!;
+    const to = star.waypoints[i]!;
+    const legNm = distance(from.position, to.position);
+    const steps = Math.max(1, Math.ceil(legNm / SAMPLE_STEP_NM));
+    for (let step = 0; step <= steps; step += 1) {
+      const t = step / steps;
+      out.push({
+        x: from.position.x + (to.position.x - from.position.x) * t,
+        y: from.position.y + (to.position.y - from.position.y) * t,
+        dtgNm: to.dtgNm + legNm * (1 - t),
+      });
+    }
+  }
+  return out;
+}
+
+/**
  * The rule that makes one runway's departures and arrivals coexist: where a SID's
  * track crosses or passes close to a STAR's, the published restrictions have to
  * put 1000 ft between them.
@@ -457,6 +532,7 @@ export function validateScenario(scenario: Scenario): Problem[] {
     checkSid(scenario, sid, problems);
     checkSidExit(scenario, sid, problems);
   }
+  checkStarSeparation(scenario, problems);
   checkSidStarClearance(scenario, problems);
   checkTraffic(scenario, problems);
   return problems.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'error' ? -1 : 1));

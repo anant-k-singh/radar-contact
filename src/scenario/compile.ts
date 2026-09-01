@@ -31,7 +31,7 @@ import type {
   StarSpec,
   StarWaypoint,
 } from './types.js';
-import { bearing, distance, headingVector, type Ft, type Point } from '../sim/units.js';
+import { bearing, distance, headingVector, type Deg, type Ft, type Point } from '../sim/units.js';
 
 /** How far above the assignable ceiling a departure levels off (§4.7). */
 const DEPARTURE_TOP_MARGIN_FT = 1000;
@@ -218,13 +218,24 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
   const airspace = compileAirspace(spec.airspace);
   const ctx: FixContext = { runway, arp };
 
-  // Gates sit *on* the boundary, which past the arcs is a chord rather than the
-  // circle — placing them at the radius instead would put a gate outside the
-  // drawn shape, and several miles from its own marker.
+  // A gate either states where it is, or is placed on the boundary along its
+  // bearing. On the boundary — not at the radius — because past the arcs the
+  // boundary is a chord, and using the radius would put a gate outside the drawn
+  // shape and several miles from its own marker.
   const gates: EntryGate[] = spec.gates.map((gateSpec) => {
-    const v = headingVector(gateSpec.bearingDeg);
-    const rangeNm = boundaryRangeAtBearing(airspace, gateSpec.bearingDeg);
-    const position: Point = { x: arp.x + v.x * rangeNm, y: arp.y + v.y * rangeNm };
+    let position: Point;
+    let bearingDeg: Deg;
+    if (gateSpec.at) {
+      position = gateSpec.at(ctx);
+      bearingDeg = bearing(arp, position);
+    } else if (gateSpec.bearingDeg !== undefined) {
+      bearingDeg = gateSpec.bearingDeg;
+      const v = headingVector(bearingDeg);
+      const rangeNm = boundaryRangeAtBearing(airspace, bearingDeg);
+      position = { x: arp.x + v.x * rangeNm, y: arp.y + v.y * rangeNm };
+    } else {
+      throw new Error(`${spec.id}: gate ${gateSpec.name} states neither a bearing nor a position`);
+    }
     const star = spec.stars.find((candidate) => candidate.gate === gateSpec.name);
     const entryAltitudeFt = star?.entryAltitudeFt ?? gateSpec.entryAltitudeFt;
     const entrySpeedKts = star?.entrySpeedKts ?? gateSpec.entrySpeedKts;
@@ -235,7 +246,7 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     }
     return {
       name: gateSpec.name,
-      bearingDeg: gateSpec.bearingDeg,
+      bearingDeg,
       position,
       inboundHeadingDeg: bearing(position, arp),
       entryAltitudeFt,

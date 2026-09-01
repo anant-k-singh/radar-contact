@@ -74,19 +74,41 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
       }
     });
 
-    it('keeps its arrival routes apart from each other', () => {
+    it('separates every pair of arrival routes, laterally or vertically', () => {
+      // Two published routes may not share airspace — but "apart" means apart in
+      // three dimensions, and a real TMA merges its arrival streams rather than
+      // keeping them laterally clear. VABB's IGBAN 2A and POKON 2A both cross EMROS,
+      // and what keeps them apart there is the chart's own levels: FL80 against
+      // FL110. So wherever two routes come within SEP_HORIZ_NM, their published
+      // profiles have to differ by SEP_VERT_FT at that point.
+      //
+      // A route's last fix is exempt from the vertical half, and only there. Three
+      // of VABB's five terminate at the same fix, where the published route ends and
+      // the controller takes over — arrivals there are a queue to be sequenced, which
+      // is the job, not a design error. Anywhere else a merge has to be flyable
+      // without intervention.
       const sampled = scenario.stars.map((star) => sampleTrack(star.waypoints));
       for (let i = 0; i < scenario.stars.length; i += 1) {
         for (let j = i + 1; j < scenario.stars.length; j += 1) {
           const a = scenario.stars[i]!;
           const b = scenario.stars[j]!;
-          // Sampled along both tracks; two published routes must not share airspace.
+          const endA = a.waypoints[a.waypoints.length - 1]!.position;
+          const endB = b.waypoints[b.waypoints.length - 1]!.position;
+          const sharedEnd = distance(endA, endB) < 0.01;
           for (const pa of sampled[i]!) {
             for (const pb of sampled[j]!) {
+              const apartNm = distance(pa, pb);
+              if (apartNm > SEP_HORIZ_NM) continue;
+              // Inside the lateral minimum: the levels must do the work.
+              const apartFt = Math.abs(
+                starProfileAt(a, pa.dtgNm).altitudeFt - starProfileAt(b, pb.dtgNm).altitudeFt,
+              );
+              if (sharedEnd && Math.min(pa.dtgNm, pb.dtgNm) < SEP_HORIZ_NM) continue;
               expect(
-                distance(pa, pb),
-                `${a.name} and ${b.name} pass too close`,
-              ).toBeGreaterThan(SEP_HORIZ_NM);
+                apartFt,
+                `${a.name} and ${b.name} pass ${apartNm.toFixed(2)} NM apart with ` +
+                  `${apartFt.toFixed(0)} ft between their published profiles`,
+              ).toBeGreaterThanOrEqual(SEP_VERT_FT - 1);
             }
           }
         }

@@ -416,9 +416,10 @@ function drawGates(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Project
   ctx.textBaseline = 'middle';
 
   for (const gate of scenario.gates) {
-    // Pull the marker just inside the boundary so it stays on screen.
+    // Pull the marker 1.5 NM in along its own bearing, so it stays on screen for a
+    // gate placed on the boundary and sits on the fix for one placed at a position.
     const inward = headingVector(gate.bearingDeg);
-    const radius = boundaryRangeAtBearing(scenario.airspace, gate.bearingDeg) - 1.5;
+    const radius = Math.max(0, magnitude(gate.position) - 1.5);
     const sx = p.cx + inward.x * radius * p.pxPerNm;
     const sy = p.cy - inward.y * radius * p.pxPerNm;
 
