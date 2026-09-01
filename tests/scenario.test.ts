@@ -135,9 +135,13 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
               for (const point of sampleTrack(star.waypoints)) {
                 if (distance({ x: ac.x, y: ac.y }, point) > SEP_HORIZ_NM) continue;
                 const arrivalFt = starProfileAt(star, point.dtgNm).altitudeFt;
+                // Either sense: a departure held beneath the arrival and one that
+                // has already climbed above it are both separated. Close to the
+                // field it is the first; 25 NM out, where the arrival is down at
+                // 6000 and the departure has been climbing for minutes, the second.
                 expect(
-                  arrivalFt - ac.altitudeFt,
-                  `${type.code} on ${sid.name} under ${star.name}`,
+                  Math.abs(arrivalFt - ac.altitudeFt),
+                  `${type.code} on ${sid.name} passing ${star.name}`,
                 ).toBeGreaterThanOrEqual(SEP_VERT_FT - 1);
               }
             }

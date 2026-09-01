@@ -200,10 +200,14 @@ export interface SidFixSpec {
   /** Published "at or below", in force from the start of the route until here. */
   maxAltitudeFt?: Ft;
   /**
-   * Published "at or above". Nothing reads this to fly the aircraft — a departure
-   * is always climbing as hard as it can — so it is documentation on the chart
-   * and what the performance tests assert against. Defaults to `topFt` on the
-   * last fix, which is the label a chart carries there anyway.
+   * Published "at or above", in force from here to the end of the route.
+   *
+   * Nothing reads this to fly the aircraft — a departure is always climbing as
+   * hard as it can, so a floor can only be satisfied, never chased. It is read by
+   * the validator, which needs it to check the *other* way a crossing restriction
+   * works: a chart publishing "at or above FL100" is guaranteeing the departure
+   * passes over the arrival rather than under it. Defaults to `topFt` on the last
+   * fix, which is the label a chart carries there anyway.
    */
   minAltitudeFt?: Ft;
 }

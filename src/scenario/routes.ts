@@ -145,3 +145,27 @@ export function ceilingAtFt(sid: Sid, position: Point): Ft {
   }
   return ceilingFt;
 }
+
+/**
+ * The highest "at or above" already made good where the aircraft is — the floor
+ * the published chart guarantees it is not below.
+ *
+ * The mirror of `ceilingAtFt` in both senses: a "at or below" binds *until* its
+ * fix, an "at or above" binds *from* its fix, so this asks whether the fix is
+ * behind rather than ahead.
+ *
+ * Nothing flies this — a departure climbs as hard as it can, so a floor can only
+ * ever be satisfied, never chased. It exists because a crossing restriction has
+ * two ways to work: hold the departure under the arrival, or guarantee it is over
+ * it. A chart publishing "at or above FL100" is doing the second, and without a
+ * floor there is nothing to check that claim against.
+ */
+export function floorAtFt(sid: Sid, position: Point): Ft {
+  let floorFt = 0;
+  for (let i = 1; i < sid.waypoints.length; i += 1) {
+    const minAltitudeFt = sid.waypoints[i]!.minAltitudeFt;
+    if (minAltitudeFt === undefined) continue;
+    if (isPastFix(sid, i, position)) floorFt = Math.max(floorFt, minAltitudeFt);
+  }
+  return floorFt;
+}

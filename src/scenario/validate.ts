@@ -11,7 +11,7 @@
  * every route of every registered field.
  */
 import { boundaryMarginNm } from './airspace.js';
-import { ceilingAtFt, starProfileAt } from './routes.js';
+import { ceilingAtFt, floorAtFt, starProfileAt } from './routes.js';
 import type { Scenario, Sid, Star } from './types.js';
 import { bearing, distance, headingDiff, type Nm } from '../sim/units.js';
 
@@ -257,8 +257,24 @@ function checkSid(scenario: Scenario, sid: Sid, problems: Problem[]): void {
 
 /**
  * The rule that makes one runway's departures and arrivals coexist: where a SID's
- * track crosses or passes close to a STAR's, there has to be a published ceiling
- * in force that clears what the arrival is descending through by 1000 ft.
+ * track crosses or passes close to a STAR's, the published restrictions have to
+ * put 1000 ft between them.
+ *
+ * A restriction can do that in either of two ways, and a real chart uses both:
+ *
+ * - **Under.** An "at or below" holds the departure beneath the descending
+ *   arrival. This is how a crossing close to the field works, where the departure
+ *   has had no room to climb — every one of the shipped field's is this shape.
+ * - **Over.** An "at or above" guarantees the departure is already past the
+ *   arrival's level. This is how a crossing 25 NM out works, where the arrival is
+ *   down at 6000 and the departure has been climbing for ten minutes. VABB's
+ *   OMGIX publishes "at or above FL100" for exactly this reason.
+ *
+ * So the test is the *band* the chart guarantees — `ceilingAtFt` above,
+ * `floorAtFt` below — against the arrival's profile, and either edge clearing by
+ * 1000 ft is enough. Checking only the ceiling would reject a legitimate
+ * over-crossing, and there is no reading of a published minimum under which a
+ * departure sat 7000 ft above an arrival is a conflict.
  *
  * Tested at the **closest approach** of each pair of legs, which is where the
  * restriction has to be good. Not across the whole 3 NM band: a SID deliberately
@@ -272,7 +288,13 @@ function checkSid(scenario: Scenario, sid: Sid, problems: Problem[]): void {
 function checkSidStarClearance(scenario: Scenario, problems: Problem[]): void {
   for (const sid of scenario.sids) {
     for (const star of scenario.stars) {
-      let worst: { distNm: Nm; clearFt: number; ceilingFt: number; arrivalFt: number } | null = null;
+      let worst: {
+        distNm: Nm;
+        clearFt: number;
+        ceilingFt: number;
+        floorFt: number;
+        arrivalFt: number;
+      } | null = null;
 
       for (let i = 1; i < sid.waypoints.length; i += 1) {
         const near = nearestApproach(
@@ -282,10 +304,12 @@ function checkSidStarClearance(scenario: Scenario, problems: Problem[]): void {
         );
         if (near.distNm > CONFLICT_HORIZ_NM) continue;
         const ceilingFt = ceilingAtFt(sid, near.at);
+        const floorFt = floorAtFt(sid, near.at);
         const arrivalFt = starProfileAt(star, near.dtgNm).altitudeFt;
-        const clearFt = arrivalFt - ceilingFt;
+        // The better of the two ways the chart could be separating them.
+        const clearFt = Math.max(arrivalFt - ceilingFt, floorFt - arrivalFt);
         if (!worst || clearFt < worst.clearFt) {
-          worst = { distNm: near.distNm, clearFt, ceilingFt, arrivalFt };
+          worst = { distNm: near.distNm, clearFt, ceilingFt, floorFt, arrivalFt };
         }
       }
 
@@ -294,9 +318,10 @@ function checkSidStarClearance(scenario: Scenario, problems: Problem[]): void {
           severity: 'error',
           where: `${sid.name} × ${star.name}`,
           message:
-            `they pass ${worst.distNm.toFixed(1)} NM apart with only ` +
-            `${Math.round(worst.clearFt)} ft between the SID's ceiling of ${worst.ceilingFt} ft ` +
-            `and the arrival descending through ${Math.round(worst.arrivalFt)} ft`,
+            `they pass ${worst.distNm.toFixed(1)} NM apart with the arrival descending ` +
+            `through ${Math.round(worst.arrivalFt)} ft and the SID published between ` +
+            `${worst.floorFt} and ${worst.ceilingFt} ft — ${Math.round(worst.clearFt)} ft ` +
+            `of separation either way`,
         });
       }
     }
