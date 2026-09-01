@@ -99,6 +99,40 @@ export const joinsDownwind =
     return hit;
   };
 
+/**
+ * The STAR's own entry gate — the point Center hands the arrival over at.
+ *
+ * The gate is placed by `airport.ts`, along the published leg and on the
+ * boundary, so a route that wants to measure inward from the boundary asks for
+ * the gate rather than restating where it ended up.
+ */
+export const entryGate: FixAt = (ctx) => {
+  if (!ctx.gate) throw new Error('entryGate is only meaningful on a STAR');
+  return ctx.gate.position;
+};
+
+/**
+ * `distNm` along the straight leg from `from` towards `to`.
+ *
+ * The mirror of `clipToRange`: that one measures from the field, this one from a
+ * point on the route. It is what places a fix the chart does not publish — a
+ * holding fix at a stated distance inside the boundary — without disturbing the
+ * leg it sits on, since the point is on the line between the two published fixes.
+ * Longer than the leg is a named error rather than a fix past its own next one.
+ */
+export const alongLeg =
+  (distNm: Nm, from: FixAt, to: FixAt): FixAt =>
+  (ctx) => {
+    const a = from(ctx);
+    const b = to(ctx);
+    const legNm = Math.hypot(b.x - a.x, b.y - a.y);
+    if (distNm > legNm) {
+      throw new Error(`alongLeg: ${distNm} NM is past the end of a ${legNm.toFixed(1)} NM leg`);
+    }
+    const t = legNm > 0 ? distNm / legNm : 0;
+    return lerp(a, b, t);
+  };
+
 /** Where a ray meets a line, or null when they are parallel or it lies behind. */
 function rayMeetsLine(from: Point, dir: Point, on: Point, along: Point): Point | null {
   const denom = dir.x * along.y - dir.y * along.x;

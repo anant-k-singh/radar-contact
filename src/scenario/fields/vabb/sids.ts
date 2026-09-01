@@ -36,14 +36,14 @@
  *
  * - **ANOLI (−FL100)** runs north from MB364 straight under POKON 2A's leg into
  *   EMROS. **Flown here at or below 9000, not the published 10,000** — the only
- *   place this field departs from a charted altitude. POKON 2A descends to 9000 at
+ *   place this field departs from a charted altitude. POKON 2A descends to 8000 at
  *   EMROS rather than the supplement's FL110 (see `stars.ts`), and the profile
- *   model interpolates that descent linearly, so the arrival is down to ~10,950
+ *   model interpolates that descent linearly, so the arrival is down to ~10,930
  *   over the crossing 7 NM north of the field. At the published 10,000 the
- *   departure passes 951 ft beneath it; at 9000 it passes 1950. FL90 is also what
+ *   departure passes 930 ft beneath it; at 9000 it passes 1930. FL90 is also what
  *   the mirror-image trunk carries, below.
  * - **VEVAK (−FL90)** runs south under KETOR 2A's leg into LIKTA. Held at or below
- *   9000 as published, it passes about 1300 ft beneath.
+ *   9000 as published, it passes about 1240 ft beneath.
  *
  * Further out the separation is the other way round: **XOPAL's +FL120** and
  * **OMGIX's +FL100** put those branches above the arrival tracks they cross. Both

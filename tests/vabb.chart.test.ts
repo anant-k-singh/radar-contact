@@ -17,7 +17,7 @@
 import { describe, expect, it } from 'vitest';
 import { VABB_FIXES } from '../src/scenario/fields/vabb/fixes.js';
 import { scenarioById } from '../src/scenario/registry.js';
-import { bearing, magnitude } from '../src/sim/units.js';
+import { bearing, distance, magnitude } from '../src/sim/units.js';
 
 const VABB = scenarioById('VABB')!;
 const CTX = { runway: VABB.runway, arp: VABB.arp };
@@ -114,32 +114,79 @@ describe('the VABB chart', () => {
       ['IGBAN2A', 68.632689, [
         ['IGBAN', [18.610513, 57.040765], 15000, 260],
         ['MB392', [16.101035, 25.618617], 10000, 230],
-        ['EMROS', [15.701932, 7.239117], 7000, 220],
-        ['OLGUS', [34.427681, 7.423783], 6000, 210],
+        ['EMROS', [15.701932, 7.239117], 6000, 220],
+        ['OLGUS', [34.427681, 7.423783], 5000, 210],
       ]],
       ['POKON2A', 93.511864, [
         ['POKON', [-44.355437, 40.405386], 17000, 280],
+        ['RCPO', [-31.017065, 25.502774], 15000, 270],
         ['MB379', [-14.86794, 7.459783], 12000, 250],
-        ['EMROS', [15.701932, 7.239117], 9000, 220],
-        ['OLGUS', [34.427681, 7.423783], 8000, 210],
+        ['EMROS', [15.701932, 7.239117], 8000, 220],
+        ['OLGUS', [34.427681, 7.423783], 7000, 210],
       ]],
       ['EMRAK2A', 25.38785, [
         ['EMRAK', [56.714048, 19.583584], 12000, 250],
-        ['OLGUS', [34.427681, 7.423783], 7000, 220],
+        ['RCEM', [43.546509, 12.399163], 10000, 230],
+        ['OLGUS', [34.427681, 7.423783], 6000, 220],
       ]],
       ['KETOR2A', 85.370164, [
         ['KETOR', [-44.885959, -39.815206], 15000, 260],
+        ['RCKE', [-30.286261, -26.145941], 14000, 260],
         ['MB393', [-14.252904, -11.134383], 11000, 250],
-        ['LIKTA', [16.21097, -9.860717], 9000, 220],
-        ['MB395', [29.114434, -9.298217], 7000, 210],
+        ['LIKTA', [16.21097, -9.860717], 8000, 220],
+        ['MB395', [29.114434, -9.298217], 6000, 210],
       ]],
       ['MOLGO2A', 58.373015, [
         ['MOLGO', [28.201578, -52.959145], 14000, 260],
         ['DUGED', [16.597789, -25.53755], 10000, 230],
-        ['LIKTA', [16.21097, -9.860717], 7000, 220],
-        ['MB395', [29.114434, -9.298217], 5500, 220],
+        ['LIKTA', [16.21097, -9.860717], 6000, 220],
+        ['MB395', [29.114434, -9.298217], 5000, 220],
       ]],
     ]);
+  });
+
+  it('puts a holding fix on the three arrivals with room for one', () => {
+    // RC__ is not published — see `stars.ts`. The three longest routes have 30 to 44
+    // NM from the boundary to their first published fix, so without these there is
+    // nothing in the outer half of the airspace to hold an arrival at; the other two
+    // reach a real fix soon enough to hold there instead. Pinned because both the
+    // position and the level are derived: the fix sits on the published leg, and its
+    // crossing is that leg's own profile at that point, rounded up to a level —
+    // except EMRAK 2A's, which is stated: it is the shortest route in and 10,000 is
+    // 500 ft *above* its own profile there, bought back over the remaining 10 NM.
+    const held: Record<string, { insetNm: number; altitudeFt?: number }> = {
+      POKON2A: { insetNm: 20 },
+      EMRAK2A: { insetNm: 15, altitudeFt: 10_000 },
+      KETOR2A: { insetNm: 20 },
+    };
+    for (const star of VABB.stars) {
+      const gate = star.waypoints[0]!;
+      const rc = star.waypoints[1]!;
+      const expected = held[star.name];
+      if (expected === undefined) {
+        expect(rc.name.startsWith('RC')).toBe(false);
+        continue;
+      }
+      const next = star.waypoints[2]!;
+      expect(rc.name).toBe(`RC${gate.name.slice(0, 2)}`);
+
+      // The gates are on the 60 NM boundary, so the inset is a range as well as a
+      // distance along the leg — and the fix is still exactly on the published track.
+      expect(distance(gate.position, rc.position)).toBeCloseTo(expected.insetNm, 6);
+      expect(distance(gate.position, rc.position) + distance(rc.position, next.position))
+        .toBeCloseTo(distance(gate.position, next.position), 6);
+
+      const fraction = expected.insetNm / distance(gate.position, next.position);
+      const interpolatedFt =
+        gate.altitudeFt! + (next.altitudeFt! - gate.altitudeFt!) * fraction;
+      expect(rc.altitudeFt).toBe(expected.altitudeFt ?? Math.ceil(interpolatedFt / 1000) * 1000);
+      // Stated or derived, a holding level has to be one the route can descend
+      // through — at or above the profile, and below the level before it.
+      expect(rc.altitudeFt!).toBeGreaterThanOrEqual(interpolatedFt);
+      expect(rc.altitudeFt!).toBeLessThan(gate.altitudeFt!);
+      const interpolatedKts = gate.speedKts! + (next.speedKts! - gate.speedKts!) * fraction;
+      expect(rc.speedKts).toBe(Math.round(interpolatedKts / 10) * 10);
+    }
   });
 
   it('shares the merge fixes between routes, at the same place and different levels', () => {
@@ -159,14 +206,14 @@ describe('the VABB chart', () => {
     // MOLGO 2A at both of theirs.
     expect(fix('POKON2A', 'EMROS').altitudeFt! - fix('IGBAN2A', 'EMROS').altitudeFt!).toBe(2000);
     expect(fix('KETOR2A', 'LIKTA').altitudeFt! - fix('MOLGO2A', 'LIKTA').altitudeFt!).toBe(2000);
-    expect(fix('KETOR2A', 'MB395').altitudeFt! - fix('MOLGO2A', 'MB395').altitudeFt!).toBe(1500);
+    expect(fix('KETOR2A', 'MB395').altitudeFt! - fix('MOLGO2A', 'MB395').altitudeFt!).toBe(1000);
     // OLGUS: three flows terminate there, stacked exactly 1000 ft apart — the
     // tightest split on the field, and the reason it is worth pinning.
     expect(
       [fix('IGBAN2A', 'OLGUS'), fix('EMRAK2A', 'OLGUS'), fix('POKON2A', 'OLGUS')].map(
         (w) => w.altitudeFt,
       ),
-    ).toEqual([6000, 7000, 8000]);
+    ).toEqual([5000, 6000, 7000]);
   });
 
   it('flattens the three departures into seven ways out, all through MB364', () => {
