@@ -11,6 +11,7 @@ import { AIRCRAFT_TYPES } from '../../aircraftTypes.js';
 import type { ScenarioSpec } from '../../types.js';
 import { VABB_AIRLINES } from './airlines.js';
 import { VABB_AIRSPACE, VABB_GATES, VABB_INACTIVE, VABB_RUNWAY } from './airport.js';
+import { VABB_COASTLINE } from './coastline.js';
 import { VABB_SIDS } from './sids.js';
 import { VABB_STARS } from './stars.js';
 
@@ -21,6 +22,7 @@ export const VABB: ScenarioSpec = {
   elevationFt: 40,
   runway: VABB_RUNWAY,
   inactiveRunways: VABB_INACTIVE,
+  coastline: VABB_COASTLINE,
   airspace: VABB_AIRSPACE,
   gates: VABB_GATES,
   stars: VABB_STARS,

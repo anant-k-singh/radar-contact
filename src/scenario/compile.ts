@@ -275,6 +275,9 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     inactiveRunways: (spec.inactiveRunways ?? []).map(
       (other): InactiveRunway => ({ id: other.id, ends: [other.ends[0](ctx), other.ends[1](ctx)] }),
     ),
+    // The one thing compiled by being turned from pairs into points, because a
+    // coastline is already in the frame — see `CoastlineSpec`.
+    coastline: (spec.coastline ?? []).map((chain) => chain.map(([x, y]) => ({ x, y }))),
     airspace,
     gates,
     stars,

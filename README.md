@@ -117,5 +117,11 @@ license forbids.
 
 Using it privately, or for anything non-commercial, needs nothing from you.
 
+**Third-party data.** Mumbai's coastline is © OpenStreetMap contributors, used under the
+[Open Database Licence](https://www.openstreetmap.org/copyright) — attribution and share-alike, which
+the AGPL is compatible with. It is the only data in the repository that is not either original or a
+transcription of a published procedure; the AAI charts VABB is transcribed from are **not** here and
+must not be added.
+
 Want to use this commercially without the source-release obligation? A commercial license is
 available — open an issue or get in touch.

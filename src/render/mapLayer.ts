@@ -8,7 +8,7 @@
 import { boundaryRangeAtBearing, isInsideAirspace } from '../scenario/airspace.js';
 import type { Scenario, Sid } from '../scenario/types.js';
 import { centerlinePoint } from '../sim/ils.js';
-import { bearing, distance, headingDiff, headingVector, magnitude, type Point } from '../sim/units.js';
+import { bearing, headingDiff, headingVector, magnitude, type Point } from '../sim/units.js';
 import { screenX, screenY, toScreen, type Projection } from './project.js';
 import { THEME } from './theme.js';
 
@@ -68,6 +68,8 @@ function draw(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection):
   ctx.fillStyle = THEME.background;
   ctx.fillRect(0, 0, p.width, p.height);
 
+  // Under everything: it is the ground the rest of the scope is drawn on.
+  drawCoastline(ctx, scenario, p);
   drawRings(ctx, scenario, p);
   drawCompassTicks(ctx, scenario, p);
   drawStars(ctx, scenario, p);
@@ -77,6 +79,48 @@ function draw(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection):
   drawCenterline(ctx, scenario, p);
   drawRunway(ctx, scenario, p);
   drawGates(ctx, scenario, p);
+}
+
+/**
+ * The coast, clipped to the airspace.
+ *
+ * A single hairline in a cold blue and nothing else — no fill either side. Land
+ * and water are the same thing to this simulator (there is no terrain and no
+ * water in the model), so shading one of them would be drawing a fact the scope
+ * does not have; the line alone is what a radar display shows and is all the
+ * player needs to know where the bay is.
+ *
+ * Clipped by the canvas rather than by walking the chains: the boundary is a
+ * circle intersected with a horizontal band (§3.1), which is exactly two clip
+ * regions, and that gets the edge right at the chords as well as the arcs
+ * without turning every coastline segment into a boundary intersection.
+ */
+function drawCoastline(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
+  if (scenario.coastline.length === 0) return;
+  ctx.save();
+
+  const radiusPx = scenario.airspace.radiusNm * p.pxPerNm;
+  ctx.beginPath();
+  ctx.arc(p.cx, p.cy, radiusPx, 0, Math.PI * 2);
+  ctx.clip();
+  const halfHeightPx = scenario.airspace.halfHeightNm * p.pxPerNm;
+  ctx.beginPath();
+  ctx.rect(p.cx - radiusPx, p.cy - halfHeightPx, radiusPx * 2, halfHeightPx * 2);
+  ctx.clip();
+
+  ctx.strokeStyle = THEME.coastline;
+  ctx.lineWidth = 1;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (const chain of scenario.coastline) {
+    chain.forEach((point, index) => {
+      const screen = toScreen(p, point);
+      if (index === 0) ctx.moveTo(screen.x, screen.y);
+      else ctx.lineTo(screen.x, screen.y);
+    });
+  }
+  ctx.stroke();
+  ctx.restore();
 }
 
 /**
@@ -95,6 +139,11 @@ function draw(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection):
  * restrictions: `≤4000` across the arrival downwind, `13000+` at the exit fix.
  * Past the last fix the track continues to the boundary with an arrowhead —
  * that leg is flown on the exit heading and is the aircraft's way out.
+ *
+ * **The fix names are not drawn, only the restrictions.** A departure takes no
+ * instructions, so its fixes are never spoken to or read back: the only thing
+ * the player needs off this layer is where the amber line goes and how low it
+ * is kept, and seven names crowding the STAR chart bought neither.
  */
 function drawSids(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
   ctx.save();
@@ -151,18 +200,16 @@ function drawSids(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projecti
       ctx.arc(point.x, point.y, 2.5, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Labels go *above* the fix, stacked away from the track. Every SID fix
+      // The label goes *above* the fix, away from the track. Every SID fix
       // sits south of or abeam the field, and the STAR labels are placed
       // outward from the airport — which for the two downwind fixes the SIDs
       // pass under is downward, right where a SID label would land. Pushing
       // these the other way keeps the two chart layers apart at the one place
       // they come close, which is also the only place either label matters.
       ctx.textAlign = 'center';
-      ctx.fillStyle = THEME.sidLabel;
-      haloText(ctx, wpt.name, point.x, point.y - 10);
       if (crossing !== undefined) {
         ctx.fillStyle = THEME.sidConstraint;
-        haloText(ctx, crossing, point.x, point.y - 22);
+        haloText(ctx, crossing, point.x, point.y - 10);
       }
     }
   }
@@ -421,33 +468,26 @@ function drawCenterline(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Pr
 function drawRunway(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
   ctx.font = THEME.fontLabel;
   ctx.textBaseline = 'middle';
+  // Unlabelled, on purpose. Nothing in the simulation knows this strip exists, so
+  // its name is never spoken, never assigned and never read back — and at the
+  // field it sits within a few pixels of the active runway's own label, which is
+  // the one the player is looking for.
   for (const other of scenario.inactiveRunways) {
     const from = toScreen(p, other.ends[0]);
     const to = toScreen(p, other.ends[1]);
     ctx.strokeStyle = THEME.runwayInactive;
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 2;
     ctx.lineCap = 'butt';
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(to.x, to.y);
     ctx.stroke();
-
-    // Labelled at the end furthest from the active threshold, so the two names
-    // do not land on top of each other on a crossing pair.
-    const away =
-      distance(other.ends[0], scenario.runway.threshold) >
-      distance(other.ends[1], scenario.runway.threshold)
-        ? from
-        : to;
-    ctx.fillStyle = THEME.runwayInactive;
-    ctx.textAlign = 'center';
-    haloText(ctx, other.id, away.x, away.y - 9);
   }
 
   const threshold = toScreen(p, scenario.runway.threshold);
   const far = toScreen(p, scenario.runway.farEnd);
   ctx.strokeStyle = THEME.runway;
-  ctx.lineWidth = 4;
+  ctx.lineWidth = 3;
   ctx.lineCap = 'butt';
   ctx.beginPath();
   ctx.moveTo(threshold.x, threshold.y);

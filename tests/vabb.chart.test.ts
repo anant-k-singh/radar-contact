@@ -216,6 +216,33 @@ describe('the VABB chart', () => {
     ).toEqual([5000, 6000, 7000]);
   });
 
+  it('carries a coastline, as scenery inside the boundary', () => {
+    // Scenery, so nothing about it is a rule the simulation enforces — but it is
+    // data, and data can drift. Pinned loosely: the shape is OSM's, not this
+    // repository's, so what is asserted is that it arrives in the local frame at
+    // the right scale rather than what any individual point is.
+    const chains = VABB.coastline;
+    expect(chains.length).toBe(4);
+
+    const points = chains.flat();
+    expect(points.length).toBeGreaterThan(300);
+    // Trimmed to just past the 60 NM boundary, where `mapLayer` clips it.
+    for (const point of points) expect(magnitude(point)).toBeLessThan(62);
+
+    // The mainland chain crosses the whole scope, north edge to south edge.
+    const mainland = chains[0]!;
+    expect(mainland[0]!.y).toBeGreaterThan(58);
+    expect(mainland[mainland.length - 1]!.y).toBeLessThan(-58);
+
+    // The field sits between the sea and the harbour: the nearest coast west of
+    // the ARP is a few miles out, which is the whole reason RWY 27 departs over
+    // water. Anything that broke the projection would move this by tens of miles.
+    const west = points.filter((point) => point.x < 0 && Math.abs(point.y) < 2);
+    const nearest = Math.min(...west.map((point) => Math.abs(point.x)));
+    expect(nearest).toBeGreaterThan(1);
+    expect(nearest).toBeLessThan(6);
+  });
+
   it('flattens the three departures into seven ways out, all through MB364', () => {
     expect(VABB.sids.map((sid) => [sid.name, sid.turn, nm(sid.lengthNm)])).toEqual([
       ['ANOLI2A/SEKVI', 'right', 76.75385],

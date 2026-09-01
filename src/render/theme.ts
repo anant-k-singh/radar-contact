@@ -6,8 +6,20 @@ export const THEME = {
   ringLabel: '#2f6b4c',
   compassTick: '#16402c',
   runway: '#d8e4dc',
-  /** A runway that is not in use: present on the field, not part of the job. */
-  runwayInactive: '#4a5a52',
+  /**
+   * A runway that is not in use: present on the field, not part of the job.
+   *
+   * Dimmer than the active strip but not by much — it is a line two miles long on
+   * a sixty-mile scope, and taken far enough down it stopped reading as pavement
+   * at all. The width is what says which one is in use.
+   */
+  runwayInactive: '#7e938a',
+  /**
+   * The coast. A cold light blue, the one thing on the scope that is neither
+   * airspace nor aircraft — it is there to say where you are, so it reads at a
+   * glance and then stops asking for attention.
+   */
+  coastline: '#3f7fa8',
   centerline: '#2f6fd0',
   centerlineTick: '#3f86e8',
   gate: '#2f7a58',
@@ -25,7 +37,6 @@ export const THEME = {
    */
   sidPath: '#5c4a2a',
   sidFix: '#7d6b45',
-  sidLabel: '#94804f',
   sidConstraint: '#b08a3c',
 
   /** Data block and leader line: the cool near-white of a radar block. */

@@ -30,6 +30,8 @@ export interface ScenarioSpec {
    * `InactiveRunwaySpec`.
    */
   inactiveRunways?: readonly InactiveRunwaySpec[];
+  /** Scenery: the coast, if the field is anywhere near one. */
+  coastline?: CoastlineSpec;
   airspace: AirspaceSpec;
   gates: readonly EntryGateSpec[];
   stars: readonly StarSpec[];
@@ -245,6 +247,8 @@ export interface Scenario {
   runway: Runway;
   /** Drawn, never flown. Empty for a field with one strip. */
   inactiveRunways: readonly InactiveRunway[];
+  /** Drawn, and read by nothing else. Empty for a field that states no coast. */
+  coastline: readonly (readonly Point[])[];
   airspace: Airspace;
   gates: readonly EntryGate[];
   stars: readonly Star[];
@@ -270,6 +274,18 @@ export interface Runway extends Required<RunwaySpec> {
   /** Departure end: where every SID starts, and the far end for drawing. */
   farEnd: Point;
 }
+
+/**
+ * Stretches of coastline, each an open or closed chain of `[x, y]` in the field's
+ * local NM frame.
+ *
+ * Coordinates rather than the `FixAt` closures a route is authored with, and the
+ * exception is the point: a `FixAt` exists so a fix can be stated in the frame a
+ * chart states it in — on final, off the departure end — and none of that applies
+ * to a coast, which is at the coordinates the world put it at. Several hundred
+ * closures would also be several hundred allocations to say what two numbers say.
+ */
+export type CoastlineSpec = readonly (readonly (readonly [Nm, Nm])[])[];
 
 export interface InactiveRunway {
   id: string;
