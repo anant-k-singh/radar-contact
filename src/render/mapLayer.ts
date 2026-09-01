@@ -8,7 +8,7 @@
 import { boundaryRangeAtBearing, isInsideAirspace } from '../scenario/airspace.js';
 import type { Scenario, Sid } from '../scenario/types.js';
 import { centerlinePoint } from '../sim/ils.js';
-import { bearing, headingVector, magnitude, type Point } from '../sim/units.js';
+import { bearing, distance, headingVector, magnitude, type Point } from '../sim/units.js';
 import { screenX, screenY, toScreen, type Projection } from './project.js';
 import { THEME } from './theme.js';
 
@@ -81,6 +81,12 @@ function drawSids(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projecti
   ctx.font = THEME.fontLabel;
   ctx.textBaseline = 'middle';
 
+  // A branching SID compiles to one route per exit, each carrying the shared
+  // trunk again. The strokes overdraw identically and are invisible, but the
+  // trunk's labels would be painted once per branch — so each fix is labelled
+  // the first time it is met and skipped after that.
+  const labelled = new Set<string>();
+
   for (const sid of scenario.sids) {
     const last = sid.waypoints[sid.waypoints.length - 1]!;
     const exit = boundaryExitPoint(scenario, sid);
@@ -114,6 +120,8 @@ function drawSids(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projecti
 
       // Index 0 is the runway itself, which is already drawn and labelled.
       if (index === 0) continue;
+      if (labelled.has(wpt.name)) continue;
+      labelled.add(wpt.name);
 
       const point = toScreen(p, wpt.position);
       ctx.strokeStyle = THEME.sidFix;
@@ -353,7 +361,39 @@ function drawCenterline(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Pr
   }
 }
 
+/**
+ * The runway in use, and any others the field has.
+ *
+ * The inactive ones go down first, thinner and dimmer, so the strip the whole
+ * session is about is the one drawn on top and in the bright colour. They are
+ * scenery: nothing in the simulation knows they exist (§3.1 A2).
+ */
 function drawRunway(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
+  ctx.font = THEME.fontLabel;
+  ctx.textBaseline = 'middle';
+  for (const other of scenario.inactiveRunways) {
+    const from = toScreen(p, other.ends[0]);
+    const to = toScreen(p, other.ends[1]);
+    ctx.strokeStyle = THEME.runwayInactive;
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'butt';
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+
+    // Labelled at the end furthest from the active threshold, so the two names
+    // do not land on top of each other on a crossing pair.
+    const away =
+      distance(other.ends[0], scenario.runway.threshold) >
+      distance(other.ends[1], scenario.runway.threshold)
+        ? from
+        : to;
+    ctx.fillStyle = THEME.runwayInactive;
+    ctx.textAlign = 'center';
+    ctx.fillText(other.id, away.x, away.y - 9);
+  }
+
   const threshold = toScreen(p, scenario.runway.threshold);
   const far = toScreen(p, scenario.runway.farEnd);
   ctx.strokeStyle = THEME.runway;

@@ -6,6 +6,8 @@ export const THEME = {
   ringLabel: '#2f6b4c',
   compassTick: '#16402c',
   runway: '#d8e4dc',
+  /** A runway that is not in use: present on the field, not part of the job. */
+  runwayInactive: '#4a5a52',
   centerline: '#2f6fd0',
   centerlineTick: '#3f86e8',
   gate: '#2f7a58',

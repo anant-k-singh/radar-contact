@@ -95,6 +95,25 @@ function checkRunwayAndAirspace(scenario: Scenario, problems: Problem[]): void {
   }
 }
 
+/**
+ * The runways that are only scenery still have to be *drawable*: two distinct
+ * ends, both on the screen. Nothing flies them, so nothing else would ever notice.
+ */
+function checkInactiveRunways(scenario: Scenario, problems: Problem[]): void {
+  for (const other of scenario.inactiveRunways) {
+    const add = (message: string) =>
+      problems.push({ severity: 'error', where: `runway ${other.id}`, message });
+    if (other.id === scenario.runway.id) add('shares its id with the active runway');
+    const lengthNm = distance(other.ends[0], other.ends[1]);
+    if (lengthNm < MIN_LEG_NM) add(`is ${lengthNm.toFixed(3)} NM long`);
+    for (const end of other.ends) {
+      if (boundaryMarginNm(scenario.airspace, end) < -ON_BOUNDARY_NM) {
+        add('has an end outside the airspace boundary');
+      }
+    }
+  }
+}
+
 function checkGates(scenario: Scenario, problems: Problem[]): void {
   for (const gate of scenario.gates) {
     const add = (severity: Problem['severity'], message: string) =>
@@ -405,6 +424,7 @@ function checkTraffic(scenario: Scenario, problems: Problem[]): void {
 export function validateScenario(scenario: Scenario): Problem[] {
   const problems: Problem[] = [];
   checkRunwayAndAirspace(scenario, problems);
+  checkInactiveRunways(scenario, problems);
   checkGates(scenario, problems);
   checkNames(scenario, problems);
   for (const star of scenario.stars) checkStar(scenario, star, problems);

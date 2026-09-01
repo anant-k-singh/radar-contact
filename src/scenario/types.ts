@@ -25,6 +25,11 @@ export interface ScenarioSpec {
   icao: string;
   elevationFt: Ft;
   runway: RunwaySpec;
+  /**
+   * Other runways on the field. Drawn on the scope and nothing else — see
+   * `InactiveRunwaySpec`.
+   */
+  inactiveRunways?: readonly InactiveRunwaySpec[];
   airspace: AirspaceSpec;
   gates: readonly EntryGateSpec[];
   stars: readonly StarSpec[];
@@ -47,6 +52,24 @@ export interface RunwaySpec {
   /** How far the extended centreline is drawn, and how often it is ticked. */
   centerlineLengthNm?: Nm;
   centerlineTickNm?: Nm;
+}
+
+/**
+ * A runway that exists on the field but is not in use.
+ *
+ * Exactly one runway is ever active (§3.1 A2), and this is not it: nothing under
+ * `src/sim/` reads it, so it cannot quietly grow into two-runway logic — the
+ * layering test already forbids the sim importing a scenario value. It is here so
+ * a field that has more than one strip looks like itself.
+ *
+ * Stated as its two ends rather than a course and a length: it is never flown, so
+ * there is no frame to stay consistent with and no derivation to get wrong.
+ */
+export interface InactiveRunwaySpec {
+  /** Both ends as the chart names them, e.g. `14/32`. */
+  id: string;
+  /** The two thresholds, in the order the id names them. */
+  ends: readonly [FixAt, FixAt];
 }
 
 export interface TrafficSpec {
@@ -193,6 +216,8 @@ export interface Scenario {
    */
   arp: Point;
   runway: Runway;
+  /** Drawn, never flown. Empty for a field with one strip. */
+  inactiveRunways: readonly InactiveRunway[];
   airspace: Airspace;
   gates: readonly EntryGate[];
   stars: readonly Star[];
@@ -217,6 +242,11 @@ export interface Runway extends Required<RunwaySpec> {
   direction: Point;
   /** Departure end: where every SID starts, and the far end for drawing. */
   farEnd: Point;
+}
+
+export interface InactiveRunway {
+  id: string;
+  ends: readonly [Point, Point];
 }
 
 export interface Airspace extends AirspaceSpec {

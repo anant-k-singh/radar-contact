@@ -17,6 +17,7 @@ import {
 import { lerp, turnOf, type FixContext } from './geometry.js';
 import type {
   EntryGate,
+  InactiveRunway,
   Runway,
   RunwaySpec,
   Scenario,
@@ -259,6 +260,9 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     elevationFt: spec.elevationFt,
     arp,
     runway,
+    inactiveRunways: (spec.inactiveRunways ?? []).map(
+      (other): InactiveRunway => ({ id: other.id, ends: [other.ends[0](ctx), other.ends[1](ctx)] }),
+    ),
     airspace,
     gates,
     stars,

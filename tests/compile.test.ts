@@ -7,9 +7,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import { compileScenario } from '../src/scenario/compile.js';
-import { depart } from '../src/scenario/geometry.js';
+import { depart, xy } from '../src/scenario/geometry.js';
 import { DEFAULT_SCENARIO } from '../src/scenario/registry.js';
 import type { ScenarioSpec, SidSpec } from '../src/scenario/types.js';
+import { validateScenario } from '../src/scenario/validate.js';
 import { ROTATED_SPEC } from './fixtures/rotatedField.js';
 
 /**
@@ -109,5 +110,32 @@ describe('a SID with one way out', () => {
       expect(sid.name).toBe(sid.chart);
       expect(sid.name).not.toContain('/');
     }
+  });
+});
+
+describe('a runway that is not in use', () => {
+  const scenario = compileScenario({
+    ...ROTATED_SPEC,
+    inactiveRunways: [{ id: '14/32', ends: [xy(-0.34, 0.27), xy(0.54, -0.59)] }],
+  });
+
+  it('resolves to two points and a label, and nothing else', () => {
+    expect(scenario.inactiveRunways).toEqual([
+      { id: '14/32', ends: [{ x: -0.34, y: 0.27 }, { x: 0.54, y: -0.59 }] },
+    ]);
+    expect(validateScenario(scenario)).toEqual([]);
+  });
+
+  it('is absent rather than undefined on a field with one strip', () => {
+    expect(compileScenario(ROTATED_SPEC).inactiveRunways).toEqual([]);
+  });
+
+  it('is caught when it is not drawable', () => {
+    const broken = compileScenario({
+      ...ROTATED_SPEC,
+      // Both ends at the same place: a runway with no extent.
+      inactiveRunways: [{ id: '14/32', ends: [xy(1, 1), xy(1, 1)] }],
+    });
+    expect(validateScenario(broken).some((p) => p.message.includes('NM long'))).toBe(true);
   });
 });
