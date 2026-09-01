@@ -125,9 +125,9 @@ default field, ZZZZ; another airport states its own. A field is a folder under
 
 Two fields ship: **ZZZZ**, the trainer, and **VABB** (Mumbai, RWY 27), transcribed from the published
 AAI charts and coding tables cited in `src/scenario/fields/vabb/airport.ts`. Where the two differ the
-difference is the point — VABB has a 66 NM airspace, five gates at their published coordinates
-weighted by where the traffic comes from, a second runway it does not use, branching SIDs, arrival
-routes that **merge**, and crossing restrictions in both senses. **Those charts are not in this repository**
+difference is the point — VABB has a 60 NM airspace, five gates weighted by where the traffic comes
+from, a second runway it does not use, branching SIDs, arrival routes that **merge**, and crossing
+restrictions in both senses. **Those charts are not in this repository**
 — they are the publisher's copyright, and this is an AGPL-3.0 project, so redistributing them is not
 something the licence can cover. `docs/charts/` is gitignored; keep local copies there if you have
 them. The citations plus the derivation notes in the field files are what make the transcription
@@ -150,9 +150,11 @@ is a third, awkward-on-purpose field used only by the conformance suite.
 3. Publish the **entry crossing on each STAR** (`entryAltitudeFt`, `entrySpeedKts`). A gate with no
    STAR states its own; a gate with neither is a compile error.
 3a. A gate is placed on the boundary along its `bearingDeg`, which is what a field whose gates are
-   *designed* wants. A field transcribing published fixes gives the gate an `at` instead and it sits
-   exactly there — forcing VABB's five entry fixes, which are at 60.0–63.2 NM, onto one circle moved
-   one of them by 8 NM.
+   *designed* wants. A field transcribing published fixes gives it an `at` instead —
+   `clipToRange(radius, nextFix, entryFix)`, which puts it where the real inbound leg crosses the
+   boundary rather than on a radial from the field, so the entry bearing stays the chart's to within a
+   quarter of a degree. Use the same helper on a SID exit published too close to the edge to leave a
+   leg to fly out on.
 4. Give a gate a **`weight`** if the field's traffic is not evenly spread — the share of arrivals
    offered there relative to the others, defaulting to 1 (§4.4).
 5. A SID with more than one way out declares a trunk plus **`exits`**; each exit compiles into its own
@@ -176,18 +178,19 @@ so an authoring mistake fails in the console rather than eight minutes into a se
   `x` = east (NM), `y` = north (NM). At 50 NM the earth-curvature error is well under the width of
   a radar blip, so **no geodesy, no lat/lon, no projection** — a deliberate simplification.
 - **Radar area:** a circle centred on the ARP with its **northern and southern caps cut off** by
-  chords — **50 NM radius cut at |y| = 42** at ZZZZ, **66 NM cut at |y| = 62** at VABB, which is what
-  it takes to contain that field's own published fixes. VABB's five TMA entry fixes sit on a 60 NM
-  arc (POKON 60.6, IGBAN 60.3, KETOR 60.0, EMRAK 60.3, MOLGO 63.2 NM), which is where its airspace
-  size comes from rather than from a choice. Range rings every 10 NM; the boundary itself is the two surviving arcs
+  chords — **50 NM radius cut at |y| = 42** at ZZZZ, **60 NM cut at |y| = 58** at VABB, where the five
+  TMA entry fixes sit (POKON 60.6, IGBAN 60.3, KETOR 60.0, EMRAK 60.3, MOLGO 63.2 NM). The size comes
+  from the field rather than from a choice, and the outermost range ring *is* the boundary. Range rings every 10 NM; the boundary itself is the two surviving arcs
   plus the two chords, and the compass rose rides that outline rather than a circle. The caps are dead
   airspace — no gate, no route, nothing but rose — and removing them lets the same east–west width
   draw about **20 % larger**, because the canvas height no longer has to carry the full diameter. The
   scale is set so the chords fill the height exactly; on a narrow window the circle's east–west extent
   takes over instead. A gate on a bearing where the chord has replaced the arc is placed on the chord,
-  which is what a field with *designed* gates wants; VABB's are at their published positions inside
-  the boundary instead. The shape is defined once in `scenario/airspace.ts` so the exit check and the
-  drawing cannot disagree.
+  which is what a field with *designed* gates wants. A transcribed field's entry fixes are not all
+  the same range out, so each gate is placed where its own published inbound leg crosses the boundary
+  — `clipToRange`, which keeps the track exactly and moves only how far along it the route starts.
+  The published coordinate stays in the field's own fix table. The shape is defined once in
+  `scenario/airspace.ts` so the exit check and the drawing cannot disagree.
 - **Runway:** single and **active** — RWY 18 at ZZZZ (course 180°, 1.6 NM), RWY 27 at VABB
   (course 270°, 1.98 NM). Landing direction is fixed (no runway changes). Magnetic variation is taken
   as 0, so heading = track = true bearing; VABB's charted 0.75° W is inside that. The runway id and
@@ -1752,8 +1755,8 @@ where the arrivals are" — it is gone rather than recorded.
 | Which way a branching SID turns | **Per branch, off the track it flies.** A trunk that carries the turn gives every branch the chart's label; RAXET 2A's runs within 7° of the runway course, so its two branches take their own and say so. Forcing one label per chart would be agreeing on a fiction |
 | Whether a crossing restriction may separate from below | **Yes, and the validator checks both senses.** Every ZZZZ crossing holds the departure under the arrival, which is why the check only looked at the ceiling. VABB's XOPAL and OMGIX publish "at or above" because those branches cross an arrival 25–50 NM out, where the departure is far above it. The test is the band the chart guarantees — `ceilingAtFt` and a new `floorAtFt` — and either edge clearing 1000 ft is enough (§4.7) |
 | The second runway | **Drawn, and nothing else.** VABB's 14/32 comes from the aerodrome chart's own thresholds and is read only by `mapLayer`. Stated as its two ends rather than a course and a length: it is never flown, so there is no frame to stay consistent with and no derivation to get wrong. Exactly one runway is ever active (A2) |
-| Whether the scope should be square | **No — a circle with its caps cut, at 66 NM.** A square was the first idea, for screen real estate; but a literal square is limited by canvas height in a normal window and wastes the width. The existing circle-with-chords already expresses what was wanted, so no airspace code changed at all. The size is not a choice: VABB's five TMA entry fixes lie on a 60 NM arc and the airspace has to contain them at their real positions |
-| Whether a gate sits on the boundary | **Only if the field wants it to.** Placement on the boundary is right for designed gates and wrong for transcribed ones: VABB's five entry fixes are at 60.0–63.2 NM, and putting them all on one circle moved IGBAN by 8 NM and bent the first leg of its arrival. A gate may state an `at` instead, and the airspace then just has to contain it |
+| Whether the scope should be square | **No — a circle with its caps cut, at 60 NM.** A square was the first idea, for screen real estate; but a literal square is limited by canvas height in a normal window and wastes the width. The existing circle-with-chords already expresses what was wanted, so no airspace code changed at all. The size is not a choice: VABB's five TMA entry fixes lie on a 60 NM arc, so that is the boundary and the outermost range ring is it |
+| Whether a gate sits on the boundary | **Yes, but placed along its own leg.** A radial from the field is wrong for a transcribed gate — VABB's five entry fixes are at 60.0–63.2 NM and forcing them onto one circle that way moved IGBAN 8 NM sideways. `clipToRange` walks the real inbound leg to the boundary instead: the arrival starts exactly on the edge, the track is the chart's, and the entry bearing shifts by at most a quarter of a degree. The published coordinate is kept and is what the leg aims at |
 | Where the gate weights come from | **Published movement data, not feel.** Delhi is 18 % of CSMIA's domestic share, Bengaluru 11 %, Goa 7 %, with movements about 73/27 domestic to international and the Middle East the largest international region; destinations then map onto the bearing they arrive on. Guessing had the Gulf corridor at half its real share (§4.4) |
 
 ## 15. Still open

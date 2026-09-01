@@ -20,12 +20,12 @@
  *
  * ## What is truncated
  *
- * Six exits leave the airspace before their published fix: SAKUN 100 NM, ISRIS
- * 100, EXOLU 100, BETKU 96, DARMI 151, GUNDI 130, and PPN is a VOR outside it. Each
- * branch therefore ends at the last published fix that is *inside* — MB381 for the
- * BETKU/EXOLU fan, MB370 for DARMI, ONAPA for GUNDI/ERVIS, MB362 for MABTA/AGELA,
- * SEKVI for the eastern fan — and the aircraft flies the remaining miles on its
- * exit heading, which is what `VM`-terminated real routes do anyway. Two branches
+ * Six exits leave the airspace long before their published fix: SAKUN 100 NM,
+ * ISRIS 100, EXOLU 100, BETKU 96, DARMI 151, GUNDI 130, and PPN is a VOR outside
+ * it. Each branch therefore ends at the last published fix on its track — MB381 for
+ * the BETKU/EXOLU fan, MB370 for DARMI, ONAPA for GUNDI/ERVIS, MB362 for
+ * MABTA/AGELA, SEKVI for the eastern fan, DOGAP for PPN — shortened to
+ * `EXIT_RANGE_NM` where that fix is itself too close to the boundary. Two branches
  * whose only fix is outside the airspace (RAXET→SAKUN and RAXET→BISET) are dropped
  * rather than invented: RAXET keeps the DARMI fan, through MB370.
  *
@@ -44,11 +44,23 @@
  * **OMGIX's +FL100** put those branches above the arrival tracks they cross. Both
  * senses, both from the chart — see §4.7.
  */
+import { clipToRange } from '../../geometry.js';
 import type { SidFixSpec, SidSpec } from '../../types.js';
 import { VABB_FIXES as F } from './fixes.js';
 
 /** The first fix on every SID, and the only one all three share. */
 const MB364: SidFixSpec = { name: 'MB364', at: F.MB364, minAltitudeFt: 2600 };
+
+/**
+ * How far out a branch is allowed to end, so there is a leg left to leave on.
+ *
+ * Four of the seven exits are published within a mile of the 60 NM boundary and one
+ * just outside it, which leaves a departure no room to fly out — the route would
+ * finish exactly where the airspace does. `clipToRange` shortens the last leg to
+ * this range along the *published track*, so the exit heading is the real one and
+ * only the distance moves. The three exits already inside are untouched.
+ */
+const EXIT_RANGE_NM = 55;
 
 export const VABB_SIDS: readonly SidSpec[] = [
   {
@@ -62,17 +74,17 @@ export const VABB_SIDS: readonly SidSpec[] = [
           { name: 'XOPAL', at: F.XOPAL, minAltitudeFt: 12_000 },
           { name: 'MB373', at: F.MB373 },
           { name: 'MB365', at: F.MB365 },
-          { name: 'SEKVI', at: F.SEKVI },
+          { name: 'SEKVI', at: clipToRange(EXIT_RANGE_NM, F.MB365, F.SEKVI) },
         ],
       },
       // Due north, for ISRIS at 100 NM.
-      { name: 'MB361', fixes: [{ name: 'MB361', at: F.MB361 }] },
+      { name: 'MB361', fixes: [{ name: 'MB361', at: clipToRange(EXIT_RANGE_NM, F.ANOLI, F.MB361) }] },
       // Northwest, for BETKU and EXOLU.
       {
         name: 'MB381',
         fixes: [
           { name: 'MB399', at: F.MB399 },
-          { name: 'MB381', at: F.MB381 },
+          { name: 'MB381', at: clipToRange(EXIT_RANGE_NM, F.MB399, F.MB381) },
         ],
       },
     ],
@@ -82,7 +94,9 @@ export const VABB_SIDS: readonly SidSpec[] = [
     // POKON 2A's run into EMROS, well to the north.
     name: 'RAXET2A',
     fixes: [MB364, { name: 'RAXET', at: F.RAXET }],
-    exits: [{ name: 'MB370', fixes: [{ name: 'MB370', at: F.MB370 }] }],
+    exits: [
+      { name: 'MB370', fixes: [{ name: 'MB370', at: clipToRange(EXIT_RANGE_NM, F.RAXET, F.MB370) }] },
+    ],
   },
   {
     name: 'VEVAK2A',
@@ -99,7 +113,7 @@ export const VABB_SIDS: readonly SidSpec[] = [
       // Southwest, for GUNDI and ERVIS.
       { name: 'ONAPA', fixes: [{ name: 'ONAPA', at: F.ONAPA }] },
       // South, for MABTA and AGELA.
-      { name: 'MB362', fixes: [{ name: 'MB362', at: F.MB362 }] },
+      { name: 'MB362', fixes: [{ name: 'MB362', at: clipToRange(EXIT_RANGE_NM, F.VEVAK, F.MB362) }] },
     ],
   },
 ];

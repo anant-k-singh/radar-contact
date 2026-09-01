@@ -47,12 +47,22 @@
  * Also not here: RWY 09, 14 and 32, which have their own procedures (the 2B, 2C and
  * 2D variants of each route). Every chart transcribed is RWY 27.
  */
-import { xy } from '../../geometry.js';
+import { clipToRange, xy } from '../../geometry.js';
 import type { AirspaceSpec, EntryGateSpec, InactiveRunwaySpec, RunwaySpec } from '../../types.js';
-import { VABB_FIXES } from './fixes.js';
+import { VABB_FIXES as F } from './fixes.js';
 
 /** The top of what the controller may assign. The STARs are handed over at FL120. */
 export const CEILING_FT = 13_000;
+/**
+ * The boundary, and therefore where Center hands over.
+ *
+ * Not a round number chosen for the scope: POKON is 60.6 NM from the field, IGBAN
+ * 60.3, KETOR 60.0, EMRAK 60.3 and MOLGO 63.2, and those five are the TMA entry
+ * fixes. Each gate is placed where its own published inbound leg crosses this
+ * range, so the arrival begins on the boundary while still tracking the real fix —
+ * whose coordinate stays in `fixes.ts`.
+ */
+export const GATE_RANGE_NM = 60;
 /** What every STAR is handed over at: "AT OR ABOVE FL120 AT 250KT" on all five. */
 export const ENTRY_FT = 12_000;
 export const ENTRY_KTS = 250;
@@ -69,7 +79,7 @@ export const VABB_RUNWAY: RunwaySpec = {
   lengthNm: 1.98,
   /** ILS 27 publishes a climb to 3000 (§4.2). */
   missedApproachAltitudeFt: 3000,
-  /** 30 rather than 20: both arrival streams end 28–33 NM out on a 66 NM scope. */
+  /** 30 rather than 20: both arrival streams end 28–33 NM out. */
   centerlineLengthNm: 30,
   centerlineTickNm: 2,
 };
@@ -88,22 +98,19 @@ export const VABB_INACTIVE: readonly InactiveRunwaySpec[] = [
 
 export const VABB_AIRSPACE: AirspaceSpec = {
   /**
-   * 66 NM, which is what it takes to hold the field's own geometry: the entry gates
-   * are at their published positions and MOLGO, the furthest, is 63.2 NM out.
-   *
-   * The gates are deliberately *not* placed on this boundary. Forcing five fixes
-   * that sit at 60.0–63.2 NM onto one circle moves them — IGBAN by 8 NM — which
-   * bends the first leg of the arrival for no gain.
+   * 60 NM. The five STAR convergence fixes sit on this arc — 60.0 to 63.2 NM out,
+   * which for a TMA boundary is the same statement — so the boundary is the real
+   * one, the outermost range ring *is* it, and each arrival starts where its own
+   * published leg crosses it.
    */
-  radiusNm: 66,
+  radiusNm: GATE_RANGE_NM,
   /**
    * The northern and southern caps are cut off here (§3.1). There is not much to
-   * cut: IGBAN is 57.3 NM north and MB362, the southern SID exit, 60.3 NM south, so
-   * anything tighter than about 62 clips the field's own fixes off the scope. Worth
-   * keeping even so — it takes 4 NM of empty airspace off the height, and the height
-   * is what sets the scale.
+   * cut: IGBAN enters on a bearing of 018°, which at 60 NM is 57 NM north, so
+   * anything tighter clips a gate off its own scope. Worth the two miles even so —
+   * the height is what sets the scale.
    */
-  halfHeightNm: 62,
+  halfHeightNm: 58,
   /**
    * MSA within 25 NM is 2600/2800/3800 ft by sector and the transition altitude is
    * 4000. No terrain is modelled (§3.1 A1), so this is a floor on what the
@@ -115,8 +122,9 @@ export const VABB_AIRSPACE: AirspaceSpec = {
 };
 
 /**
- * Five gates, one per published STAR — each the fix its chart converges on, at its
- * published coordinate.
+ * Five gates, one per published STAR — each the fix its chart converges on, placed
+ * where its own inbound leg crosses the 60 NM boundary. The published coordinates
+ * themselves are in `fixes.ts` and are what the leg is aimed at.
  *
  * ## The weights
  *
@@ -130,14 +138,14 @@ export const VABB_AIRSPACE: AirspaceSpec = {
  * they read as percentages, though nothing requires it.
  */
 export const VABB_GATES: readonly EntryGateSpec[] = [
-  /** 152°, 63.2 NM. Bengaluru, Goa, Chennai, Hyderabad, Kochi, Colombo. */
-  { name: 'MOLGO', at: VABB_FIXES.MOLGO, weight: 34 },
-  /** 018°, 60.3 NM. Delhi and the north Indian corridor, Ahmedabad, Jaipur. */
-  { name: 'IGBAN', at: VABB_FIXES.IGBAN, weight: 22 },
-  /** 312°, 60.6 NM. Dubai, Doha, Abu Dhabi, Muscat, and Europe behind them. */
-  { name: 'POKON', at: VABB_FIXES.POKON, weight: 19 },
-  /** 228°, 60.0 NM. The Maldives, and Gulf traffic routing in over the sea. */
-  { name: 'KETOR', at: VABB_FIXES.KETOR, weight: 13 },
-  /** 071°, 60.3 NM. Kolkata, the northeast, and Southeast Asia. */
-  { name: 'EMRAK', at: VABB_FIXES.EMRAK, weight: 12 },
+  /** 152°, published 63.2 NM, inbound to DUGED. Bengaluru, Goa, Chennai, Hyderabad, Kochi. */
+  { name: 'MOLGO', at: clipToRange(GATE_RANGE_NM, F.DUGED, F.MOLGO), weight: 34 },
+  /** 018°, published 60.3 NM, inbound to MB392. Delhi and the north Indian corridor. */
+  { name: 'IGBAN', at: clipToRange(GATE_RANGE_NM, F.MB392, F.IGBAN), weight: 22 },
+  /** 312°, published 60.6 NM, inbound to MB379. Dubai, Doha, Abu Dhabi, Muscat, Europe. */
+  { name: 'POKON', at: clipToRange(GATE_RANGE_NM, F.MB379, F.POKON), weight: 19 },
+  /** 228°, published 60.0 NM, inbound to MB393. The Maldives, and Gulf traffic over the sea. */
+  { name: 'KETOR', at: clipToRange(GATE_RANGE_NM, F.MB393, F.KETOR), weight: 13 },
+  /** 071°, published 60.3 NM, inbound to OLGUS. Kolkata, the northeast, Southeast Asia. */
+  { name: 'EMRAK', at: clipToRange(GATE_RANGE_NM, F.OLGUS, F.EMRAK), weight: 12 },
 ];
