@@ -141,6 +141,23 @@ export interface SidSpec {
   name: string;
   /** Top of the departure climb. Defaults to `airspace.ceilingFt + 1000`. */
   topFt?: Ft;
+  /** The common trunk: the fixes every way out of this SID flies first. */
+  fixes: readonly SidFixSpec[];
+  /**
+   * Where the trunk splits. Omit for a SID with one way out.
+   *
+   * Real SIDs off one runway share their first fixes and then fan out to the
+   * airways, and a chart names the whole fan once. Each branch is compiled into
+   * its own complete route, so the simulation still only ever sees a flat chain
+   * of waypoints — see `compileSid`.
+   */
+  exits?: readonly SidExitSpec[];
+}
+
+export interface SidExitSpec {
+  /** Names the branch, and with it the compiled route: `ANOLI2A/ISRIS`. */
+  name: string;
+  /** Flown after the trunk. The last one is the route's exit fix. */
   fixes: readonly SidFixSpec[];
 }
 
@@ -261,8 +278,16 @@ export interface SidWaypoint {
 }
 
 export interface Sid {
-  /** Chart name, e.g. `SABAR1A`. */
+  /**
+   * Unique route name, and what a recording stores. `SABAR1A` for a SID with one
+   * way out, `ANOLI2A/ISRIS` for one branch of a SID with several.
+   */
   name: string;
+  /**
+   * The published chart name, shared by every branch of one SID. What a log line
+   * and a chart label should say; `name` is what identifies the route.
+   */
+  chart: string;
   /**
    * Which way it turns off the runway — what the chart and the log line say.
    * Derived from the geometry, never declared, so it cannot disagree with it.
