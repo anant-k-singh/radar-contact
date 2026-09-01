@@ -7,7 +7,16 @@
  * short without putting field data back in the tunables file, and a field
  * overrides only what actually differs.
  */
-import type { FacilitySpec, RunwayOpsSpec, RunwaySpec, TrafficSpec } from './types.js';
+import type {
+  FacilitySpec,
+  PerformanceSpec,
+  RunwayOpsSpec,
+  RunwaySpec,
+  TrafficSpec,
+} from './types.js';
+
+/** Book performance: the field takes nothing off what the fleet can do. */
+export const DEFAULT_PERFORMANCE: PerformanceSpec = { departureClimbScale: 1 };
 
 export const DEFAULT_TRAFFIC: TrafficSpec = {
   arrivalsPerHour: 25,

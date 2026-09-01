@@ -10,6 +10,7 @@
 import { boundaryRangeAtBearing, compileAirspace } from './airspace.js';
 import {
   DEFAULT_FACILITY,
+  DEFAULT_PERFORMANCE,
   DEFAULT_RUNWAY,
   DEFAULT_RUNWAY_OPS,
   DEFAULT_TRAFFIC,
@@ -284,6 +285,7 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     sids,
     fleet: spec.fleet,
     airlines: spec.airlines,
+    performance: { ...DEFAULT_PERFORMANCE, ...definedOnly(spec.performance ?? {}) },
     traffic: { ...DEFAULT_TRAFFIC, ...definedOnly(spec.traffic ?? {}) },
     runwayOps: { ...DEFAULT_RUNWAY_OPS, ...definedOnly(spec.runwayOps ?? {}) },
     facility: { ...DEFAULT_FACILITY, ...definedOnly(spec.facility ?? {}) },

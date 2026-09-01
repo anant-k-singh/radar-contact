@@ -920,6 +920,36 @@ number matters: below about 4000, the steepest climber in the fleet is left with
 departure does. The arrival `climbFpm` is untouched — it is the gentler rate of a level change, not
 of a departure at climb thrust.
 
+**A field may take a share off book rate: `Scenario.performance.departureClimbScale`.** The APD
+figures are quoted for a temperate day, and not every airport gets one — Mumbai in May is 35 °C at
+sea level, a density altitude around 2500 ft, and a departure out of it does not make book. VABB
+flies at **0.88**, so a B738 climbs away at 2640 fpm rather than 3000 and an A332 at 1760 rather
+than 2000; ZZZZ, which has no weather because it has no location, stays at 1.
+
+The scale is on the *climb rate* and not on the energy budget, which is the whole substance of the
+decision. Thin air costs an aircraft climb gradient; it does not reduce the total energy the engines
+put out. Scaling the budget instead would have taken the difference out of the acceleration —
+and worse, out of the wrong types: `budgetScale` already multiplies the budget, so the heavies
+would have been barely touched while the 3000 fpm climbers (B738, B77W) hit the
+`MIN_SPEED_RATE_KTS_S` floor first, which is backwards from the physics of a hot-and-high departure.
+Scaling the climb leaves *more* of the budget for acceleration, which is what a shallower climb
+actually does.
+
+It reaches the physics on `SidNav.climbScale`, captured at the roll exactly as `fieldElevationFt`
+is, because `dynamics.ts` has no scenario dependency and is worth keeping that way.
+
+Two things had to be checked rather than assumed, and both are measured rather than argued:
+
+- **The tight SID/STAR crossings do not move at all.** At VEVAK and ANOLI the departure is *level*
+  at its published ceiling by the time it reaches the arrival, so what separates them is the
+  restriction, not the rate: the worst flown separation on the field is 1262 ft at 0.88, exactly as
+  it is at 1.0.
+- **Every published "at or above" is still made good.** XOPAL's FL120 and OMGIX's FL100 are crossings
+  a slower climb could have missed, since a floor is validated but never flown *to* — the departure
+  climbs at what it has toward the next ceiling. Every type still crosses both above the published
+  level at 0.88, and `validateScenario` warns below 0.7 precisely because that stops being true
+  somewhere down there.
+
 **Are the published numbers achievable?** Yes, with margin, and the tests assert it for every type:
 
 - **4000 across the downwind.** Even the slowest climber in the fleet is level at 4000 about 9 NM
@@ -1798,6 +1828,7 @@ where the arrivals are" — it is gone rather than recorded.
 | Where a transcribed field holds its arrivals | **On invented fixes, named so they cannot be mistaken for published ones.** A hold anchors on the fix the aircraft is tracking to, and three of VABB's five routes run 42–44 NM from the boundary to their first published fix with nothing in between — the real delay is absorbed enroute, outside this airspace. So the three routes with no fix in their outer half get one `RC__` fix 20 NM inside the boundary, on the leg between two published points so the track is untouched, crossing at the leg's own interpolated profile rounded up to the next 1000 ft (§4.6) |
 | Whether a SID's fix names are drawn | **No, only its restrictions.** A departure takes no instructions, so its fixes are never spoken to or read back; the amber layer's whole job is where the traffic you do not control goes and how low it is held, and seven names crowding the STAR chart bought neither (§4.7) |
 | Whether to draw the coast | **Yes, as a line, and from OSM rather than by hand.** A scope with nothing on it but rings gives no sense of where Mumbai is, and both arrival streams turn inside the bay. Drawn as one hairline with no fill: land and water are identical to this simulator, so shading either would assert something the model does not know. Traced by eye it would have been the one position on the field not from a published source, so it is `natural=coastline` from OpenStreetMap (ODbL, attributed in the file and the README), joined, projected with the ARP and 56.6998 NM/°lon, and simplified to 0.1 NM (§3.1) |
+| Whether a field can change what an aircraft can do | **Yes, but only its climb, and only as a fraction.** The fleet's figures are book numbers for a temperate day, and Mumbai is not one; `departureClimbScale` is what a field says about its air. Put on the climb rather than the energy budget deliberately — thin air costs gradient, and what is not spent climbing is left to accelerate with, whereas scaling the budget would have squeezed the *steepest* climbers first, which is backwards. Carried on `SidNav` from the roll, so `dynamics.ts` still knows about no field at all. VABB flies at 0.88 with the tight crossings unchanged, because there the departure is level at its restriction before the arrival arrives (§4.7) |
 | Whether a gate sits on the boundary | **Yes, but placed along its own leg.** A radial from the field is wrong for a transcribed gate — VABB's five entry fixes are at 60.0–63.2 NM and forcing them onto one circle that way moved IGBAN 8 NM sideways. `clipToRange` walks the real inbound leg to the boundary instead: the arrival starts exactly on the edge, the track is the chart's, and the entry bearing shifts by at most a quarter of a degree. The published coordinate is kept and is what the leg aims at |
 | Which levels VABB's arrivals are flown at | **The observed ones, not the coded ones.** The supplement codes "AT OR ABOVE FL120 AT 250KT" at every entry fix, publishes an altitude at only two of the four shared fixes, and ends every route with a `VM` vector; in practice Mumbai rarely flies the coded profile at all — controllers assign by situation. So the levels are taken from observed traffic, handovers included: POKON 17,000/280, IGBAN and KETOR 15,000/260, MOLGO 14,000/260, EMRAK 12,000/250, then EMROS 8000/6000, OLGUS 7000/6000/5000, LIKTA 8000/6000, MB395 6000/5000. Every gap at a shared fix is at or above `SEP_VERT_FT`, the order of the two streams never swaps between the pair of fixes they share, and the fix *positions* remain the AIP's throughout — this is a decision about height, not about geometry |
 | Why VABB's five handovers differ from each other | **A route's length decides what it can be given.** EMRAK 2A has 25 NM from the boundary to OLGUS, its only fix, so its 12,000 is already 197 ft/NM — the steepest gradient on the field, and nothing higher would get down. The other four have 30–44 miles of first leg and enter 2000–5000 ft above it. Flown, the profiles come out at 667–976 fpm at the 99th percentile against ZZZZ's 1077, and no type overspeeds a published fix, so the coupling in `planRates` has budget to spare. Nothing in the model would *stop* a steeper profile: a STAR writes its altitude straight onto the aircraft (§4.5), so an unflyable one would simply be flown |

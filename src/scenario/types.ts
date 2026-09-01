@@ -38,6 +38,7 @@ export interface ScenarioSpec {
   sids: readonly SidSpec[];
   fleet: readonly AircraftType[];
   airlines: readonly Airline[];
+  performance?: Partial<PerformanceSpec>;
   traffic?: Partial<TrafficSpec>;
   runwayOps?: Partial<RunwayOpsSpec>;
   facility?: Partial<FacilitySpec>;
@@ -72,6 +73,31 @@ export interface InactiveRunwaySpec {
   id: string;
   /** The two thresholds, in the order the id names them. */
   ends: readonly [FixAt, FixAt];
+}
+
+/**
+ * What the *air* at this field does to what an aircraft can do in it.
+ *
+ * The fleet's performance figures are book numbers — EUROCONTROL APD, quoted at
+ * a temperate day — and a field is entitled to say its air is not that. Mumbai
+ * in May is 35 °C at sea level, a density altitude around 2500 ft, and a
+ * departure out of it does not climb at book rate.
+ *
+ * A scale rather than a table of its own: the *relative* performance of the six
+ * types is a fact about the airframes and stays wherever the airframes are
+ * described, while how much of it today's air gives back is a fact about the
+ * field. One number keeps those two apart, so a new field states its climate
+ * and inherits the fleet.
+ */
+export interface PerformanceSpec {
+  /**
+   * Fraction of book climb rate a departure achieves here. 1 is the book
+   * figure; below it the aircraft climbs more shallowly and, because climb is
+   * served before acceleration out of one budget (§4.3), has *more* left to
+   * accelerate with — which is the right way round, since it is the air that is
+   * thin, not the engines that are throttled.
+   */
+  departureClimbScale: number;
 }
 
 export interface TrafficSpec {
@@ -255,6 +281,7 @@ export interface Scenario {
   sids: readonly Sid[];
   fleet: readonly AircraftType[];
   airlines: readonly Airline[];
+  performance: PerformanceSpec;
   traffic: TrafficSpec;
   runwayOps: RunwayOpsSpec;
   facility: FacilitySpec;

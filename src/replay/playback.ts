@@ -155,7 +155,11 @@ function aircraftAt(scenario: Scenario, track: Track, frame: number): Aircraft {
       route: sidRoute,
       index: index < 0 ? sidRoute.waypoints.length - 1 : index,
       complete: index < 0,
+      // Both of these are the field's, not the recording's: playback never
+      // flies a departure, so nothing reads them — but a rebuilt `SidNav` that
+      // says something untrue about the field is a trap for whatever does next.
       fieldElevationFt: scenario.elevationFt,
+      climbScale: scenario.performance.departureClimbScale,
     };
   }
 

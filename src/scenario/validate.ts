@@ -496,7 +496,24 @@ function checkNames(scenario: Scenario, problems: Problem[]): void {
 }
 
 function checkTraffic(scenario: Scenario, problems: Problem[]): void {
-  const { traffic, runwayOps, gates, fleet, airlines } = scenario;
+  const { performance, traffic, runwayOps, gates, fleet, airlines } = scenario;
+  // A scale, not a rate: above 1 a field would be claiming its air is better than
+  // the book day the fleet's figures are quoted for, and at or below 0 a
+  // departure never leaves the ground.
+  const { departureClimbScale: scale } = performance;
+  if (!(scale > 0 && scale <= 1)) {
+    problems.push({
+      severity: 'error',
+      where: 'performance',
+      message: `departureClimbScale is ${scale}; it is a fraction of book rate, so 0 < scale <= 1`,
+    });
+  } else if (scale < 0.7) {
+    problems.push({
+      severity: 'warning',
+      where: 'performance',
+      message: `departureClimbScale of ${scale} takes ${Math.round((1 - scale) * 100)}% off book climb — check the SID crossings are still made`,
+    });
+  }
   if (fleet.length === 0) problems.push({ severity: 'error', where: 'fleet', message: 'is empty' });
   if (airlines.length === 0) {
     problems.push({ severity: 'error', where: 'airlines', message: 'is empty' });

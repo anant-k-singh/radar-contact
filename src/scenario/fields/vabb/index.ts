@@ -30,6 +30,18 @@ export const VABB: ScenarioSpec = {
   fleet: AIRCRAFT_TYPES,
   airlines: VABB_AIRLINES,
   /**
+   * Mumbai is hot and humid, and a departure out of it does not make book climb
+   * rate: 35 °C at sea level in May is a density altitude around 2500 ft, and the
+   * fleet's figures are quoted for a temperate day. 0.88 is the fraction of book
+   * kept here — a B738 climbs away at 2640 fpm rather than 3000, and an A332 at
+   * 1760 rather than 2000.
+   *
+   * It is on the climb and not on the energy budget deliberately: thin air costs
+   * gradient, and what a departure does not spend climbing is left over to
+   * accelerate with (§4.3), which is the right way round.
+   */
+  performance: { departureClimbScale: 0.88 },
+  /**
    * The busiest single-runway airport there is: ~46 movements an hour declared,
    * and 1,036 in a day on record. It opens at half of that each way, which is
    * about what the runway can actually turn round given the arrivals own it.
