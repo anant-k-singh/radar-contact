@@ -1406,6 +1406,7 @@ The session is endless; the score is a running quality report, not a life counte
 | --- | --- |
 | Landings | Aircraft that touched down |
 | Landing rate | Landings per hour from the gaps between the last **4** landings (§8.2) |
+| Arrival rate | Arrivals handed over on a STAR per hour, from the same gap measure (§8.2) |
 | Separation violations | Count, plus total seconds in violation |
 | Go-arounds | Automatic go-arounds triggered |
 | Airspace exits | Aircraft that left the 50 NM circle laterally (handed back to Center — penalty) |
@@ -1464,6 +1465,13 @@ The **departure rate** is the same measure on the other movement, and is timed a
 *roll* rather than at the airspace exit that the `Departures` total counts — the rate is about what
 the runway got away, and an exit happens eight minutes downstream of the runway decision that caused
 it.
+
+The **arrival rate** is the same measure again, on the traffic being handed *in*. An arrival is put
+on the scope already established on its STAR, so the hand-over is the only moment it enters and there
+is no later event to time it at. It is the counterpart of the departure rate: each measures its flow
+where it crosses the boundary of the player's problem. Read against the landing rate it says whether
+the stack is growing — Center is delivering faster than the runway is taking them for as long as it
+stands above it. A go-around is not a new arrival: it never left, so nothing re-enters.
 
 The **departure queue** is neither: it is a live gauge, not a rate at all. It is the one number
 here that is caused by the player without being about them — they have no authority over a

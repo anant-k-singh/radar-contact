@@ -345,6 +345,7 @@ function cloneStats(stats: Stats): Stats {
     ...stats,
     landingTimesS: [...stats.landingTimesS],
     departureTimesS: [...stats.departureTimesS],
+    arrivalTimesS: [...stats.arrivalTimesS],
     rejections: new Map(stats.rejections),
     missedIntercepts: new Map(stats.missedIntercepts),
   };
@@ -367,6 +368,9 @@ function sumCounts(counts: Map<string, number>): number {
  * take-off roll, minutes earlier (§8.2). It is compared by its *last* entry
  * rather than its length, because the list saturates at the few timestamps the
  * rate reads and then stops growing.
+ *
+ * `arrivalTimesS` is compared the same way and for the same reason: nothing
+ * counts hand-overs, so its last entry is the only thing that moves with one.
  */
 function sessionChanged(last: SessionSnapshot, world: World): boolean {
   const a = last.stats;
@@ -379,6 +383,7 @@ function sessionChanged(last: SessionSnapshot, world: World): boolean {
     a.departures !== b.departures ||
     a.departureTimesS[a.departureTimesS.length - 1] !==
       b.departureTimesS[b.departureTimesS.length - 1] ||
+    a.arrivalTimesS[a.arrivalTimesS.length - 1] !== b.arrivalTimesS[b.arrivalTimesS.length - 1] ||
     a.handoffs !== b.handoffs ||
     a.violations !== b.violations ||
     a.goArounds !== b.goArounds ||

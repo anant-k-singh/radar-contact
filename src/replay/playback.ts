@@ -54,6 +54,7 @@ const EMPTY_STATS: Stats = {
   landingTimesS: [],
   departures: 0,
   departureTimesS: [],
+  arrivalTimesS: [],
   handoffs: 0,
   violations: 0,
   violationSeconds: 0,

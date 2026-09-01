@@ -8,7 +8,12 @@
  */
 import { DEPARTURE_QUEUE_ALERT, DEPARTURE_QUEUE_WARN } from '../sim/constants.js';
 import type { World } from '../sim/world.js';
-import { departureQueueLength, departureRatePerHour, landingRatePerHour } from '../sim/world.js';
+import {
+  arrivalRatePerHour,
+  departureQueueLength,
+  departureRatePerHour,
+  landingRatePerHour,
+} from '../sim/world.js';
 import { STATS_GUTTER_PX, type Projection } from './project.js';
 import { THEME } from './theme.js';
 
@@ -29,8 +34,12 @@ function rows(world: World): Row[] {
   const stats = world.stats;
   const rate = landingRatePerHour(world);
   const depRate = departureRatePerHour(world);
+  const arrRate = arrivalRatePerHour(world);
   const queued = departureQueueLength(world);
   return [
+    // What Center is delivering. Above RATE it means the stack is growing —
+    // the arrival half of what DEP QUEUE says for the runway (§8.2).
+    { label: 'ARR RATE', value: arrRate === null ? '—' : `${Math.round(arrRate)}/h` },
     { label: 'LANDINGS', value: String(stats.landings) },
     { label: 'RATE', value: rate === null ? '—' : `${Math.round(rate)}/h` },
     // Departures that got away cleanly, and how fast the runway is releasing

@@ -15,6 +15,7 @@ import { createRng } from '../src/sim/rng.js';
 import { createArrival, createTrafficState, scheduleNextSpawn } from '../src/sim/traffic.js';
 import { bearing } from '../src/sim/units.js';
 import {
+  arrivalRatePerHour,
   createWorld,
   landingRatePerHour,
   log,
@@ -392,6 +393,41 @@ describe('landing rate', () => {
     }
     expect(world.stats.landings).toBe(8); // the total is untouched
     expect(world.stats.landingTimesS).toHaveLength(MOVEMENT_RATE_INTERVALS + 1);
+  });
+});
+
+describe('arrival rate', () => {
+  it('is stamped at the hand-over, so it reads long before anything has landed', () => {
+    const world = quietWorld();
+    world.traffic.nextSpawnAtS = 0;
+
+    // One hand-over is no interval, and two is a single gap — below the minimum.
+    run(world, 60);
+    expect(arrivalRatePerHour(world)).toBeNull();
+
+    // An arrival is delivered established on its STAR, so the hand-over is the
+    // only moment it enters: the rate means something while every one of them is
+    // still 40 miles out (§8.2).
+    run(world, 900);
+    expect(world.stats.landings).toBe(0);
+    expect(arrivalRatePerHour(world)!).toBeGreaterThan(0);
+    expect(world.stats.arrivalTimesS.length).toBeLessThanOrEqual(MOVEMENT_RATE_INTERVALS + 1);
+  });
+
+  it('reports no rate at all when nothing is being handed over', () => {
+    const world = quietWorld();
+    run(world, 900);
+    // Not a rate of zero: there is no gap to read.
+    expect(arrivalRatePerHour(world)).toBeNull();
+  });
+
+  it('does not count a go-around as a new arrival', () => {
+    const world = quietWorld();
+    world.stats.arrivalTimesS = [0, 60, 120];
+    const before = [...world.stats.arrivalTimesS];
+    world.stats.goArounds += 1; // whatever else a go-around moves, it never re-enters
+    run(world, 60);
+    expect(world.stats.arrivalTimesS).toEqual(before);
   });
 });
 
