@@ -123,8 +123,12 @@ default field, ZZZZ; another airport states its own. A field is a folder under
 `src/scenario/fields/` plus a line in `src/scenario/registry.ts`, and nothing outside
 `src/scenario/` names one — see §3.0.
 
-Two fields ship: **ZZZZ**, the trainer, and **VABB** (Mumbai, RWY 27), transcribed from the AAI
-charts in `docs/charts/vabb/`. Where the two differ the difference is the point — VABB has a 60 NM
+Two fields ship: **ZZZZ**, the trainer, and **VABB** (Mumbai, RWY 27), transcribed from the published
+AAI charts cited in `src/scenario/fields/vabb/airport.ts`. **Those charts are not in this repository**
+— they are the publisher's copyright, and this is an AGPL-3.0 project, so redistributing them is not
+something the licence can cover. `docs/charts/` is gitignored; keep local copies there if you have
+them. The citations plus the derivation notes in the field files are what make the transcription
+checkable without them. Where the two differ the difference is the point — VABB has a 60 NM
 airspace rather than 50, five gates rather than four, weighted rather than even, a second runway it
 does not use, branching SIDs, and crossing restrictions in both senses. `tests/fixtures/rotatedField.ts`
 is a third, awkward-on-purpose field used only by the conformance suite.
@@ -1537,7 +1541,7 @@ tests/                 # sim, replay, and the field contracts — no DOM needed
     rotatedField.ts    # a third field, awkward on purpose, so the suite means something
 docs/
   REQUIREMENTS.md      # this file
-  charts/vabb/         # the AAI aerodrome, STAR and SID scans VABB is transcribed from
+  charts/              # gitignored: local copies of published charts, never distributed
 ```
 
 ---

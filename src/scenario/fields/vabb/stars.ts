@@ -1,8 +1,9 @@
 /**
  * VABB's standard arrivals — one STAR from each of the five entry gates.
  *
- * Charts: `docs/charts/vabb/NW,N,NE stars.png` (EMRAK 2A, IGBAN 2A, POKON 2A) and
- * `SW,S stars.png` (KETOR 2A, MOLGO 2A), both RWY 27.
+ * Charts: the two RWY 27 STAR sheets — EMRAK 2A / IGBAN 2A / POKON 2A, and
+ * KETOR 2A / MOLGO 2A. Cited in full in `airport.ts`, which also says why they are
+ * not in the repository.
  *
  * ## What is the chart's, and what is not
  *

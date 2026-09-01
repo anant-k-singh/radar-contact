@@ -1,8 +1,8 @@
 /**
  * VABB's standard departures — three SIDs off runway 27, eight ways out.
  *
- * Charts: `docs/charts/vabb/NW,N,NE sids.png` (ANOLI 2A) and `W,S,SE sids.png`
- * (RAXET 2A, VEVAK 2A).
+ * Charts: the two RWY 27 SID sheets — ANOLI 2A, and RAXET 2A / VEVAK 2A. Cited in
+ * full in `airport.ts`, which also says why they are not in the repository.
  *
  * ## The shape, which is the reason branching SIDs exist
  *

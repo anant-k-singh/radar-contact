@@ -2,9 +2,10 @@
  * VABB, Chhatrapati Shivaji Maharaj International, Mumbai — runway 27.
  *
  * The second field, and the one that made the scenario layer worth building.
- * Everything specific to it is in this folder; the source charts are in
- * `docs/charts/vabb/`, and `airport.ts` documents what is transcribed from them
- * and what is designed.
+ * Everything specific to it is in this folder. `airport.ts` cites the published
+ * charts this is transcribed from — they are the publisher's copyright and are
+ * deliberately not distributed with this repository — and documents what is taken
+ * from them and what is designed.
  */
 import { AIRCRAFT_TYPES } from '../../aircraftTypes.js';
 import type { ScenarioSpec } from '../../types.js';

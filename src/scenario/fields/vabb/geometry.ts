@@ -2,11 +2,11 @@
  * How VABB's charts state a position: a bearing and a distance from the fix
  * before it.
  *
- * The AAI RNAV charts in `docs/charts/vabb/` give every leg as a magnetic track
- * and a distance and never once give a fix's bearing and range from the ARP. So a
- * fix's position is a chain, and writing it as a chain is what makes the code
- * checkable against the chart — `from(MB364, 358, 12.8)` is the label printed on
- * that leg, and nothing else has to be trusted.
+ * The AAI RNAV charts this field is transcribed from (cited in `airport.ts`) give
+ * every leg as a magnetic track and a distance, and never once give a fix's bearing
+ * and range from the ARP. So a fix's position is a chain, and writing it as a chain
+ * is what makes the code checkable against the chart — `from(MB364, 358, 12.8)` is
+ * the label printed on that leg, and nothing else has to be trusted.
  *
  * Field-local on purpose. The shared library holds the frames a route can be
  * *authored* in (`final`, `depart`, `radial`); this is one field's way of

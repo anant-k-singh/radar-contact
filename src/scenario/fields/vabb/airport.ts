@@ -1,9 +1,26 @@
 /**
  * VABB — Chhatrapati Shivaji Maharaj International, Mumbai. Runway 27.
  *
- * Charts in `docs/charts/vabb/`: the AD 2 VABB 1-1 aerodrome chart, and the AAI
- * RNAV1 STAR and SID charts (AAI/03-, 04-IALC/20/01-07-2020). Every procedure
- * chart is RWY 27, so 27 is the runway in use and 09 is not modelled.
+ * ## Sources
+ *
+ * Transcribed from the published charts listed below. **They are not in this
+ * repository and must not be** — they are the publisher's copyright and this is an
+ * AGPL-3.0 project, so redistributing them is not something the licence can cover.
+ * `docs/charts/` is gitignored for that reason; put local copies there if you have
+ * them. Everything needed to check this field against the originals is the
+ * citation plus the derivation notes in these files.
+ *
+ * - AIP India, **AD 2 VABB 1-1 "AERODROME CHART"**, 25 May 2017 — the ARP, the
+ *   aerodrome elevation, and all four runway thresholds with their coordinates.
+ * - **STANDARD ARRIVAL CHART — INSTRUMENT (STAR), RNAV1, MUMBAI (VABB) RWY 27**,
+ *   EMRAK 2A / IGBAN 2A / POKON 2A, DRG. NO. AAI/04-IALC/20/01-07-2020.
+ * - The same, **KETOR 2A / MOLGO 2A**, DRG. NO. AAI/03-IALC/20/01-07-2020.
+ * - **STANDARD DEPARTURE CHART — INSTRUMENT (SID), RNAV1, MUMBAI (VABB) RWY 27**,
+ *   two sheets: ANOLI 2A, and RAXET 2A / VEVAK 2A. Cited by title — no drawing
+ *   number was legible on the scans these were read from.
+ *
+ * Every procedure chart is RWY 27, so 27 is the runway in use and 09 is not
+ * modelled.
  *
  * ## Where the numbers come from
  *
