@@ -1,9 +1,17 @@
 # Gameplay guide
 
-You are the Approach controller at ZZZZ, a single-runway field landing on **runway 18**. Center
-hands you arrivals at the edge of a 50 NM circle, already established on a published STAR. Your job
-is to sequence them onto the ILS — correctly spaced, at or below the glideslope, slow enough to
-configure — and hand each one to Tower once it is established.
+You are the Approach controller at a single-runway field. Center hands you arrivals at the edge of
+the radar area, already established on a published STAR. Your job is to sequence them onto the ILS —
+correctly spaced, at or below the glideslope, slow enough to configure — and hand each one to Tower
+once it is established.
+
+**Two fields ship.** `?airport=ZZZZ` is the default, a trainer landing on **runway 18** inside a
+50 NM circle: four gates 90° apart, symmetrical routes, and a chart designed to be learnable.
+`?airport=VABB` is **Mumbai, runway 27**, transcribed from the real AAI charts — a 60 NM area, five
+gates weighted by where Mumbai's traffic actually comes from, a second runway it does not use, and
+departures that fan out to eight exits. Everything below describes ZZZZ; VABB plays the same and is
+harder, mostly because its arrivals all have to finish east of the field and two of the five gates
+are on the departure side.
 
 Procedures follow standard radar-control practice. Every number below is derived and justified in
 [REQUIREMENTS.md](REQUIREMENTS.md).
@@ -26,13 +34,15 @@ Procedures follow standard radar-control practice. Every number below is derived
 
 Click a blip or its data block to select it. **Arr −/+** in the sidebar sets arrivals per hour
 (5–50, default 25) — turn it down to learn the field, up when you want to be buried. **Dep −/+**
-sets departures per hour (0–20, default 10); `off` gives you the arrivals-only field.
+sets departures per hour (0–24; ZZZZ opens at 10, VABB at 22); `off` gives you the arrivals-only field.
 
-`?seed=1234` in the URL reproduces a session exactly, down to the pilot reaction times.
+`?seed=1234` in the URL reproduces a session exactly, down to the pilot reaction times — **for the
+same `?airport=`**. The gates an arrival is drawn from are part of the field, so one seed at two
+fields is two different sessions.
 
 ## The departures
 
-Runway 18 departs as well as lands, and those aircraft are **not yours**. They belong to Departure
+The runway departs as well as lands, and those aircraft are **not yours**. They belong to Departure
 Control: they are drawn in the muted grey the scope uses for anything you cannot instruct, tagged
 `DEP`, and they ignore you completely.
 
