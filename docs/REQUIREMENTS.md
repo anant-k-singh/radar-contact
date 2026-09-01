@@ -453,7 +453,7 @@ as either alone; asking for both late in the sequence blows the spacing; and the
 ### 4.4 Traffic generation
 
 - **Flow rate:** arrivals entering the airspace per hour, a property of the field —
-  **25/h** at ZZZZ, **22/h** at VABB. The *range* the player may set is a property of the control
+  **25/h** at ZZZZ, **20/h** at VABB. The *range* the player may set is a property of the control
   they are given, so it is a constant: 5–50 arrivals, 0–24 departures.
 - **Spawn timing:** exponential inter-arrival intervals (Poisson process), mean `3600 / flow`
   seconds, clamped to a minimum of 45 s so the queue can't clump absurdly.
@@ -1064,7 +1064,7 @@ and the departures back up behind it, exactly as they do in life.
 #### Flow, and what the player can and cannot do
 
 Departure flow is set separately from the arrival flow, **0–24/h in steps of 5**, default per field —
-10/h at ZZZZ, 22/h at VABB, which is the busiest single-runway airport there is. Zero
+10/h at ZZZZ, 20/h at VABB, which is the busiest single-runway airport there is. Zero
 switches departures off entirely. Unlike the arrivals it is **not** a Poisson stream: 20/h means one
 joining the queue every three minutes, exactly. The arrivals are random because Center's delivery is
 the problem the player is given; the departures are an airline schedule. It also makes the queue

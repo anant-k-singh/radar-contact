@@ -43,8 +43,9 @@ export const VABB: ScenarioSpec = {
   performance: { departureClimbScale: 0.88 },
   /**
    * The busiest single-runway airport there is: ~46 movements an hour declared,
-   * and 1,036 in a day on record. It opens at half of that each way, which is
-   * about what the runway can actually turn round given the arrivals own it.
+   * and 1,036 in a day on record. It opens a little under half of that each way,
+   * which is about what the runway can actually turn round given the arrivals
+   * own it.
    */
-  traffic: { arrivalsPerHour: 22, departuresPerHour: 22 },
+  traffic: { arrivalsPerHour: 20, departuresPerHour: 20 },
 };
