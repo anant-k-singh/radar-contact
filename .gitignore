@@ -3,3 +3,9 @@ dist/
 .DS_Store
 *.local
 CLAUDE.md
+# Source charts for a field's procedures, kept locally and deliberately not
+# distributed. They are the publisher's copyright — AAI's, for VABB — and this
+# repository is AGPL-3.0, which is not a licence we can grant over them. The
+# field files cite each chart by its document number so anyone can obtain it
+# from the publisher; nothing in the build reads them.
+docs/charts/

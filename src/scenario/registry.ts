@@ -5,10 +5,11 @@
  * `src/scenario/` names a field.
  */
 import { compileScenario } from './compile.js';
+import { VABB } from './fields/vabb/index.js';
 import { ZZZZ } from './fields/zzzz/index.js';
 import type { Scenario } from './types.js';
 
-export const SCENARIOS: readonly Scenario[] = [compileScenario(ZZZZ)];
+export const SCENARIOS: readonly Scenario[] = [compileScenario(ZZZZ), compileScenario(VABB)];
 
 export const DEFAULT_SCENARIO: Scenario = SCENARIOS[0]!;
 

@@ -11,7 +11,7 @@
  * every route of every registered field.
  */
 import { boundaryMarginNm } from './airspace.js';
-import { ceilingAtFt, starProfileAt } from './routes.js';
+import { ceilingAtFt, floorAtFt, starProfileAt } from './routes.js';
 import type { Scenario, Sid, Star } from './types.js';
 import { bearing, distance, headingDiff, type Nm } from '../sim/units.js';
 
@@ -92,6 +92,25 @@ function checkRunwayAndAirspace(scenario: Scenario, problems: Problem[]): void {
   }
   if (!(runway.missedApproachAltitudeFt <= airspace.ceilingFt)) {
     add('error', 'the missed approach altitude is above the ceiling');
+  }
+}
+
+/**
+ * The runways that are only scenery still have to be *drawable*: two distinct
+ * ends, both on the screen. Nothing flies them, so nothing else would ever notice.
+ */
+function checkInactiveRunways(scenario: Scenario, problems: Problem[]): void {
+  for (const other of scenario.inactiveRunways) {
+    const add = (message: string) =>
+      problems.push({ severity: 'error', where: `runway ${other.id}`, message });
+    if (other.id === scenario.runway.id) add('shares its id with the active runway');
+    const lengthNm = distance(other.ends[0], other.ends[1]);
+    if (lengthNm < MIN_LEG_NM) add(`is ${lengthNm.toFixed(3)} NM long`);
+    for (const end of other.ends) {
+      if (boundaryMarginNm(scenario.airspace, end) < -ON_BOUNDARY_NM) {
+        add('has an end outside the airspace boundary');
+      }
+    }
   }
 }
 
@@ -237,9 +256,101 @@ function checkSid(scenario: Scenario, sid: Sid, problems: Problem[]): void {
 }
 
 /**
+ * The rule that makes two arrival streams share a terminal area: wherever two
+ * STARs come within `CONFLICT_HORIZ_NM` of each other, their published profiles
+ * must differ by `CONFLICT_VERT_FT` there.
+ *
+ * Real STARs merge — that is what a merge fix is for — so "keep the routes apart"
+ * cannot mean laterally. What keeps two converging streams safe is the level each
+ * crosses at, which is what a chart itself does: VABB's IGBAN 2A is coded across
+ * EMROS at FL80 and POKON 2A across the same fix at FL110. An arrival on either
+ * flies its own profile onto the aircraft (§4.5), so the split is what makes the
+ * merge work without the controller.
+ *
+ * The exception is the last fix of a route. Where two routes *terminate* together
+ * the published procedure has ended and the aircraft are a queue for the controller
+ * to sequence, which is the job rather than a design error — three of VABB's five
+ * end at OLGUS. Everywhere else, a merge must be flyable with nobody watching.
+ */
+function checkStarSeparation(scenario: Scenario, problems: Problem[]): void {
+  const stars = scenario.stars;
+  for (let i = 0; i < stars.length; i += 1) {
+    for (let j = i + 1; j < stars.length; j += 1) {
+      const a = stars[i]!;
+      const b = stars[j]!;
+      const sharedEnd =
+        distance(
+          a.waypoints[a.waypoints.length - 1]!.position,
+          b.waypoints[b.waypoints.length - 1]!.position,
+        ) < 0.01;
+      let worst: { apartNm: Nm; apartFt: number } | null = null;
+
+      for (const pa of sampleStar(a)) {
+        for (const pb of sampleStar(b)) {
+          const apartNm = distance(pa, pb);
+          if (apartNm > CONFLICT_HORIZ_NM) continue;
+          // Where both routes end together, the last mile is the controller's.
+          if (sharedEnd && Math.min(pa.dtgNm, pb.dtgNm) < CONFLICT_HORIZ_NM) continue;
+          const apartFt = Math.abs(
+            starProfileAt(a, pa.dtgNm).altitudeFt - starProfileAt(b, pb.dtgNm).altitudeFt,
+          );
+          if (!worst || apartFt < worst.apartFt) worst = { apartNm, apartFt };
+        }
+      }
+
+      if (worst && worst.apartFt < CONFLICT_VERT_FT) {
+        problems.push({
+          severity: 'error',
+          where: `${a.name} × ${b.name}`,
+          message:
+            `they pass ${worst.apartNm.toFixed(1)} NM apart with only ` +
+            `${Math.round(worst.apartFt)} ft between their published profiles`,
+        });
+      }
+    }
+  }
+}
+
+/** Points along a STAR every `SAMPLE_STEP_NM`, each carrying its distance to go. */
+function sampleStar(star: Star): { x: number; y: number; dtgNm: Nm }[] {
+  const out: { x: number; y: number; dtgNm: Nm }[] = [];
+  for (let i = 1; i < star.waypoints.length; i += 1) {
+    const from = star.waypoints[i - 1]!;
+    const to = star.waypoints[i]!;
+    const legNm = distance(from.position, to.position);
+    const steps = Math.max(1, Math.ceil(legNm / SAMPLE_STEP_NM));
+    for (let step = 0; step <= steps; step += 1) {
+      const t = step / steps;
+      out.push({
+        x: from.position.x + (to.position.x - from.position.x) * t,
+        y: from.position.y + (to.position.y - from.position.y) * t,
+        dtgNm: to.dtgNm + legNm * (1 - t),
+      });
+    }
+  }
+  return out;
+}
+
+/**
  * The rule that makes one runway's departures and arrivals coexist: where a SID's
- * track crosses or passes close to a STAR's, there has to be a published ceiling
- * in force that clears what the arrival is descending through by 1000 ft.
+ * track crosses or passes close to a STAR's, the published restrictions have to
+ * put 1000 ft between them.
+ *
+ * A restriction can do that in either of two ways, and a real chart uses both:
+ *
+ * - **Under.** An "at or below" holds the departure beneath the descending
+ *   arrival. This is how a crossing close to the field works, where the departure
+ *   has had no room to climb — every one of the shipped field's is this shape.
+ * - **Over.** An "at or above" guarantees the departure is already past the
+ *   arrival's level. This is how a crossing 25 NM out works, where the arrival is
+ *   down at 6000 and the departure has been climbing for ten minutes. VABB's
+ *   OMGIX publishes "at or above FL100" for exactly this reason.
+ *
+ * So the test is the *band* the chart guarantees — `ceilingAtFt` above,
+ * `floorAtFt` below — against the arrival's profile, and either edge clearing by
+ * 1000 ft is enough. Checking only the ceiling would reject a legitimate
+ * over-crossing, and there is no reading of a published minimum under which a
+ * departure sat 7000 ft above an arrival is a conflict.
  *
  * Tested at the **closest approach** of each pair of legs, which is where the
  * restriction has to be good. Not across the whole 3 NM band: a SID deliberately
@@ -253,7 +364,13 @@ function checkSid(scenario: Scenario, sid: Sid, problems: Problem[]): void {
 function checkSidStarClearance(scenario: Scenario, problems: Problem[]): void {
   for (const sid of scenario.sids) {
     for (const star of scenario.stars) {
-      let worst: { distNm: Nm; clearFt: number; ceilingFt: number; arrivalFt: number } | null = null;
+      let worst: {
+        distNm: Nm;
+        clearFt: number;
+        ceilingFt: number;
+        floorFt: number;
+        arrivalFt: number;
+      } | null = null;
 
       for (let i = 1; i < sid.waypoints.length; i += 1) {
         const near = nearestApproach(
@@ -263,10 +380,12 @@ function checkSidStarClearance(scenario: Scenario, problems: Problem[]): void {
         );
         if (near.distNm > CONFLICT_HORIZ_NM) continue;
         const ceilingFt = ceilingAtFt(sid, near.at);
+        const floorFt = floorAtFt(sid, near.at);
         const arrivalFt = starProfileAt(star, near.dtgNm).altitudeFt;
-        const clearFt = arrivalFt - ceilingFt;
+        // The better of the two ways the chart could be separating them.
+        const clearFt = Math.max(arrivalFt - ceilingFt, floorFt - arrivalFt);
         if (!worst || clearFt < worst.clearFt) {
-          worst = { distNm: near.distNm, clearFt, ceilingFt, arrivalFt };
+          worst = { distNm: near.distNm, clearFt, ceilingFt, floorFt, arrivalFt };
         }
       }
 
@@ -275,9 +394,10 @@ function checkSidStarClearance(scenario: Scenario, problems: Problem[]): void {
           severity: 'error',
           where: `${sid.name} × ${star.name}`,
           message:
-            `they pass ${worst.distNm.toFixed(1)} NM apart with only ` +
-            `${Math.round(worst.clearFt)} ft between the SID's ceiling of ${worst.ceilingFt} ft ` +
-            `and the arrival descending through ${Math.round(worst.arrivalFt)} ft`,
+            `they pass ${worst.distNm.toFixed(1)} NM apart with the arrival descending ` +
+            `through ${Math.round(worst.arrivalFt)} ft and the SID published between ` +
+            `${worst.floorFt} and ${worst.ceilingFt} ft — ${Math.round(worst.clearFt)} ft ` +
+            `of separation either way`,
         });
       }
     }
@@ -376,7 +496,24 @@ function checkNames(scenario: Scenario, problems: Problem[]): void {
 }
 
 function checkTraffic(scenario: Scenario, problems: Problem[]): void {
-  const { traffic, runwayOps, gates, fleet, airlines } = scenario;
+  const { performance, traffic, runwayOps, gates, fleet, airlines } = scenario;
+  // A scale, not a rate: above 1 a field would be claiming its air is better than
+  // the book day the fleet's figures are quoted for, and at or below 0 a
+  // departure never leaves the ground.
+  const { departureClimbScale: scale } = performance;
+  if (!(scale > 0 && scale <= 1)) {
+    problems.push({
+      severity: 'error',
+      where: 'performance',
+      message: `departureClimbScale is ${scale}; it is a fraction of book rate, so 0 < scale <= 1`,
+    });
+  } else if (scale < 0.7) {
+    problems.push({
+      severity: 'warning',
+      where: 'performance',
+      message: `departureClimbScale of ${scale} takes ${Math.round((1 - scale) * 100)}% off book climb — check the SID crossings are still made`,
+    });
+  }
   if (fleet.length === 0) problems.push({ severity: 'error', where: 'fleet', message: 'is empty' });
   if (airlines.length === 0) {
     problems.push({ severity: 'error', where: 'airlines', message: 'is empty' });
@@ -405,6 +542,7 @@ function checkTraffic(scenario: Scenario, problems: Problem[]): void {
 export function validateScenario(scenario: Scenario): Problem[] {
   const problems: Problem[] = [];
   checkRunwayAndAirspace(scenario, problems);
+  checkInactiveRunways(scenario, problems);
   checkGates(scenario, problems);
   checkNames(scenario, problems);
   for (const star of scenario.stars) checkStar(scenario, star, problems);
@@ -412,6 +550,7 @@ export function validateScenario(scenario: Scenario): Problem[] {
     checkSid(scenario, sid, problems);
     checkSidExit(scenario, sid, problems);
   }
+  checkStarSeparation(scenario, problems);
   checkSidStarClearance(scenario, problems);
   checkTraffic(scenario, problems);
   return problems.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'error' ? -1 : 1));

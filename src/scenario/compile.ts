@@ -10,6 +10,7 @@
 import { boundaryRangeAtBearing, compileAirspace } from './airspace.js';
 import {
   DEFAULT_FACILITY,
+  DEFAULT_PERFORMANCE,
   DEFAULT_RUNWAY,
   DEFAULT_RUNWAY_OPS,
   DEFAULT_TRAFFIC,
@@ -17,11 +18,13 @@ import {
 import { lerp, turnOf, type FixContext } from './geometry.js';
 import type {
   EntryGate,
+  InactiveRunway,
   Runway,
   RunwaySpec,
   Scenario,
   ScenarioSpec,
   Sid,
+  SidFixSpec,
   SidSpec,
   SidWaypoint,
   Star,
@@ -29,7 +32,7 @@ import type {
   StarSpec,
   StarWaypoint,
 } from './types.js';
-import { bearing, distance, headingVector, type Ft, type Point } from '../sim/units.js';
+import { bearing, distance, headingVector, type Deg, type Ft, type Point } from '../sim/units.js';
 
 /** How far above the assignable ceiling a departure levels off (§4.7). */
 const DEPARTURE_TOP_MARGIN_FT = 1000;
@@ -144,40 +147,69 @@ function compileStar(spec: StarSpec, gate: EntryGate, ctx: FixContext): Star {
   };
 }
 
-function compileSid(spec: SidSpec, ctx: FixContext, defaultTopFt: Ft): Sid {
+/**
+ * Compile one SID into one route per way out of it.
+ *
+ * A branching SID is flattened rather than modelled: each exit becomes a
+ * complete `Sid` carrying the trunk again, so the simulation never learns that a
+ * route can fork. `stepDeparture`, `ceilingAtFt` and the route sequencer all keep
+ * seeing a flat chain of waypoints and an index into it, and a recording still
+ * resolves a route by a single unique name.
+ *
+ * The duplicated trunk costs only the chart drawing, which paints the shared
+ * legs once per branch — identical strokes, so it is invisible, but `mapLayer`
+ * dedupes the *labels*.
+ */
+function compileSid(spec: SidSpec, ctx: FixContext, defaultTopFt: Ft): Sid[] {
   const topFt = spec.topFt ?? defaultTopFt;
-  const waypoints: SidWaypoint[] = [
-    // The departure end of the runway is the first waypoint: it is where the
-    // route starts on the chart, and the aircraft is already past it by the time
-    // it is tracking anything. Nothing is published there.
-    { name: `RWY${ctx.runway.id}`, position: ctx.runway.farEnd, alongNm: 0 },
-    ...spec.fixes.map((fix) => ({
-      name: fix.name,
-      position: fix.at(ctx),
-      maxAltitudeFt: fix.maxAltitudeFt,
-      minAltitudeFt: fix.minAltitudeFt,
-      alongNm: 0,
-    })),
-  ];
+  const branches: readonly { suffix: string; fixes: readonly SidFixSpec[] }[] =
+    spec.exits === undefined
+      ? // One way out: the route keeps the chart's own name, so a field with no
+        // branching SIDs is named exactly as it was before exits existed.
+        [{ suffix: '', fixes: spec.fixes }]
+      : spec.exits.map((exit) => ({ suffix: `/${exit.name}`, fixes: [...spec.fixes, ...exit.fixes] }));
 
-  // The chart labels the top of climb at the last fix, so default it there.
-  const last = waypoints[waypoints.length - 1]!;
-  if (last.minAltitudeFt === undefined && last.maxAltitudeFt === undefined) {
-    last.minAltitudeFt = topFt;
-  }
+  return branches.map(({ suffix, fixes }) => {
+    const waypoints: SidWaypoint[] = [
+      // The departure end of the runway is the first waypoint: it is where the
+      // route starts on the chart, and the aircraft is already past it by the time
+      // it is tracking anything. Nothing is published there.
+      { name: `RWY${ctx.runway.id}`, position: ctx.runway.farEnd, alongNm: 0 },
+      ...fixes.map((fix) => ({
+        name: fix.name,
+        position: fix.at(ctx),
+        maxAltitudeFt: fix.maxAltitudeFt,
+        minAltitudeFt: fix.minAltitudeFt,
+        alongNm: 0,
+      })),
+    ];
 
-  for (let i = 1; i < waypoints.length; i += 1) {
-    waypoints[i]!.alongNm =
-      waypoints[i - 1]!.alongNm + distance(waypoints[i - 1]!.position, waypoints[i]!.position);
-  }
+    // The chart labels the top of climb at the last fix, so default it there.
+    const last = waypoints[waypoints.length - 1]!;
+    if (last.minAltitudeFt === undefined && last.maxAltitudeFt === undefined) {
+      last.minAltitudeFt = topFt;
+    }
 
-  return {
-    name: spec.name,
-    turn: turnOf(ctx.runway, waypoints),
-    topFt,
-    waypoints,
-    lengthNm: last.alongNm,
-  };
+    for (let i = 1; i < waypoints.length; i += 1) {
+      waypoints[i]!.alongNm =
+        waypoints[i - 1]!.alongNm + distance(waypoints[i - 1]!.position, waypoints[i]!.position);
+    }
+
+    return {
+      name: `${spec.name}${suffix}`,
+      chart: spec.name,
+      // Per branch, and deliberately: `turnOf` takes the first leg more than
+      // `STRAIGHT_OUT_DEG` off the runway course, so a trunk that carries the
+      // turn — which is the usual shape, and all three of VABB's — gives every
+      // branch the label the chart prints. A trunk that goes straight out
+      // instead leaves the first turn to the branch, and two branches leaving
+      // opposite sides then report opposite turns, which is what they fly.
+      turn: turnOf(ctx.runway, waypoints),
+      topFt,
+      waypoints,
+      lengthNm: last.alongNm,
+    };
+  });
 }
 
 export function compileScenario(spec: ScenarioSpec): Scenario {
@@ -187,13 +219,24 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
   const airspace = compileAirspace(spec.airspace);
   const ctx: FixContext = { runway, arp };
 
-  // Gates sit *on* the boundary, which past the arcs is a chord rather than the
-  // circle — placing them at the radius instead would put a gate outside the
-  // drawn shape, and several miles from its own marker.
+  // A gate either states where it is, or is placed on the boundary along its
+  // bearing. On the boundary — not at the radius — because past the arcs the
+  // boundary is a chord, and using the radius would put a gate outside the drawn
+  // shape and several miles from its own marker.
   const gates: EntryGate[] = spec.gates.map((gateSpec) => {
-    const v = headingVector(gateSpec.bearingDeg);
-    const rangeNm = boundaryRangeAtBearing(airspace, gateSpec.bearingDeg);
-    const position: Point = { x: arp.x + v.x * rangeNm, y: arp.y + v.y * rangeNm };
+    let position: Point;
+    let bearingDeg: Deg;
+    if (gateSpec.at) {
+      position = gateSpec.at(ctx);
+      bearingDeg = bearing(arp, position);
+    } else if (gateSpec.bearingDeg !== undefined) {
+      bearingDeg = gateSpec.bearingDeg;
+      const v = headingVector(bearingDeg);
+      const rangeNm = boundaryRangeAtBearing(airspace, bearingDeg);
+      position = { x: arp.x + v.x * rangeNm, y: arp.y + v.y * rangeNm };
+    } else {
+      throw new Error(`${spec.id}: gate ${gateSpec.name} states neither a bearing nor a position`);
+    }
     const star = spec.stars.find((candidate) => candidate.gate === gateSpec.name);
     const entryAltitudeFt = star?.entryAltitudeFt ?? gateSpec.entryAltitudeFt;
     const entrySpeedKts = star?.entrySpeedKts ?? gateSpec.entrySpeedKts;
@@ -204,11 +247,12 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     }
     return {
       name: gateSpec.name,
-      bearingDeg: gateSpec.bearingDeg,
+      bearingDeg,
       position,
       inboundHeadingDeg: bearing(position, arp),
       entryAltitudeFt,
       entrySpeedKts,
+      weight: gateSpec.weight ?? 1,
     };
   });
 
@@ -220,7 +264,7 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
   });
 
   const defaultTopFt = airspace.ceilingFt + DEPARTURE_TOP_MARGIN_FT;
-  const sids = spec.sids.map((sidSpec) => compileSid(sidSpec, ctx, defaultTopFt));
+  const sids = spec.sids.flatMap((sidSpec) => compileSid(sidSpec, ctx, defaultTopFt));
 
   return {
     id: spec.id,
@@ -229,12 +273,19 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     elevationFt: spec.elevationFt,
     arp,
     runway,
+    inactiveRunways: (spec.inactiveRunways ?? []).map(
+      (other): InactiveRunway => ({ id: other.id, ends: [other.ends[0](ctx), other.ends[1](ctx)] }),
+    ),
+    // The one thing compiled by being turned from pairs into points, because a
+    // coastline is already in the frame — see `CoastlineSpec`.
+    coastline: (spec.coastline ?? []).map((chain) => chain.map(([x, y]) => ({ x, y }))),
     airspace,
     gates,
     stars,
     sids,
     fleet: spec.fleet,
     airlines: spec.airlines,
+    performance: { ...DEFAULT_PERFORMANCE, ...definedOnly(spec.performance ?? {}) },
     traffic: { ...DEFAULT_TRAFFIC, ...definedOnly(spec.traffic ?? {}) },
     runwayOps: { ...DEFAULT_RUNWAY_OPS, ...definedOnly(spec.runwayOps ?? {}) },
     facility: { ...DEFAULT_FACILITY, ...definedOnly(spec.facility ?? {}) },

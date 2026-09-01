@@ -25,12 +25,20 @@ export interface ScenarioSpec {
   icao: string;
   elevationFt: Ft;
   runway: RunwaySpec;
+  /**
+   * Other runways on the field. Drawn on the scope and nothing else — see
+   * `InactiveRunwaySpec`.
+   */
+  inactiveRunways?: readonly InactiveRunwaySpec[];
+  /** Scenery: the coast, if the field is anywhere near one. */
+  coastline?: CoastlineSpec;
   airspace: AirspaceSpec;
   gates: readonly EntryGateSpec[];
   stars: readonly StarSpec[];
   sids: readonly SidSpec[];
   fleet: readonly AircraftType[];
   airlines: readonly Airline[];
+  performance?: Partial<PerformanceSpec>;
   traffic?: Partial<TrafficSpec>;
   runwayOps?: Partial<RunwayOpsSpec>;
   facility?: Partial<FacilitySpec>;
@@ -47,6 +55,49 @@ export interface RunwaySpec {
   /** How far the extended centreline is drawn, and how often it is ticked. */
   centerlineLengthNm?: Nm;
   centerlineTickNm?: Nm;
+}
+
+/**
+ * A runway that exists on the field but is not in use.
+ *
+ * Exactly one runway is ever active (§3.1 A2), and this is not it: nothing under
+ * `src/sim/` reads it, so it cannot quietly grow into two-runway logic — the
+ * layering test already forbids the sim importing a scenario value. It is here so
+ * a field that has more than one strip looks like itself.
+ *
+ * Stated as its two ends rather than a course and a length: it is never flown, so
+ * there is no frame to stay consistent with and no derivation to get wrong.
+ */
+export interface InactiveRunwaySpec {
+  /** Both ends as the chart names them, e.g. `14/32`. */
+  id: string;
+  /** The two thresholds, in the order the id names them. */
+  ends: readonly [FixAt, FixAt];
+}
+
+/**
+ * What the *air* at this field does to what an aircraft can do in it.
+ *
+ * The fleet's performance figures are book numbers — EUROCONTROL APD, quoted at
+ * a temperate day — and a field is entitled to say its air is not that. Mumbai
+ * in May is 35 °C at sea level, a density altitude around 2500 ft, and a
+ * departure out of it does not climb at book rate.
+ *
+ * A scale rather than a table of its own: the *relative* performance of the six
+ * types is a fact about the airframes and stays wherever the airframes are
+ * described, while how much of it today's air gives back is a fact about the
+ * field. One number keeps those two apart, so a new field states its climate
+ * and inherits the fleet.
+ */
+export interface PerformanceSpec {
+  /**
+   * Fraction of book climb rate a departure achieves here. 1 is the book
+   * figure; below it the aircraft climbs more shallowly and, because climb is
+   * served before acceleration out of one budget (§4.3), has *more* left to
+   * accelerate with — which is the right way round, since it is the air that is
+   * thin, not the engines that are throttled.
+   */
+  departureClimbScale: number;
 }
 
 export interface TrafficSpec {
@@ -95,8 +146,31 @@ export interface AirspaceSpec {
 
 export interface EntryGateSpec {
   name: string;
-  /** Bearing from the ARP. The gate is placed on the boundary along it. */
-  bearingDeg: Deg;
+  /**
+   * Bearing from the ARP. Without `at`, the gate is placed on the boundary along
+   * it — which is what a field whose gates are *designed* wants. With `at`, it is
+   * derived from the position instead and this is ignored.
+   */
+  bearingDeg?: Deg;
+  /**
+   * Where the gate actually is, for a field transcribing published fixes.
+   *
+   * A real TMA's entry fixes are at real coordinates and are not all the same
+   * range from the field, so forcing them onto one boundary circle moves them —
+   * at VABB by up to 8 NM, which bends the first leg of the arrival. When this is
+   * given the gate sits exactly here and the airspace simply has to contain it.
+   */
+  at?: FixAt;
+  /**
+   * Share of the arrivals this gate is offered, relative to the field's other
+   * gates. Defaults to 1, i.e. an even split.
+   *
+   * A property of the field, not of the job: which direction a real airport's
+   * traffic comes from is a fact about the route network around it, and at a
+   * field whose gates are 30° apart in one sector and 90° apart in another an
+   * even split is the unrealistic choice.
+   */
+  weight?: number;
   /**
    * How Center delivers to a gate with **no** published STAR. Declare these only
    * for such a gate: when a STAR names this gate, its own entry crossing is used
@@ -141,6 +215,23 @@ export interface SidSpec {
   name: string;
   /** Top of the departure climb. Defaults to `airspace.ceilingFt + 1000`. */
   topFt?: Ft;
+  /** The common trunk: the fixes every way out of this SID flies first. */
+  fixes: readonly SidFixSpec[];
+  /**
+   * Where the trunk splits. Omit for a SID with one way out.
+   *
+   * Real SIDs off one runway share their first fixes and then fan out to the
+   * airways, and a chart names the whole fan once. Each branch is compiled into
+   * its own complete route, so the simulation still only ever sees a flat chain
+   * of waypoints — see `compileSid`.
+   */
+  exits?: readonly SidExitSpec[];
+}
+
+export interface SidExitSpec {
+  /** Names the branch, and with it the compiled route: `ANOLI2A/ISRIS`. */
+  name: string;
+  /** Flown after the trunk. The last one is the route's exit fix. */
   fixes: readonly SidFixSpec[];
 }
 
@@ -150,10 +241,14 @@ export interface SidFixSpec {
   /** Published "at or below", in force from the start of the route until here. */
   maxAltitudeFt?: Ft;
   /**
-   * Published "at or above". Nothing reads this to fly the aircraft — a departure
-   * is always climbing as hard as it can — so it is documentation on the chart
-   * and what the performance tests assert against. Defaults to `topFt` on the
-   * last fix, which is the label a chart carries there anyway.
+   * Published "at or above", in force from here to the end of the route.
+   *
+   * Nothing reads this to fly the aircraft — a departure is always climbing as
+   * hard as it can, so a floor can only be satisfied, never chased. It is read by
+   * the validator, which needs it to check the *other* way a crossing restriction
+   * works: a chart publishing "at or above FL100" is guaranteeing the departure
+   * passes over the arrival rather than under it. Defaults to `topFt` on the last
+   * fix, which is the label a chart carries there anyway.
    */
   minAltitudeFt?: Ft;
 }
@@ -176,12 +271,17 @@ export interface Scenario {
    */
   arp: Point;
   runway: Runway;
+  /** Drawn, never flown. Empty for a field with one strip. */
+  inactiveRunways: readonly InactiveRunway[];
+  /** Drawn, and read by nothing else. Empty for a field that states no coast. */
+  coastline: readonly (readonly Point[])[];
   airspace: Airspace;
   gates: readonly EntryGate[];
   stars: readonly Star[];
   sids: readonly Sid[];
   fleet: readonly AircraftType[];
   airlines: readonly Airline[];
+  performance: PerformanceSpec;
   traffic: TrafficSpec;
   runwayOps: RunwayOpsSpec;
   facility: FacilitySpec;
@@ -200,6 +300,23 @@ export interface Runway extends Required<RunwaySpec> {
   direction: Point;
   /** Departure end: where every SID starts, and the far end for drawing. */
   farEnd: Point;
+}
+
+/**
+ * Stretches of coastline, each an open or closed chain of `[x, y]` in the field's
+ * local NM frame.
+ *
+ * Coordinates rather than the `FixAt` closures a route is authored with, and the
+ * exception is the point: a `FixAt` exists so a fix can be stated in the frame a
+ * chart states it in — on final, off the departure end — and none of that applies
+ * to a coast, which is at the coordinates the world put it at. Several hundred
+ * closures would also be several hundred allocations to say what two numbers say.
+ */
+export type CoastlineSpec = readonly (readonly (readonly [Nm, Nm])[])[];
+
+export interface InactiveRunway {
+  id: string;
+  ends: readonly [Point, Point];
 }
 
 export interface Airspace extends AirspaceSpec {
@@ -221,6 +338,8 @@ export interface EntryGate {
   entryAltitudeFt: Ft;
   /** Speed Center hands the arrival over at. Taken from the STAR. */
   entrySpeedKts: Kts;
+  /** Share of the arrivals offered here, relative to the other gates. */
+  weight: number;
 }
 
 export interface StarWaypoint {
@@ -261,8 +380,16 @@ export interface SidWaypoint {
 }
 
 export interface Sid {
-  /** Chart name, e.g. `SABAR1A`. */
+  /**
+   * Unique route name, and what a recording stores. `SABAR1A` for a SID with one
+   * way out, `ANOLI2A/ISRIS` for one branch of a SID with several.
+   */
   name: string;
+  /**
+   * The published chart name, shared by every branch of one SID. What a log line
+   * and a chart label should say; `name` is what identifies the route.
+   */
+  chart: string;
   /**
    * Which way it turns off the runway — what the chart and the log line say.
    * Derived from the geometry, never declared, so it cannot disagree with it.

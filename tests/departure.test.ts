@@ -8,15 +8,17 @@ import type { Aircraft } from '../src/sim/aircraft.js';
 import { isControllable, isDeparture } from '../src/sim/aircraft.js';
 import { adjustAltitude, adjustHeading, nextSelectableId } from '../src/sim/commands.js';
 import {
+  DEPARTURE_ACCEL_ALT_FT,
   DEPARTURE_CLIMB_SPEED_KTS,
   GO_AROUND_RUNWAY_OCCUPIED_NM,
   GS_FT_PER_NM,
+  INITIAL_CLIMB_REDUCTION_FPM,
   PHYSICS_DT,
   SEP_HORIZ_NM,
   SEP_VERT_FT,
 } from '../src/sim/constants.js';
 import { maxDepartureRollS } from '../src/sim/departure.js';
-import { groundSpeed } from '../src/sim/dynamics.js';
+import { departureClimbRateFpm, groundSpeed } from '../src/sim/dynamics.js';
 import { createRng } from '../src/sim/rng.js';
 import { createDeparture, createTrafficState, runwayBlockedBy } from '../src/sim/traffic.js';
 import { distance, type Point } from '../src/sim/units.js';
@@ -341,6 +343,33 @@ describe('the climb profile', () => {
     const fastest = Math.max(...samples.map((s) => s.iasKts));
     expect(fastest).toBeGreaterThan(DEPARTURE_CLIMB_SPEED_KTS - 5);
     expect(fastest).toBeLessThanOrEqual(DEPARTURE_CLIMB_SPEED_KTS + 0.5);
+  });
+
+  it('climbs at the field\u2019s share of book rate, not the book rate itself', () => {
+    // Hot and humid is a property of the airport, and it reaches the physics on
+    // the departure itself (`SidNav.climbScale`) rather than through a scenario
+    // lookup — which is what keeps `dynamics.ts` free of any field at all.
+    const type = AIRCRAFT_TYPES.find((t) => t.code === 'B738')!;
+    const { ac } = departure(sidNamed('RAMOX1A'), type);
+    expect(ac.sid!.climbScale).toBe(SCENARIO.performance.departureClimbScale);
+
+    // Above the acceleration altitude, where the flaps are up and the published
+    // figure applies in full.
+    ac.altitudeFt = SCENARIO.elevationFt + DEPARTURE_ACCEL_ALT_FT + 1000;
+    expect(departureClimbRateFpm(ac)).toBeCloseTo(type.departureClimbFpm, 6);
+
+    for (const scale of [0.88, 0.5]) {
+      ac.sid!.climbScale = scale;
+      expect(departureClimbRateFpm(ac)).toBeCloseTo(type.departureClimbFpm * scale, 6);
+      // And the flaps-out reduction is taken off the book figure first, so a
+      // scaled field is not scaling a number that already had 500 removed twice.
+      ac.altitudeFt = SCENARIO.elevationFt + 1000;
+      expect(departureClimbRateFpm(ac)).toBeCloseTo(
+        (type.departureClimbFpm - INITIAL_CLIMB_REDUCTION_FPM) * scale,
+        6,
+      );
+      ac.altitudeFt = SCENARIO.elevationFt + DEPARTURE_ACCEL_ALT_FT + 1000;
+    }
   });
 
   it('leaves the airspace and counts as a departure rather than a lost arrival', () => {

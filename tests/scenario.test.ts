@@ -21,6 +21,7 @@ import { glideslopeAltitudeFt } from '../src/sim/ils.js';
 import { createArrival, createDeparture, createTrafficState } from '../src/sim/traffic.js';
 import { createWorld, step } from '../src/sim/world.js';
 import { distance, magnitude, rightOf } from '../src/sim/units.js';
+import { VABB } from '../src/scenario/fields/vabb/index.js';
 import { ROTATED, ROTATED_SPEC } from './fixtures/rotatedField.js';
 
 const FIELDS: Scenario[] = [...SCENARIOS, ROTATED];
@@ -73,18 +74,41 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
       }
     });
 
-    it('keeps its arrival routes apart from each other', () => {
+    it('separates every pair of arrival routes, laterally or vertically', () => {
+      // Two published routes may not share airspace — but "apart" means apart in
+      // three dimensions, and a real TMA merges its arrival streams rather than
+      // keeping them laterally clear. VABB's IGBAN 2A and POKON 2A both cross EMROS,
+      // and what keeps them apart there is the chart's own levels: FL80 against
+      // FL110. So wherever two routes come within SEP_HORIZ_NM, their published
+      // profiles have to differ by SEP_VERT_FT at that point.
+      //
+      // A route's last fix is exempt from the vertical half, and only there. Three
+      // of VABB's five terminate at the same fix, where the published route ends and
+      // the controller takes over — arrivals there are a queue to be sequenced, which
+      // is the job, not a design error. Anywhere else a merge has to be flyable
+      // without intervention.
+      const sampled = scenario.stars.map((star) => sampleTrack(star.waypoints));
       for (let i = 0; i < scenario.stars.length; i += 1) {
         for (let j = i + 1; j < scenario.stars.length; j += 1) {
           const a = scenario.stars[i]!;
           const b = scenario.stars[j]!;
-          // Sampled along both tracks; two published routes must not share airspace.
-          for (const pa of sampleTrack(a.waypoints)) {
-            for (const pb of sampleTrack(b.waypoints)) {
+          const endA = a.waypoints[a.waypoints.length - 1]!.position;
+          const endB = b.waypoints[b.waypoints.length - 1]!.position;
+          const sharedEnd = distance(endA, endB) < 0.01;
+          for (const pa of sampled[i]!) {
+            for (const pb of sampled[j]!) {
+              const apartNm = distance(pa, pb);
+              if (apartNm > SEP_HORIZ_NM) continue;
+              // Inside the lateral minimum: the levels must do the work.
+              const apartFt = Math.abs(
+                starProfileAt(a, pa.dtgNm).altitudeFt - starProfileAt(b, pb.dtgNm).altitudeFt,
+              );
+              if (sharedEnd && Math.min(pa.dtgNm, pb.dtgNm) < SEP_HORIZ_NM) continue;
               expect(
-                distance(pa, pb),
-                `${a.name} and ${b.name} pass too close`,
-              ).toBeGreaterThan(SEP_HORIZ_NM);
+                apartFt,
+                `${a.name} and ${b.name} pass ${apartNm.toFixed(2)} NM apart with ` +
+                  `${apartFt.toFixed(0)} ft between their published profiles`,
+              ).toBeGreaterThanOrEqual(SEP_VERT_FT - 1);
             }
           }
         }
@@ -115,6 +139,23 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
     });
 
     it('keeps every departure clear of every arrival route, for every type', () => {
+      // Sampled once, not once per physics step: this runs inside the flying loop
+      // and rebuilding a few hundred points per STAR forty thousand times over is
+      // what the whole test costs. Each track also carries the box it lives in,
+      // inflated by the separation minimum, so a departure nowhere near a given
+      // arrival route skips its few hundred samples on one comparison.
+      const tracks = scenario.stars.map((star) => {
+        const points = sampleTrack(star.waypoints);
+        return {
+          star,
+          points,
+          minX: Math.min(...points.map((p) => p.x)) - SEP_HORIZ_NM,
+          maxX: Math.max(...points.map((p) => p.x)) + SEP_HORIZ_NM,
+          minY: Math.min(...points.map((p) => p.y)) - SEP_HORIZ_NM,
+          maxY: Math.max(...points.map((p) => p.y)) + SEP_HORIZ_NM,
+        };
+      });
+
       for (const sid of scenario.sids) {
         for (const type of scenario.fleet) {
           const world = createWorld(scenario, 9);
@@ -131,13 +172,20 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
             step(world, PHYSICS_DT);
             if (world.aircraft.length === 0) break;
             if (ac.altitudeFt >= sid.topFt - 100) reachedTop = true;
-            for (const star of scenario.stars) {
-              for (const point of sampleTrack(star.waypoints)) {
+            for (const track of tracks) {
+              if (ac.x < track.minX || ac.x > track.maxX) continue;
+              if (ac.y < track.minY || ac.y > track.maxY) continue;
+              const { star, points } = track;
+              for (const point of points) {
                 if (distance({ x: ac.x, y: ac.y }, point) > SEP_HORIZ_NM) continue;
                 const arrivalFt = starProfileAt(star, point.dtgNm).altitudeFt;
+                // Either sense: a departure held beneath the arrival and one that
+                // has already climbed above it are both separated. Close to the
+                // field it is the first; 25 NM out, where the arrival is down at
+                // 6000 and the departure has been climbing for minutes, the second.
                 expect(
-                  arrivalFt - ac.altitudeFt,
-                  `${type.code} on ${sid.name} under ${star.name}`,
+                  Math.abs(arrivalFt - ac.altitudeFt),
+                  `${type.code} on ${sid.name} passing ${star.name}`,
                 ).toBeGreaterThanOrEqual(SEP_VERT_FT - 1);
               }
             }
@@ -170,6 +218,28 @@ describe('the validator', () => {
     });
     const problems = validateScenario(broken);
     expect(problems.some((p) => p.where.includes('×'))).toBe(true);
+  });
+
+  it('catches a departure crossing over an arrival with nothing holding it up', () => {
+    // The mirror of the case above, and the reason the check is two-sided. VABB's
+    // OMGIX and XOPAL publish "at or above" precisely because those branches cross
+    // an arrival inbound leg 25-50 NM out, where the arrival is well below them.
+    // Take the floors away and there is nothing left to separate them by.
+    const broken = compileScenario({
+      ...VABB,
+      sids: VABB.sids.map((sid) => ({
+        ...sid,
+        exits: sid.exits?.map((exit) => ({
+          ...exit,
+          fixes: exit.fixes.map((fix) => ({ ...fix, minAltitudeFt: undefined })),
+        })),
+      })),
+    });
+    const problems = validateScenario(broken);
+    expect(problems.some((p) => p.where.includes('×'))).toBe(true);
+    // And the shipped field, with them, is clean — otherwise the above proves
+    // nothing about the floors in particular.
+    expect(validateScenario(compileScenario(VABB))).toEqual([]);
   });
 
   it('catches a gate outside the boundary', () => {

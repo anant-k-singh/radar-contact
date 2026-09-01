@@ -69,6 +69,16 @@ export interface SidNav {
    * free of any scenario at all.
    */
   fieldElevationFt: Ft;
+  /**
+   * What this field's air does to book climb rate, captured at the roll for the
+   * same reason and in the same way as the elevation above.
+   *
+   * It rides here rather than being looked up because `dynamics.ts` has no
+   * scenario dependency at all and is worth keeping that way: a departure
+   * carries every fact about the field it needs, so the physics can stay a
+   * function of the aircraft alone.
+   */
+  climbScale: number;
 }
 
 export type DepartureEvent =
@@ -100,8 +110,8 @@ export function maxDepartureRollS(fleet: readonly AircraftType[]): Sec {
 }
 
 /** Put a departure at the holding point, tracking the first fix after the runway. */
-export function joinSid(route: Sid, fieldElevationFt: Ft): SidNav {
-  return { route, index: 1, complete: false, fieldElevationFt };
+export function joinSid(route: Sid, fieldElevationFt: Ft, climbScale: number): SidNav {
+  return { route, index: 1, complete: false, fieldElevationFt, climbScale };
 }
 
 export function activeSidFix(nav: SidNav): SidWaypoint {

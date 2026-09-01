@@ -18,7 +18,7 @@
  * field can add a constructor of its own. The cost is that a scenario is not
  * JSON-serialisable, which costs nothing — the registry is a static import.
  */
-import { bearing, headingVector, rightOf, type Deg, type Nm, type Point } from '../sim/units.js';
+import { bearing, headingVector, magnitude, rightOf, type Deg, type Nm, type Point } from '../sim/units.js';
 import type { EntryGate, Runway } from './types.js';
 
 /** What a fix declaration is resolved against, once, at compile time. */
@@ -99,6 +99,40 @@ export const joinsDownwind =
     return hit;
   };
 
+/**
+ * The STAR's own entry gate — the point Center hands the arrival over at.
+ *
+ * The gate is placed by `airport.ts`, along the published leg and on the
+ * boundary, so a route that wants to measure inward from the boundary asks for
+ * the gate rather than restating where it ended up.
+ */
+export const entryGate: FixAt = (ctx) => {
+  if (!ctx.gate) throw new Error('entryGate is only meaningful on a STAR');
+  return ctx.gate.position;
+};
+
+/**
+ * `distNm` along the straight leg from `from` towards `to`.
+ *
+ * The mirror of `clipToRange`: that one measures from the field, this one from a
+ * point on the route. It is what places a fix the chart does not publish — a
+ * holding fix at a stated distance inside the boundary — without disturbing the
+ * leg it sits on, since the point is on the line between the two published fixes.
+ * Longer than the leg is a named error rather than a fix past its own next one.
+ */
+export const alongLeg =
+  (distNm: Nm, from: FixAt, to: FixAt): FixAt =>
+  (ctx) => {
+    const a = from(ctx);
+    const b = to(ctx);
+    const legNm = Math.hypot(b.x - a.x, b.y - a.y);
+    if (distNm > legNm) {
+      throw new Error(`alongLeg: ${distNm} NM is past the end of a ${legNm.toFixed(1)} NM leg`);
+    }
+    const t = legNm > 0 ? distNm / legNm : 0;
+    return lerp(a, b, t);
+  };
+
 /** Where a ray meets a line, or null when they are parallel or it lies behind. */
 function rayMeetsLine(from: Point, dir: Point, on: Point, along: Point): Point | null {
   const denom = dir.x * along.y - dir.y * along.x;
@@ -106,6 +140,39 @@ function rayMeetsLine(from: Point, dir: Point, on: Point, along: Point): Point |
   const t = ((on.x - from.x) * along.y - (on.y - from.y) * along.x) / denom;
   return t > 0 ? { x: from.x + dir.x * t, y: from.y + dir.y * t } : null;
 }
+
+/**
+ * `to`, or where the leg from `from` to it crosses `rangeNm` from the reference
+ * point — whichever comes first.
+ *
+ * For a field transcribing published procedures whose fixes do not all fit. A real
+ * TMA's entry fixes sit a mile or two outside a round number and its SID exits a
+ * mile or two inside, and a route has to start on the boundary and end inside it.
+ * Clipping along the published leg keeps the **track** exactly, and moves only how
+ * far along it the route begins or ends — which is what truncating a route means.
+ *
+ * The fix's own coordinate stays the input, so nothing is lost: the leg is still
+ * aimed at the real place, and the real place is still written down.
+ */
+export const clipToRange =
+  (rangeNm: Nm, from: FixAt, to: FixAt): FixAt =>
+  (ctx) => {
+    const a = from(ctx);
+    const b = to(ctx);
+    if (magnitude(b) <= rangeNm) return b;
+    // |a + t(b - a)| = rangeNm, for the first t in (0, 1].
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const quadratic = dx * dx + dy * dy;
+    if (quadratic < 1e-12) return b;
+    const linear = a.x * dx + a.y * dy;
+    const constant = a.x * a.x + a.y * a.y - rangeNm * rangeNm;
+    const discriminant = linear * linear - quadratic * constant;
+    if (discriminant < 0) return b;
+    const t = (-linear + Math.sqrt(discriminant)) / quadratic;
+    if (!(t > 0 && t <= 1)) return b;
+    return { x: a.x + dx * t, y: a.y + dy * t };
+  };
 
 export function midpoint(a: Point, b: Point): Point {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };

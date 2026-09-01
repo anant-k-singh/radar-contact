@@ -63,6 +63,16 @@ export interface Stats {
    * (§8.2). Trimmed to the last few, exactly as the landing times are.
    */
   departureTimesS: Sec[];
+  /**
+   * Sim time each arrival was handed over at its gate.
+   *
+   * Stamped at the hand-over, which is the only moment an arrival enters — it
+   * is put on the scope already established on its STAR, so there is no later
+   * entry event to time it at (§8.2). The mirror of `departureTimesS` being
+   * stamped at the roll: each measures its flow where it crosses the boundary
+   * of the player's problem. Trimmed to the last few, as those are.
+   */
+  arrivalTimesS: Sec[];
   handoffs: number;
   violations: number;
   violationSeconds: number;
@@ -135,6 +145,7 @@ export function createWorld(
       landingTimesS: [],
       departures: 0,
       departureTimesS: [],
+      arrivalTimesS: [],
       handoffs: 0,
       violations: 0,
       violationSeconds: 0,
@@ -272,6 +283,17 @@ export function departureRatePerHour(world: World): number | null {
  * says what it owes. A queue that only grows is a final that never gives the
  * runway back.
  */
+/**
+ * Arrivals per hour handed over on a STAR (§8.2).
+ *
+ * Read against the landing rate, it is whether the stack is growing: Center is
+ * delivering faster than the runway is taking them the whole time this number
+ * stands above `RATE`.
+ */
+export function arrivalRatePerHour(world: World): number | null {
+  return ratePerHour(world.stats.arrivalTimesS, world.timeS);
+}
+
 export function departureQueueLength(world: World): number {
   return world.traffic.departureQueue;
 }
@@ -521,6 +543,7 @@ function spawnArrival(world: World): void {
   if (!arrival) return;
 
   world.aircraft.push(arrival);
+  recordMovement(world.stats.arrivalTimesS, world.timeS);
   scheduleNextSpawn(world.traffic, world.rng, world.timeS, world.flowPerHour);
   const routing = arrival.star
     ? `on the ${arrival.star.route.name} arrival`

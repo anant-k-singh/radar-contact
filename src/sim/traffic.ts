@@ -214,7 +214,10 @@ export function trySpawn(
   );
   if (candidates.length === 0) return null;
 
-  const gate = rng.pick(candidates);
+  // Weighted, because which direction traffic comes from is a fact about the
+  // field (§4.4). A field that states no weights gets the even split it always
+  // had, from the same draw.
+  const gate = rng.pickWeighted(candidates, (candidate) => candidate.weight);
   state.gateLastSpawnS.set(gate.name, timeS);
   return createArrival(scenario, rng, state, gate, existing, timeS);
 }
@@ -316,7 +319,7 @@ export function createDeparture(
     // not flying — and already spooled up to the speed it will rotate at.
     iasKts: 0,
     targetIasKts: type.v2Kts,
-    sid: joinSid(route, scenario.elevationFt),
+    sid: joinSid(route, scenario.elevationFt, scenario.performance.departureClimbScale),
     phase: 'roll',
     // The runway is where it entered the airspace, in the sense the entry gate
     // is for an arrival: the one place its track can be said to start.
