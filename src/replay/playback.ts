@@ -18,8 +18,7 @@
  *   alert level still comes from the recording: on the scope that colour is a
  *   1 Hz radar sample, not an instantaneous truth (§5).
  */
-import { sidByName } from '../scenario/sids.js';
-import { STARS } from '../scenario/stars.js';
+import type { Scenario } from '../scenario/types.js';
 import type { Aircraft } from '../sim/aircraft.js';
 import type { SidNav } from '../sim/departure.js';
 import {
@@ -55,6 +54,7 @@ const EMPTY_STATS: Stats = {
   landingTimesS: [],
   departures: 0,
   departureTimesS: [],
+  arrivalTimesS: [],
   handoffs: 0,
   violations: 0,
   violationSeconds: 0,
@@ -118,11 +118,14 @@ function displayHold(nav: StarNav, altitudeFt: number, exitRequested: boolean): 
   };
 }
 
-function aircraftAt(track: Track, frame: number): Aircraft {
+function aircraftAt(scenario: Scenario, track: Track, frame: number): Aircraft {
   const i = frame - track.startFrame;
   const flags = decodeFlags(track.flags[i]!);
 
-  const route = track.starName === null ? undefined : STARS.find((s) => s.name === track.starName);
+  const route =
+    track.starName === null
+      ? undefined
+      : scenario.stars.find((star) => star.name === track.starName);
   let star: StarNav | null = null;
   if (flags.onStar && route) {
     star = {
@@ -144,7 +147,8 @@ function aircraftAt(track: Track, frame: number): Aircraft {
   // Nothing in playback flies a SID, but `sid` being non-null is what makes the
   // aircraft read as a departure everywhere else — muted on the scope,
   // uncontrollable, tagged DEP (§4.7).
-  const sidRoute = track.sidName === null ? undefined : sidByName(track.sidName);
+  const sidRoute =
+    track.sidName === null ? undefined : scenario.sids.find((sid) => sid.name === track.sidName);
   let sid: SidNav | null = null;
   if (sidRoute) {
     const index = track.sidIndex[i]!;
@@ -152,6 +156,11 @@ function aircraftAt(track: Track, frame: number): Aircraft {
       route: sidRoute,
       index: index < 0 ? sidRoute.waypoints.length - 1 : index,
       complete: index < 0,
+      // Both of these are the field's, not the recording's: playback never
+      // flies a departure, so nothing reads them — but a rebuilt `SidNav` that
+      // says something untrue about the field is a trap for whatever does next.
+      fieldElevationFt: scenario.elevationFt,
+      climbScale: scenario.performance.departureClimbScale,
     };
   }
 
@@ -270,12 +279,13 @@ export function worldAtFrame(
 ): World {
   const aircraft: Aircraft[] = [];
   for (const track of rec.tracks) {
-    if (trackCoversFrame(track, frame)) aircraft.push(aircraftAt(track, frame));
+    if (trackCoversFrame(track, frame)) aircraft.push(aircraftAt(rec.scenario, track, frame));
   }
   const timeS = frameTimeS(frame);
   const { flowPerHour, departureFlowPerHour, departureQueue, stats } = sessionAt(rec, frame);
 
   return {
+    scenario: rec.scenario,
     timeS,
     aircraft,
     messages: messagesAt(rec, timeS),
@@ -296,7 +306,7 @@ export function worldAtFrame(
       lastDepartureS: null,
       lastLandingS: null,
     },
-    separation: analyzeSeparation(aircraft),
+    separation: analyzeSeparation(rec.scenario.runway, aircraft),
     selectedId: aircraft.some((ac) => ac.id === view.selectedId) ? view.selectedId : null,
     paused: view.paused,
     timeScale: view.timeScale,

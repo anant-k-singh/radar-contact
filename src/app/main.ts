@@ -35,7 +35,24 @@ import {
   RENDER_FPS,
 } from '../sim/constants.js';
 import { clamp } from '../sim/units.js';
+import { DEFAULT_SCENARIO, SCENARIOS, scenarioById } from '../scenario/registry.js';
+import { validateScenario } from '../scenario/validate.js';
 import { createWorld, log, step, type World } from '../sim/world.js';
+
+const params = new URLSearchParams(window.location.search);
+
+/**
+ * `?airport=ZZZZ` picks the field, and it is resolved once, here, before
+ * anything is built — so the scope, the sidebar, the recorder and the world
+ * provably see the same one.
+ *
+ * An unknown id falls back rather than failing: a stale bookmark should still
+ * give you a session. It says so in the message log, though — a scope showing
+ * the wrong airport with no explanation is a bug report.
+ */
+const requestedAirport = params.get('airport');
+const SCENARIO = (requestedAirport === null ? null : scenarioById(requestedAirport)) ?? DEFAULT_SCENARIO;
+const unknownAirport = requestedAirport !== null && SCENARIO.id !== requestedAirport.toUpperCase();
 
 const canvas = document.getElementById('scope') as HTMLCanvasElement | null;
 const sidebarRoot = document.getElementById('sidebar');
@@ -44,22 +61,33 @@ if (!canvas || !sidebarRoot || !replayRoot) {
   throw new Error('missing #scope, #sidebar or #replay');
 }
 
-/** ?seed=123 makes a session reproducible. */
+/**
+ * `?seed=123` makes a session reproducible — for the same `?airport=`. The gate
+ * list an arrival is drawn from is scenario data, so the same seed at a different
+ * field is a different session.
+ */
 function initialSeed(): number {
-  const fromUrl = new URLSearchParams(window.location.search).get('seed');
+  const fromUrl = params.get('seed');
   const parsed = fromUrl === null ? Number.NaN : Number.parseInt(fromUrl, 10);
   return Number.isFinite(parsed) ? parsed : Math.floor(Math.random() * 2 ** 31);
 }
 
 function start(seed: number, flowPerHour?: number, departureFlowPerHour?: number): World {
-  const created = createWorld(seed, flowPerHour, departureFlowPerHour);
-  log(created, `Session seed ${seed}. Arrivals inbound — good luck.`, 'system');
+  const created = createWorld(SCENARIO, seed, flowPerHour, departureFlowPerHour);
+  log(
+    created,
+    `${SCENARIO.icao} — session seed ${seed}. Arrivals inbound — good luck.`,
+    'system',
+  );
+  if (unknownAirport) {
+    log(created, `No airport "${requestedAirport}" — flying ${SCENARIO.icao}.`, 'alert');
+  }
   return created;
 }
 
 let world = start(initialSeed());
 /** The rolling recording of the live session — memory only, lost on refresh. */
-let recording = createRecording();
+let recording = createRecording(SCENARIO);
 /** Non-null once the session has been stopped and its recording is playing. */
 let playback: Playback | null = null;
 /** Whatever was last drawn, which is what a click is hit-tested against. */
@@ -78,7 +106,7 @@ const REPLAY_RENDER: RenderOptions = {
 
 function newSession(): void {
   playback = null;
-  recording = createRecording();
+  recording = createRecording(SCENARIO);
   world = start(Math.floor(Math.random() * 2 ** 31), world.flowPerHour, world.departureFlowPerHour);
   viewWorld = world;
 }
@@ -154,6 +182,16 @@ bindPointer(canvas, scope, controller);
 if (import.meta.env.DEV) {
   Object.defineProperty(window, 'atc', { get: () => world });
   Object.defineProperty(window, 'atcRecording', { get: () => recording });
+  Object.defineProperty(window, 'atcScenarios', { get: () => SCENARIOS });
+  // Authoring a field should fail in the console, not eight minutes into a
+  // session — and never in a production bundle, where nothing can be done.
+  for (const scenario of SCENARIOS) {
+    for (const problem of validateScenario(scenario)) {
+      const line = `${scenario.id}: ${problem.where} — ${problem.message}`;
+      if (problem.severity === 'error') console.error(line);
+      else console.warn(line);
+    }
+  }
 }
 
 const RENDER_INTERVAL_MS = 1000 / RENDER_FPS;

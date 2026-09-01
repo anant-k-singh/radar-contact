@@ -3,7 +3,6 @@
  * bounded rate. The interesting part is `planRates`, which makes descending and
  * decelerating compete for one energy budget (docs §4.3).
  */
-import { AIRPORT } from '../scenario/airport.js';
 import {
   ALT_CAPTURE_FT,
   ALT_CAPTURE_MIN_FRACTION,
@@ -23,14 +22,18 @@ import {
 } from './constants.js';
 import { isDeparture, type Aircraft } from './aircraft.js';
 import {
+  bearing,
   clamp,
   headingDelta,
+  headingDiff,
   headingVector,
   normalizeHeading,
   toRad,
   trueAirspeed,
   type Deg,
   type Fpm,
+  type Nm,
+  type Point,
   type Sec,
 } from './units.js';
 
@@ -53,16 +56,38 @@ export function turnRadiusNm(tasKts: number): number {
  * flown as a fly-by rather than an overshoot and a correction back.
  * `d = R·tan(θ/2)` is the tangent distance of the turn arc.
  *
- * Shared by the STARs and the SIDs; they differ only in the bounds they clamp
- * it to, which are their own published tolerances.
+ * Shared by the STARs and the SIDs; they differ only in the bounds they clamp it
+ * to, which are their own published tolerances.
  */
-export function flyByAnticipationNm(
-  turnDeg: Deg,
+export function routeAnticipationNm(
+  waypoints: readonly { position: Point }[],
+  index: number,
   tasKts: number,
-  minNm: number,
-  maxNm: number,
-): number {
-  return clamp(turnRadiusNm(tasKts) * Math.tan(toRad(Math.abs(turnDeg) / 2)), minNm, maxNm);
+  minNm: Nm,
+  maxNm: Nm,
+): Nm {
+  const inbound = bearing(waypoints[index - 1]!.position, waypoints[index]!.position);
+  const outbound = bearing(waypoints[index]!.position, waypoints[index + 1]!.position);
+  const turnDeg = Math.abs(headingDelta(inbound, outbound));
+  return clamp(turnRadiusNm(tasKts) * Math.tan(toRad(turnDeg / 2)), minNm, maxNm);
+}
+
+/**
+ * True once a fix has been reached or left behind — the sequencing test every
+ * route follower uses.
+ *
+ * The abeam half is a backstop rather than the normal case: pure pursuit only
+ * leaves a fix behind unreached if an earlier tight turn threw the aircraft off
+ * the leg. Shared by the STARs, the SIDs and the holding patterns, which differ
+ * only in the capture radius they pass.
+ */
+export function fixPassed(
+  rangeNm: Nm,
+  headingDeg: Deg,
+  courseDeg: Deg,
+  captureNm: Nm,
+): boolean {
+  return rangeNm < captureNm || headingDiff(headingDeg, courseDeg) > 90;
 }
 
 export interface RatePlanInput {
@@ -173,11 +198,21 @@ export function planRates(input: RatePlanInput): RatePlan {
  * altitude the flaps are still out, and the drag costs it 500 fpm — so a
  * departure climbs away noticeably less steeply for the first 3000 ft than it
  * does once cleaned up, which is what the initial climb actually looks like.
+ *
+ * Both are then scaled by the field's own `departureClimbScale`, which is what a
+ * hot-and-humid airport takes off book performance.
  */
 export function departureClimbRateFpm(ac: Aircraft): Fpm {
-  const aglFt = ac.altitudeFt - AIRPORT.elevationFt;
-  if (aglFt >= DEPARTURE_ACCEL_ALT_FT) return ac.type.departureClimbFpm;
-  return Math.max(0, ac.type.departureClimbFpm - INITIAL_CLIMB_REDUCTION_FPM);
+  const aglFt = ac.altitudeFt - (ac.sid?.fieldElevationFt ?? 0);
+  const bookFpm =
+    aglFt >= DEPARTURE_ACCEL_ALT_FT
+      ? ac.type.departureClimbFpm
+      : Math.max(0, ac.type.departureClimbFpm - INITIAL_CLIMB_REDUCTION_FPM);
+  // And then whatever the field's own air gives back of it. The scale is on the
+  // climb rather than on the energy budget on purpose: thinner air costs an
+  // aircraft climb gradient, and what it does not spend climbing is left to
+  // accelerate with, which is what `planRates` then does with it.
+  return bookFpm * (ac.sid?.climbScale ?? 1);
 }
 
 /**

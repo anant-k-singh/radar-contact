@@ -5,24 +5,10 @@
  * Drawn once to an offscreen canvas and blitted every frame — it only changes
  * when the window is resized.
  */
-import { AIRPORT } from '../scenario/airport.js';
-import { SIDS, type Sid } from '../scenario/sids.js';
-import { STARS } from '../scenario/stars.js';
-import {
-  AIRSPACE_ARC_HALF_ANGLE_RAD,
-  AIRSPACE_CHORD_HALF_WIDTH_NM,
-  boundaryRangeAtBearing,
-  isInsideAirspace,
-} from '../sim/airspace.js';
-import {
-  AIRSPACE_HALF_HEIGHT_NM,
-  AIRSPACE_RADIUS_NM,
-  CENTERLINE_LENGTH_NM,
-  CENTERLINE_TICK_NM,
-  RANGE_RINGS_NM,
-} from '../sim/constants.js';
+import { boundaryRangeAtBearing, isInsideAirspace } from '../scenario/airspace.js';
+import type { Scenario, Sid } from '../scenario/types.js';
 import { centerlinePoint } from '../sim/ils.js';
-import { bearing, headingVector, magnitude, type Point } from '../sim/units.js';
+import { bearing, headingDiff, headingVector, magnitude, type Point } from '../sim/units.js';
 import { screenX, screenY, toScreen, type Projection } from './project.js';
 import { THEME } from './theme.js';
 
@@ -33,10 +19,37 @@ import { THEME } from './theme.js';
  */
 const SID_ALPHA = 0.55;
 
+/** Line height of a stacked label block. */
+const LABEL_LINE_PX = 11;
+
+/**
+ * Text with a dark outline behind it.
+ *
+ * Every label on this layer sits on top of something — a route line, a range ring,
+ * the boundary — and at this size a dim label crossing a line of similar brightness
+ * stops being readable. The outline is the background colour, so it reads as the
+ * label having cut a hole in whatever it crosses rather than as a border.
+ */
+function haloText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number): void {
+  ctx.save();
+  ctx.strokeStyle = THEME.background;
+  ctx.lineWidth = 3;
+  ctx.lineJoin = 'round';
+  ctx.strokeText(text, x, y);
+  ctx.restore();
+  ctx.fillText(text, x, y);
+}
+
 let cache: { key: string; canvas: HTMLCanvasElement } | null = null;
 
-export function mapLayer(projection: Projection, dpr: number): HTMLCanvasElement {
-  const key = `${projection.width}x${projection.height}@${dpr}`;
+export function mapLayer(
+  scenario: Scenario,
+  projection: Projection,
+  dpr: number,
+): HTMLCanvasElement {
+  // Keyed by the field as well as the canvas: the chart is what this layer draws,
+  // so a different field is a different layer even at the same size.
+  const key = `${scenario.id}|${projection.width}x${projection.height}@${dpr}`;
   if (cache && cache.key === key) return cache.canvas;
 
   const canvas = document.createElement('canvas');
@@ -45,25 +58,69 @@ export function mapLayer(projection: Projection, dpr: number): HTMLCanvasElement
   const ctx = canvas.getContext('2d');
   if (ctx) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    draw(ctx, projection);
+    draw(ctx, scenario, projection);
   }
   cache = { key, canvas };
   return canvas;
 }
 
-function draw(ctx: CanvasRenderingContext2D, p: Projection): void {
+function draw(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
   ctx.fillStyle = THEME.background;
   ctx.fillRect(0, 0, p.width, p.height);
 
-  drawRings(ctx, p);
-  drawCompassTicks(ctx, p);
-  drawStars(ctx, p);
+  // Under everything: it is the ground the rest of the scope is drawn on.
+  drawCoastline(ctx, scenario, p);
+  drawRings(ctx, scenario, p);
+  drawCompassTicks(ctx, scenario, p);
+  drawStars(ctx, scenario, p);
   // After the STARs, so where a SID passes under one the departure track is the
   // line drawn on top — which is the one carrying the restriction that matters.
-  drawSids(ctx, p);
-  drawCenterline(ctx, p);
-  drawRunway(ctx, p);
-  drawGates(ctx, p);
+  drawSids(ctx, scenario, p);
+  drawCenterline(ctx, scenario, p);
+  drawRunway(ctx, scenario, p);
+  drawGates(ctx, scenario, p);
+}
+
+/**
+ * The coast, clipped to the airspace.
+ *
+ * A single hairline in a cold blue and nothing else — no fill either side. Land
+ * and water are the same thing to this simulator (there is no terrain and no
+ * water in the model), so shading one of them would be drawing a fact the scope
+ * does not have; the line alone is what a radar display shows and is all the
+ * player needs to know where the bay is.
+ *
+ * Clipped by the canvas rather than by walking the chains: the boundary is a
+ * circle intersected with a horizontal band (§3.1), which is exactly two clip
+ * regions, and that gets the edge right at the chords as well as the arcs
+ * without turning every coastline segment into a boundary intersection.
+ */
+function drawCoastline(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
+  if (scenario.coastline.length === 0) return;
+  ctx.save();
+
+  const radiusPx = scenario.airspace.radiusNm * p.pxPerNm;
+  ctx.beginPath();
+  ctx.arc(p.cx, p.cy, radiusPx, 0, Math.PI * 2);
+  ctx.clip();
+  const halfHeightPx = scenario.airspace.halfHeightNm * p.pxPerNm;
+  ctx.beginPath();
+  ctx.rect(p.cx - radiusPx, p.cy - halfHeightPx, radiusPx * 2, halfHeightPx * 2);
+  ctx.clip();
+
+  ctx.strokeStyle = THEME.coastline;
+  ctx.lineWidth = 1;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (const chain of scenario.coastline) {
+    chain.forEach((point, index) => {
+      const screen = toScreen(p, point);
+      if (index === 0) ctx.moveTo(screen.x, screen.y);
+      else ctx.lineTo(screen.x, screen.y);
+    });
+  }
+  ctx.stroke();
+  ctx.restore();
 }
 
 /**
@@ -82,16 +139,27 @@ function draw(ctx: CanvasRenderingContext2D, p: Projection): void {
  * restrictions: `≤4000` across the arrival downwind, `13000+` at the exit fix.
  * Past the last fix the track continues to the boundary with an arrowhead —
  * that leg is flown on the exit heading and is the aircraft's way out.
+ *
+ * **The fix names are not drawn, only the restrictions.** A departure takes no
+ * instructions, so its fixes are never spoken to or read back: the only thing
+ * the player needs off this layer is where the amber line goes and how low it
+ * is kept, and seven names crowding the STAR chart bought neither.
  */
-function drawSids(ctx: CanvasRenderingContext2D, p: Projection): void {
+function drawSids(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
   ctx.save();
   ctx.globalAlpha = SID_ALPHA;
   ctx.font = THEME.fontLabel;
   ctx.textBaseline = 'middle';
 
-  for (const sid of SIDS) {
+  // A branching SID compiles to one route per exit, each carrying the shared
+  // trunk again. The strokes overdraw identically and are invisible, but the
+  // trunk's labels would be painted once per branch — so each fix is labelled
+  // the first time it is met and skipped after that.
+  const labelled = new Set<string>();
+
+  for (const sid of scenario.sids) {
     const last = sid.waypoints[sid.waypoints.length - 1]!;
-    const exit = boundaryExitPoint(sid);
+    const exit = boundaryExitPoint(scenario, sid);
 
     ctx.strokeStyle = THEME.sidPath;
     ctx.lineWidth = 1.5;
@@ -122,6 +190,8 @@ function drawSids(ctx: CanvasRenderingContext2D, p: Projection): void {
 
       // Index 0 is the runway itself, which is already drawn and labelled.
       if (index === 0) continue;
+      if (labelled.has(wpt.name)) continue;
+      labelled.add(wpt.name);
 
       const point = toScreen(p, wpt.position);
       ctx.strokeStyle = THEME.sidFix;
@@ -130,18 +200,16 @@ function drawSids(ctx: CanvasRenderingContext2D, p: Projection): void {
       ctx.arc(point.x, point.y, 2.5, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Labels go *above* the fix, stacked away from the track. Every SID fix
+      // The label goes *above* the fix, away from the track. Every SID fix
       // sits south of or abeam the field, and the STAR labels are placed
       // outward from the airport — which for the two downwind fixes the SIDs
       // pass under is downward, right where a SID label would land. Pushing
       // these the other way keeps the two chart layers apart at the one place
       // they come close, which is also the only place either label matters.
       ctx.textAlign = 'center';
-      ctx.fillStyle = THEME.sidLabel;
-      ctx.fillText(wpt.name, point.x, point.y - 10);
       if (crossing !== undefined) {
         ctx.fillStyle = THEME.sidConstraint;
-        ctx.fillText(crossing, point.x, point.y - 22);
+        haloText(ctx, crossing, point.x, point.y - 10);
       }
     }
   }
@@ -153,7 +221,7 @@ function drawSids(ctx: CanvasRenderingContext2D, p: Projection): void {
  * continued until it runs out of airspace, which is the leg the aircraft
  * actually flies once the route is complete.
  */
-function boundaryExitPoint(sid: Sid): Point {
+function boundaryExitPoint(scenario: Scenario, sid: Sid): Point {
   const waypoints = sid.waypoints;
   const last = waypoints[waypoints.length - 1]!;
   const previous = waypoints[waypoints.length - 2]!;
@@ -163,10 +231,10 @@ function boundaryExitPoint(sid: Sid): Point {
   // point: the shape is not a circle (§3.1), so there is no closed form worth
   // writing for a line drawn once per resize.
   let distNm = 0;
-  while (distNm < AIRSPACE_RADIUS_NM * 2) {
+  while (distNm < scenario.airspace.radiusNm * 2) {
     const next = distNm + 0.25;
     const point = { x: last.position.x + track.x * next, y: last.position.y + track.y * next };
-    if (!isInsideAirspace(point)) break;
+    if (!isInsideAirspace(scenario.airspace, point)) break;
     distNm = next;
   }
   return { x: last.position.x + track.x * distNm, y: last.position.y + track.y * distNm };
@@ -189,14 +257,22 @@ function drawArrowHead(
 }
 
 /**
- * The four STARs, drawn the way a chart draws them: the track, a tick at each
- * fix, and the published crossing altitude and speed printed where they change.
+ * The STARs, drawn the way a chart draws them: the track, a tick at each fix, and
+ * the published crossing altitude printed where it changes.
+ *
+ * Labelled **per fix, not per route**, because a fix can be on more than one route
+ * and at a real field is: VABB's EMROS is on IGBAN 2A at 8000 and POKON 2A at
+ * 11,000, and three routes cross OLGUS at three levels. Drawing each route's label
+ * at its own fix printed them all at the same point, on top of each other. So the
+ * crossings are collected by fix and stacked, highest first — which is what a chart
+ * does at a merge, and which makes the vertical split that keeps the two streams
+ * apart the thing you actually see.
  */
-function drawStars(ctx: CanvasRenderingContext2D, p: Projection): void {
+function drawStars(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
   ctx.font = THEME.fontLabel;
   ctx.textBaseline = 'middle';
 
-  for (const star of STARS) {
+  for (const star of scenario.stars) {
     ctx.strokeStyle = THEME.starPath;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -206,55 +282,65 @@ function drawStars(ctx: CanvasRenderingContext2D, p: Projection): void {
       else ctx.lineTo(point.x, point.y);
     });
     ctx.stroke();
+  }
 
-    let altitudeFt: number | undefined;
+  const fixes = new Map<string, { position: Point; crossings: number[] }>();
+  for (const star of scenario.stars) {
+    let previousFt: number | undefined;
     for (const [index, wpt] of star.waypoints.entries()) {
-      // Only the altitude, and only where it changes, so a long level leg is
-      // not labelled twice. The published speeds are deliberately left off the
-      // chart: they are flown for the player rather than by them, and a second
-      // number per fix cost more legibility than it bought.
-      const crossing =
-        wpt.altitudeFt !== undefined && wpt.altitudeFt !== altitudeFt
-          ? String(wpt.altitudeFt)
-          : undefined;
-      altitudeFt = wpt.altitudeFt ?? altitudeFt;
-
-      // The gate marker already carries its own name and altitude.
+      // Only where the altitude changes, so a long level leg is not labelled twice.
+      // The published speeds are deliberately left off: they are flown for the
+      // player rather than by them, and a second number per fix cost more
+      // legibility than it bought.
+      const changed = wpt.altitudeFt !== undefined && wpt.altitudeFt !== previousFt;
+      previousFt = wpt.altitudeFt ?? previousFt;
+      // Index 0 is the gate, whose own marker carries its name and handover level.
       if (index === 0) continue;
-
-      const point = toScreen(p, wpt.position);
-      ctx.strokeStyle = THEME.starFix;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, 2.5, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // Labels sit on the far side of the fix from the airport, where there is
-      // no traffic and nothing else drawn.
-      const range = magnitude(wpt.position);
-      const outward = range > 0 ? { x: wpt.position.x / range, y: wpt.position.y / range } : { x: 0, y: 1 };
-      const lx = point.x + outward.x * 9;
-      const ly = point.y - outward.y * 9;
-      ctx.textAlign = outward.x < -0.2 ? 'right' : outward.x > 0.2 ? 'left' : 'center';
-
-      ctx.fillStyle = THEME.starLabel;
-      ctx.fillText(wpt.name, lx, ly - (crossing !== undefined ? 6 : 0));
-      if (crossing !== undefined) {
-        ctx.fillStyle = THEME.starConstraint;
-        ctx.fillText(crossing, lx, ly + 6);
+      const entry = fixes.get(wpt.name) ?? { position: wpt.position, crossings: [] };
+      if (changed && !entry.crossings.includes(wpt.altitudeFt!)) {
+        entry.crossings.push(wpt.altitudeFt!);
       }
+      fixes.set(wpt.name, entry);
+    }
+  }
+
+  for (const [name, { position, crossings }] of fixes) {
+    const point = toScreen(p, position);
+    ctx.strokeStyle = THEME.starFix;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 2.5, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // The block sits on the far side of the fix from the airport, where there is
+    // no traffic and nothing else drawn, and is centred on that offset so a fix
+    // with three crossings grows both ways rather than downwards into the track.
+    const range = magnitude(position);
+    const outward = range > 0 ? { x: position.x / range, y: position.y / range } : { x: 0, y: 1 };
+    const lx = point.x + outward.x * 9;
+    const ly = point.y - outward.y * 9;
+    ctx.textAlign = outward.x < -0.2 ? 'right' : outward.x > 0.2 ? 'left' : 'center';
+
+    const lines = 1 + crossings.length;
+    let y = ly - ((lines - 1) * LABEL_LINE_PX) / 2;
+    ctx.fillStyle = THEME.starLabel;
+    haloText(ctx, name, lx, y);
+    ctx.fillStyle = THEME.starConstraint;
+    for (const crossing of [...crossings].sort((a, b) => b - a)) {
+      y += LABEL_LINE_PX;
+      haloText(ctx, String(crossing), lx, y);
     }
   }
 }
 
-function drawRings(ctx: CanvasRenderingContext2D, p: Projection): void {
+function drawRings(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
   ctx.font = THEME.fontLabel;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  for (const ring of RANGE_RINGS_NM) {
+  for (const ring of scenario.airspace.rangeRingsNm) {
     // The outermost ring *is* the boundary, and the boundary is not a circle.
-    if (ring >= AIRSPACE_RADIUS_NM) continue;
+    if (ring >= scenario.airspace.radiusNm) continue;
     ctx.beginPath();
     ctx.arc(p.cx, p.cy, ring * p.pxPerNm, 0, Math.PI * 2);
     ctx.strokeStyle = THEME.ring;
@@ -265,16 +351,16 @@ function drawRings(ctx: CanvasRenderingContext2D, p: Projection): void {
     // its own line, since above it the outermost ring now shares a row with the
     // 180° compass label sitting on the southern chord.
     ctx.fillStyle = THEME.ringLabel;
-    ctx.fillText(String(ring), p.cx + 12, screenY(p, -ring) + 10);
+    haloText(ctx, String(ring), p.cx + 12, screenY(p, -ring) + 10);
   }
 
-  drawBoundary(ctx, p);
+  drawBoundary(ctx, scenario, p);
 }
 
 /** The 50 NM circle with its northern and southern caps cut off (§3.1). */
-function drawBoundary(ctx: CanvasRenderingContext2D, p: Projection): void {
-  const radiusPx = AIRSPACE_RADIUS_NM * p.pxPerNm;
-  const half = AIRSPACE_ARC_HALF_ANGLE_RAD;
+function drawBoundary(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
+  const radiusPx = scenario.airspace.radiusNm * p.pxPerNm;
+  const half = scenario.airspace.arcHalfAngleRad;
 
   ctx.strokeStyle = THEME.ringBright;
   ctx.lineWidth = 1.5;
@@ -288,15 +374,15 @@ function drawBoundary(ctx: CanvasRenderingContext2D, p: Projection): void {
 
   // The chords that replaced the caps.
   for (const side of [1, -1]) {
-    const y = screenY(p, side * AIRSPACE_HALF_HEIGHT_NM);
+    const y = screenY(p, side * scenario.airspace.halfHeightNm);
     ctx.beginPath();
-    ctx.moveTo(screenX(p, -AIRSPACE_CHORD_HALF_WIDTH_NM), y);
-    ctx.lineTo(screenX(p, AIRSPACE_CHORD_HALF_WIDTH_NM), y);
+    ctx.moveTo(screenX(p, -scenario.airspace.chordHalfWidthNm), y);
+    ctx.lineTo(screenX(p, scenario.airspace.chordHalfWidthNm), y);
     ctx.stroke();
   }
 }
 
-function drawCompassTicks(ctx: CanvasRenderingContext2D, p: Projection): void {
+function drawCompassTicks(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
   ctx.strokeStyle = THEME.compassTick;
   ctx.lineWidth = 1;
   ctx.font = THEME.fontLabel;
@@ -308,16 +394,20 @@ function drawCompassTicks(ctx: CanvasRenderingContext2D, p: Projection): void {
     const v = headingVector(deg);
     // Ride the boundary rather than a circle, so the rose stays on the edge of
     // the shape where the caps have been replaced by chords.
-    const outer = boundaryRangeAtBearing(deg) * p.pxPerNm;
+    const outer = boundaryRangeAtBearing(scenario.airspace, deg) * p.pxPerNm;
     const major = deg % 30 === 0;
     const inner = outer - (major ? 12 : 6);
     ctx.beginPath();
     ctx.moveTo(p.cx + v.x * inner, p.cy - v.y * inner);
     ctx.lineTo(p.cx + v.x * outer, p.cy - v.y * outer);
     ctx.stroke();
-    if (major) {
+    // A gate marker owns the edge on its own bearing, and its two lines of label
+    // land exactly where the rose's would. The gate is the one carrying
+    // information the player needs, so the rose gives way.
+    if (major && !scenario.gates.some((gate) => headingDiff(gate.bearingDeg, deg) < 12)) {
       const labelRadius = outer - 24;
-      ctx.fillText(
+      haloText(
+        ctx,
         String(deg === 0 ? 360 : deg).padStart(3, '0'),
         p.cx + v.x * labelRadius,
         p.cy - v.y * labelRadius,
@@ -327,9 +417,9 @@ function drawCompassTicks(ctx: CanvasRenderingContext2D, p: Projection): void {
 }
 
 /** Extended centerline out to 20 NM with a tick every 2 NM (§3.1). */
-function drawCenterline(ctx: CanvasRenderingContext2D, p: Projection): void {
-  const start = toScreen(p, AIRPORT.runway.threshold);
-  const end = toScreen(p, centerlinePoint(CENTERLINE_LENGTH_NM));
+function drawCenterline(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
+  const start = toScreen(p, scenario.runway.threshold);
+  const end = toScreen(p, centerlinePoint(scenario.runway, scenario.runway.centerlineLengthNm));
 
   ctx.strokeStyle = THEME.centerline;
   ctx.lineWidth = 1.5;
@@ -339,15 +429,15 @@ function drawCenterline(ctx: CanvasRenderingContext2D, p: Projection): void {
   ctx.stroke();
 
   // Ticks perpendicular to the course, longer every 10 NM.
-  const perpendicular = headingVector(AIRPORT.runway.courseDeg + 90);
+  const perpendicular = headingVector(scenario.runway.courseDeg + 90);
   ctx.strokeStyle = THEME.centerlineTick;
   ctx.font = THEME.fontLabel;
   ctx.fillStyle = THEME.centerlineTick;
-  ctx.textAlign = 'left';
+  ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  for (let nm = CENTERLINE_TICK_NM; nm <= CENTERLINE_LENGTH_NM; nm += CENTERLINE_TICK_NM) {
-    const point = centerlinePoint(nm);
+  for (let nm = scenario.runway.centerlineTickNm; nm <= scenario.runway.centerlineLengthNm; nm += scenario.runway.centerlineTickNm) {
+    const point = centerlinePoint(scenario.runway, nm);
     const sx = screenX(p, point.x);
     const sy = screenY(p, point.y);
     const major = nm % 10 === 0;
@@ -357,15 +447,47 @@ function drawCenterline(ctx: CanvasRenderingContext2D, p: Projection): void {
     ctx.moveTo(sx + perpendicular.x * half, sy - perpendicular.y * half);
     ctx.lineTo(sx - perpendicular.x * half, sy + perpendicular.y * half);
     ctx.stroke();
-    if (major) ctx.fillText(String(nm), sx + 12, sy);
+    // Clear of the tick and off the course line, on the *left* of the landing
+    // direction. Printed beside the line it read as struck through: on a runway
+    // that lands east or west the centreline is horizontal, so a label offset
+    // along it sat on top of the ticks and the digits ran into them.
+    if (major) {
+      const offset = half + 10;
+      haloText(ctx, String(nm), sx - perpendicular.x * offset, sy + perpendicular.y * offset);
+    }
   }
 }
 
-function drawRunway(ctx: CanvasRenderingContext2D, p: Projection): void {
-  const threshold = toScreen(p, AIRPORT.runway.threshold);
-  const far = toScreen(p, AIRPORT.runway.farEnd);
+/**
+ * The runway in use, and any others the field has.
+ *
+ * The inactive ones go down first, thinner and dimmer, so the strip the whole
+ * session is about is the one drawn on top and in the bright colour. They are
+ * scenery: nothing in the simulation knows they exist (§3.1 A2).
+ */
+function drawRunway(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
+  ctx.font = THEME.fontLabel;
+  ctx.textBaseline = 'middle';
+  // Unlabelled, on purpose. Nothing in the simulation knows this strip exists, so
+  // its name is never spoken, never assigned and never read back — and at the
+  // field it sits within a few pixels of the active runway's own label, which is
+  // the one the player is looking for.
+  for (const other of scenario.inactiveRunways) {
+    const from = toScreen(p, other.ends[0]);
+    const to = toScreen(p, other.ends[1]);
+    ctx.strokeStyle = THEME.runwayInactive;
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'butt';
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+  }
+
+  const threshold = toScreen(p, scenario.runway.threshold);
+  const far = toScreen(p, scenario.runway.farEnd);
   ctx.strokeStyle = THEME.runway;
-  ctx.lineWidth = 4;
+  ctx.lineWidth = 3;
   ctx.lineCap = 'butt';
   ctx.beginPath();
   ctx.moveTo(threshold.x, threshold.y);
@@ -376,17 +498,18 @@ function drawRunway(ctx: CanvasRenderingContext2D, p: Projection): void {
   ctx.fillStyle = THEME.runway;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(AIRPORT.runway.id, threshold.x + 8, threshold.y + 2);
+  haloText(ctx, scenario.runway.id, threshold.x + 8, threshold.y + 2);
 }
 
-function drawGates(ctx: CanvasRenderingContext2D, p: Projection): void {
+function drawGates(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
   ctx.font = THEME.fontLabel;
   ctx.textBaseline = 'middle';
 
-  for (const gate of AIRPORT.gates) {
-    // Pull the marker just inside the boundary so it stays on screen.
+  for (const gate of scenario.gates) {
+    // Pull the marker 1.5 NM in along its own bearing, so it stays on screen for a
+    // gate placed on the boundary and sits on the fix for one placed at a position.
     const inward = headingVector(gate.bearingDeg);
-    const radius = boundaryRangeAtBearing(gate.bearingDeg) - 1.5;
+    const radius = Math.max(0, magnitude(gate.position) - 1.5);
     const sx = p.cx + inward.x * radius * p.pxPerNm;
     const sy = p.cy - inward.y * radius * p.pxPerNm;
 
@@ -405,7 +528,7 @@ function drawGates(ctx: CanvasRenderingContext2D, p: Projection): void {
     ctx.textAlign = onLeft ? 'right' : 'left';
     const dx = onLeft ? -10 : 10;
     // Handover altitude in hundreds, the way a flight level reads.
-    ctx.fillText(gate.name, sx + dx, sy - 6);
-    ctx.fillText(String(Math.round(gate.entryAltitudeFt / 100)), sx + dx, sy + 7);
+    haloText(ctx, gate.name, sx + dx, sy - 6);
+    haloText(ctx, String(Math.round(gate.entryAltitudeFt / 100)), sx + dx, sy + 7);
   }
 }

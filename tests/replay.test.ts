@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { SIDS } from '../src/scenario/sids.js';
-import { STARS } from '../src/scenario/stars.js';
 import {
   HISTORY_PERIOD_S,
   MESSAGE_LOG_MAX,
@@ -34,7 +32,7 @@ import {
   sample,
   type Recording,
 } from '../src/replay/recorder.js';
-import { makeAircraft, onFinalApproach, quietWorld } from './helpers.js';
+import { makeAircraft, onFinal, quietWorld, SCENARIO } from './helpers.js';
 
 /** Run the world forward, recording it exactly as `main.ts` does. */
 function runRecorded(world: World, rec: Recording, seconds: number): void {
@@ -46,14 +44,14 @@ function runRecorded(world: World, rec: Recording, seconds: number): void {
 }
 
 function recorded(world: World, seconds: number): Recording {
-  const rec = createRecording();
+  const rec = createRecording(SCENARIO);
   runRecorded(world, rec, seconds);
   return rec;
 }
 
 /** A busy session, flown by nobody, with a fixed seed. */
 function session(seconds: number): { world: World; rec: Recording } {
-  const world = createWorld(7);
+  const world = createWorld(SCENARIO, 7);
   const rec = recorded(world, seconds);
   return { world, rec };
 }
@@ -145,12 +143,12 @@ describe('rebuilding a frame', () => {
       expect(copy.star!.speedManual).toBe(live.star!.speedManual);
     }
     // Routes are looked up by chart name, so the recording only holds the name.
-    expect(STARS.some((star) => star.name === rec.tracks[0]!.starName)).toBe(true);
+    expect(SCENARIO.stars.some((star) => star.name === rec.tracks[0]!.starName)).toBe(true);
   });
 
   it('separates an assigned target from the one being flown', () => {
-    const world = createWorld(3);
-    const rec = createRecording();
+    const world = createWorld(SCENARIO, 3);
+    const rec = createRecording(SCENARIO);
     runRecorded(world, rec, 20);
     const ac = world.aircraft[0]!;
     const before = ac.targetAltitudeFt;
@@ -174,8 +172,8 @@ describe('rebuilding a frame', () => {
   });
 
   it('shows an aircraft in the pattern as holding', () => {
-    const world = createWorld(11);
-    const rec = createRecording();
+    const world = createWorld(SCENARIO, 11);
+    const rec = createRecording(SCENARIO);
     runRecorded(world, rec, 30);
     const ac = world.aircraft.find((other) => other.star !== null)!;
     world.selectedId = ac.id;
@@ -217,8 +215,8 @@ describe('rebuilding a frame', () => {
   });
 
   it('recomputes in-trail spacing from the rebuilt traffic', () => {
-    const leader = makeAircraft({ ...onFinalApproach(6), altitudeFt: 2000, phase: 'gs' });
-    const follower = makeAircraft({ ...onFinalApproach(11), altitudeFt: 3400, phase: 'gs' });
+    const leader = makeAircraft({ ...onFinal(6), altitudeFt: 2000, phase: 'gs' });
+    const follower = makeAircraft({ ...onFinal(11), altitudeFt: 3400, phase: 'gs' });
     follower.id = leader.id + 1;
     const world = quietWorld(leader, follower);
     const rec = recorded(world, 1);
@@ -238,7 +236,7 @@ describe('rebuilding a frame', () => {
 describe('the session timeline', () => {
   it('replays only what had been said by that instant', () => {
     const world = quietWorld();
-    const rec = createRecording();
+    const rec = createRecording(SCENARIO);
     runRecorded(world, rec, 5);
     log(world, 'first', 'system');
     runRecorded(world, rec, 5);
@@ -258,9 +256,9 @@ describe('the session timeline', () => {
   });
 
   it('filters the replayed log to the aircraft being reviewed', () => {
-    const ac = makeAircraft({ ...onFinalApproach(12) });
+    const ac = makeAircraft({ ...onFinal(12) });
     const world = quietWorld(ac);
-    const rec = createRecording();
+    const rec = createRecording(SCENARIO);
     log(world, 'about it', 'pilot', [ac.id]);
     log(world, 'about nobody', 'system');
     runRecorded(world, rec, 5);
@@ -276,7 +274,7 @@ describe('the session timeline', () => {
 
   it('trims the replayed log the way the live log is capped', () => {
     const world = quietWorld();
-    const rec = createRecording();
+    const rec = createRecording(SCENARIO);
     for (let i = 0; i < MESSAGE_LOG_MAX + 20; i += 1) {
       log(world, `line ${i}`, 'system');
       runRecorded(world, rec, 0.4);
@@ -294,7 +292,7 @@ describe('the session timeline', () => {
 
   it('holds the stats as they stood at that instant', () => {
     const world = quietWorld();
-    const rec = createRecording();
+    const rec = createRecording(SCENARIO);
     runRecorded(world, rec, 4);
     world.stats.landings = 1;
     runRecorded(world, rec, 4);
@@ -310,7 +308,7 @@ describe('the session timeline', () => {
   });
 
   it('carries the arrival flow it was flown at', () => {
-    const world = createWorld(5);
+    const world = createWorld(SCENARIO, 5);
     world.flowPerHour = 25;
     const rec = recorded(world, 3);
     const replayed = worldAtFrame(rec, rec.lastFrame, {
@@ -337,9 +335,9 @@ describe('the rolling window', () => {
   }
 
   it('keeps the last hour of sim time and drops what is older', () => {
-    const ac = makeAircraft({ ...onFinalApproach(30), altitudeFt: 8000 });
+    const ac = makeAircraft({ ...onFinal(30), altitudeFt: 8000 });
     const world = quietWorld(ac);
-    const rec = createRecording();
+    const rec = createRecording(SCENARIO);
     log(world, 'the very first thing said', 'system');
     fastForward(world, rec, REPLAY_WINDOW_S + 300);
 
@@ -359,7 +357,7 @@ describe('the rolling window', () => {
 
   it('keeps the stats that were still in force when the window slid', () => {
     const world = quietWorld();
-    const rec = createRecording();
+    const rec = createRecording(SCENARIO);
     world.stats.landings = 4;
     fastForward(world, rec, 60);
     fastForward(world, rec, REPLAY_WINDOW_S + 300);
@@ -420,8 +418,8 @@ describe('the transport', () => {
   });
 
   it("shows no selection outside the aircraft's life, and gets it back inside", () => {
-    const world = createWorld(7);
-    const rec = createRecording();
+    const world = createWorld(SCENARIO, 7);
+    const rec = createRecording(SCENARIO);
     runRecorded(world, rec, 30);
     const ac = world.aircraft[0]!;
     runRecorded(world, rec, 30);
@@ -483,7 +481,7 @@ describe('replaying a departure', () => {
   /** A world holding exactly one departure, rolling from the threshold. */
   function departingWorld() {
     const world = quietWorld();
-    const ac = createDeparture(createRng(3), createTrafficState(), SIDS[0]!, [], 0);
+    const ac = createDeparture(SCENARIO, createRng(3), createTrafficState(), SCENARIO.sids[0]!, [], 0);
     world.aircraft = [ac];
     return { world, ac };
   }
@@ -525,7 +523,7 @@ describe('replaying a departure', () => {
   });
 
   it('carries the departure flow through the session snapshots', () => {
-    const world = createWorld(11, 25, 15);
+    const world = createWorld(SCENARIO, 11, 25, 15);
     const rec = recorded(world, 30);
     world.departureFlowPerHour = 5;
     runRecorded(world, rec, 30);
@@ -548,7 +546,7 @@ describe('replaying a departure', () => {
     // The queue is a live gauge rather than a tally, and the aircraft in it are
     // not on the scope, so nothing in a rebuilt frame could recompute it — it
     // has to be in the snapshot or the replay's stats gutter reads zero (§4.7).
-    const world = createWorld(11, 25, 20);
+    const world = createWorld(SCENARIO, 11, 25, 20);
     const rec = recorded(world, 10);
     world.traffic.departureQueue = 4;
     // Hold the runway so the queue is still four deep when the frame is taken.

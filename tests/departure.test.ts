@@ -1,27 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { AIRCRAFT_TYPES, type AircraftType } from '../src/scenario/aircraftTypes.js';
-import { AIRPORT } from '../src/scenario/airport.js';
-import { ceilingAtFt, SIDS, type Sid } from '../src/scenario/sids.js';
-import { STARS, starProfileAt, type Star } from '../src/scenario/stars.js';
+import { ceilingAtFt } from '../src/scenario/routes.js';
+import type { Sid } from '../src/scenario/types.js';
+import { starProfileAt } from '../src/scenario/routes.js';
+import type { Star } from '../src/scenario/types.js';
 import type { Aircraft } from '../src/sim/aircraft.js';
 import { isControllable, isDeparture } from '../src/sim/aircraft.js';
 import { adjustAltitude, adjustHeading, nextSelectableId } from '../src/sim/commands.js';
 import {
+  DEPARTURE_ACCEL_ALT_FT,
   DEPARTURE_CLIMB_SPEED_KTS,
-  DEPARTURE_TOP_FT,
-  DEPARTURE_HOLD_FINAL_NM,
-  DEPARTURE_AIRBORNE_MARGIN_S,
-  DEPARTURE_HOLD_AFTER_LANDING_S,
-  DEPARTURE_MIN_INTERVAL_S,
   GO_AROUND_RUNWAY_OCCUPIED_NM,
   GS_FT_PER_NM,
+  INITIAL_CLIMB_REDUCTION_FPM,
   PHYSICS_DT,
   SEP_HORIZ_NM,
   SEP_VERT_FT,
 } from '../src/sim/constants.js';
-import { MAX_DEPARTURE_ROLL_S } from '../src/sim/departure.js';
-import { groundSpeed } from '../src/sim/dynamics.js';
-import { finalGeometry } from '../src/sim/ils.js';
+import { maxDepartureRollS } from '../src/sim/departure.js';
+import { departureClimbRateFpm, groundSpeed } from '../src/sim/dynamics.js';
 import { createRng } from '../src/sim/rng.js';
 import { createDeparture, createTrafficState, runwayBlockedBy } from '../src/sim/traffic.js';
 import { distance, type Point } from '../src/sim/units.js';
@@ -32,9 +29,9 @@ import {
   step,
   type World,
 } from '../src/sim/world.js';
-import { makeAircraft, MEDIUM_TYPE, onFinalApproach, quietWorld, run } from './helpers.js';
+import { AIRPORT, geo, makeAircraft, MEDIUM_TYPE, onFinal, quietWorld, run, SCENARIO } from './helpers.js';
 
-const sidNamed = (name: string): Sid => SIDS.find((sid) => sid.name === name)!;
+const sidNamed = (name: string): Sid => SCENARIO.sids.find((sid) => sid.name === name)!;
 /**
  * An altitude capture is asymptotic — the rate tapers inside the last 200 ft —
  * so an aircraft levelling at a target sits a foot or two under it indefinitely.
@@ -49,7 +46,7 @@ const fixNamed = (sid: Sid, name: string) => sid.waypoints.find((wpt) => wpt.nam
  * with it.
  */
 const DOWNWIND_ABEAM_NM = Math.abs(
-  STARS.find((star) => star.name === 'RIMOL1A')!.waypoints.at(-1)!.position.x,
+  SCENARIO.stars.find((star) => star.name === 'RIMOL1A')!.waypoints.at(-1)!.position.x,
 );
 
 /**
@@ -64,7 +61,7 @@ const crossingPoint = (side: number): Point => ({
 
 /** A departure of a given type at the holding point, in an otherwise empty world. */
 function departure(sid: Sid, type: AircraftType): { ac: Aircraft; world: World } {
-  const ac = createDeparture(createRng(7), createTrafficState(), sid, [], 0);
+  const ac = createDeparture(SCENARIO, createRng(7), createTrafficState(), sid, [], 0);
   ac.type = type;
   ac.targetIasKts = type.v2Kts;
   return { ac, world: quietWorld(ac) };
@@ -121,8 +118,8 @@ function nearestOnSegment(p: Point, a: Point, b: Point): { distNm: number; t: nu
  * minima of an arrival route, how far under it is it?
  */
 function nearestStar(p: Point): { distNm: number; altitudeFt: number; star: Star } {
-  let best = { distNm: Infinity, altitudeFt: 0, star: STARS[0]! };
-  for (const star of STARS) {
+  let best = { distNm: Infinity, altitudeFt: 0, star: SCENARIO.stars[0]! };
+  for (const star of SCENARIO.stars) {
     for (let i = 0; i < star.waypoints.length - 1; i += 1) {
       const from = star.waypoints[i]!;
       const to = star.waypoints[i + 1]!;
@@ -218,7 +215,7 @@ describe('SID crossing restrictions', () => {
       // ...and lifts only beyond that fix.
       expect(ceilingAtFt(sid, fix.position)).toBe(fix.maxAltitudeFt);
       const beyond = { x: fix.position.x * 1.2, y: fix.position.y };
-      expect(ceilingAtFt(sid, beyond)).toBe(DEPARTURE_TOP_FT);
+      expect(ceilingAtFt(sid, beyond)).toBe(sid.topFt);
 
       // The point of putting the fix out here rather than on the crossing: at
       // the release the track is already diverging from the arrival route, and
@@ -271,18 +268,18 @@ describe('SID crossing restrictions', () => {
     const levelledEarly = airborne.some(
       (s, i) =>
         i > 0 &&
-        s.altitudeFt < DEPARTURE_TOP_FT - 100 &&
+        s.altitudeFt < sid.topFt - 100 &&
         Math.abs(s.altitudeFt - airborne[i - 1]!.altitudeFt) < 1,
     );
     expect(levelledEarly).toBe(false);
   });
 
   it('never climbs above the top of the departure climb', () => {
-    for (const sid of SIDS) {
+    for (const sid of SCENARIO.sids) {
       for (const type of AIRCRAFT_TYPES) {
         const { samples } = flyOut(sid, type);
         const highest = Math.max(...samples.map((s) => s.altitudeFt));
-        expect(highest, `${type.code} on ${sid.name}`).toBeLessThanOrEqual(DEPARTURE_TOP_FT + 1);
+        expect(highest, `${type.code} on ${sid.name}`).toBeLessThanOrEqual(sid.topFt + 1);
       }
     }
   });
@@ -292,7 +289,7 @@ describe('SID crossing restrictions', () => {
 
 describe('SIDs against the STARs', () => {
   it('stays 1000 ft clear of every arrival route it comes within 3 NM of', () => {
-    for (const sid of SIDS) {
+    for (const sid of SCENARIO.sids) {
       for (const type of AIRCRAFT_TYPES) {
         const { samples } = flyOut(sid, type);
         for (const sample of samples) {
@@ -348,6 +345,33 @@ describe('the climb profile', () => {
     expect(fastest).toBeLessThanOrEqual(DEPARTURE_CLIMB_SPEED_KTS + 0.5);
   });
 
+  it('climbs at the field\u2019s share of book rate, not the book rate itself', () => {
+    // Hot and humid is a property of the airport, and it reaches the physics on
+    // the departure itself (`SidNav.climbScale`) rather than through a scenario
+    // lookup — which is what keeps `dynamics.ts` free of any field at all.
+    const type = AIRCRAFT_TYPES.find((t) => t.code === 'B738')!;
+    const { ac } = departure(sidNamed('RAMOX1A'), type);
+    expect(ac.sid!.climbScale).toBe(SCENARIO.performance.departureClimbScale);
+
+    // Above the acceleration altitude, where the flaps are up and the published
+    // figure applies in full.
+    ac.altitudeFt = SCENARIO.elevationFt + DEPARTURE_ACCEL_ALT_FT + 1000;
+    expect(departureClimbRateFpm(ac)).toBeCloseTo(type.departureClimbFpm, 6);
+
+    for (const scale of [0.88, 0.5]) {
+      ac.sid!.climbScale = scale;
+      expect(departureClimbRateFpm(ac)).toBeCloseTo(type.departureClimbFpm * scale, 6);
+      // And the flaps-out reduction is taken off the book figure first, so a
+      // scaled field is not scaling a number that already had 500 removed twice.
+      ac.altitudeFt = SCENARIO.elevationFt + 1000;
+      expect(departureClimbRateFpm(ac)).toBeCloseTo(
+        (type.departureClimbFpm - INITIAL_CLIMB_REDUCTION_FPM) * scale,
+        6,
+      );
+      ac.altitudeFt = SCENARIO.elevationFt + DEPARTURE_ACCEL_ALT_FT + 1000;
+    }
+  });
+
   it('leaves the airspace and counts as a departure rather than a lost arrival', () => {
     const { world } = flyOut(sidNamed('RAMOX1A'), AIRCRAFT_TYPES[0]!);
     expect(world.aircraft).toHaveLength(0);
@@ -392,7 +416,7 @@ describe('the shared runway', () => {
   /** An arrival on the glideslope at `alongNm`, flying `iasKts`. */
   const onApproach = (alongNm: number, iasKts: number): Aircraft =>
     makeAircraft({
-      ...onFinalApproach(alongNm),
+      ...onFinal(alongNm),
       phase: 'gs',
       altitudeFt: alongNm * GS_FT_PER_NM,
       headingDeg: AIRPORT.runway.courseDeg,
@@ -402,17 +426,17 @@ describe('the shared runway', () => {
   it('holds a departure while an arrival is on short final', () => {
     const state = createTrafficState();
     const vapp = MEDIUM_TYPE.vappKts;
-    expect(runwayBlockedBy(state, [onApproach(DEPARTURE_HOLD_FINAL_NM - 1, vapp)], 0)).toBe(
+    expect(runwayBlockedBy(SCENARIO, state, [onApproach(SCENARIO.runwayOps.holdFinalNm - 1, vapp)], 0)).toBe(
       'arrival on short final',
     );
-    expect(runwayBlockedBy(state, [onApproach(DEPARTURE_HOLD_FINAL_NM + 3, vapp)], 0)).toBeNull();
+    expect(runwayBlockedBy(SCENARIO, state, [onApproach(SCENARIO.runwayOps.holdFinalNm + 3, vapp)], 0)).toBeNull();
   });
 
   it('measures the arrival in time, so a fast one blocks from further out', () => {
     // The gate is "will the departure be airborne with the margin to spare",
     // not a fixed distance — the whole reason it reads the ground speed (§4.7).
     const state = createTrafficState();
-    const requiredS = MAX_DEPARTURE_ROLL_S + DEPARTURE_AIRBORNE_MARGIN_S;
+    const requiredS = maxDepartureRollS(SCENARIO.fleet) + SCENARIO.runwayOps.airborneMarginS;
 
     // One distance, two speeds: far enough at an approach speed, not far enough
     // at 210 kt. The two time assertions below state that premise explicitly, so
@@ -420,37 +444,37 @@ describe('the shared runway', () => {
     // "expected null".
     const slow = onApproach(4.5, MEDIUM_TYPE.vappKts);
     const fast = onApproach(4.5, 210);
-    expect(finalGeometry(slow).alongNm / (groundSpeed(slow) / 3600)).toBeGreaterThan(requiredS);
-    expect(finalGeometry(fast).alongNm / (groundSpeed(fast) / 3600)).toBeLessThan(requiredS);
-    expect(runwayBlockedBy(state, [slow], 0)).toBeNull();
-    expect(runwayBlockedBy(state, [fast], 0)).toBe('arrival on short final');
+    expect(geo(slow).alongNm / (groundSpeed(slow) / 3600)).toBeGreaterThan(requiredS);
+    expect(geo(fast).alongNm / (groundSpeed(fast) / 3600)).toBeLessThan(requiredS);
+    expect(runwayBlockedBy(SCENARIO, state, [slow], 0)).toBeNull();
+    expect(runwayBlockedBy(SCENARIO, state, [fast], 0)).toBe('arrival on short final');
   });
 
   it('never releases inside the distance floor, however slow the arrival is', () => {
     const state = createTrafficState();
     // Slow enough that the time test alone would let it go.
-    const crawling = onApproach(DEPARTURE_HOLD_FINAL_NM - 0.1, 90);
-    expect(runwayBlockedBy(state, [crawling], 0)).toBe('arrival on short final');
+    const crawling = onApproach(SCENARIO.runwayOps.holdFinalNm - 0.1, 90);
+    expect(runwayBlockedBy(SCENARIO, state, [crawling], 0)).toBe('arrival on short final');
   });
 
   it('holds a departure behind a landing and behind the one before it', () => {
     const state = createTrafficState();
     state.lastLandingS = 1000;
-    expect(runwayBlockedBy(state, [], 1010)).toBe('landing traffic rolling out');
-    expect(runwayBlockedBy(state, [], 1100)).toBeNull();
+    expect(runwayBlockedBy(SCENARIO, state, [], 1010)).toBe('landing traffic rolling out');
+    expect(runwayBlockedBy(SCENARIO, state, [], 1100)).toBeNull();
 
     state.lastLandingS = null;
     state.lastDepartureS = 1000;
-    expect(runwayBlockedBy(state, [], 1000 + DEPARTURE_MIN_INTERVAL_S - 1)).toBe(
+    expect(runwayBlockedBy(SCENARIO, state, [], 1000 + SCENARIO.runwayOps.minDepartureIntervalS - 1)).toBe(
       'departure spacing',
     );
-    expect(runwayBlockedBy(state, [], 1000 + DEPARTURE_MIN_INTERVAL_S)).toBeNull();
+    expect(runwayBlockedBy(SCENARIO, state, [], 1000 + SCENARIO.runwayOps.minDepartureIntervalS)).toBeNull();
   });
 
   it('does not release a second departure onto an occupied runway', () => {
     const { ac, world } = departure(sidNamed('RAMOX1A'), AIRCRAFT_TYPES[0]!);
     expect(ac.phase).toBe('roll');
-    expect(runwayBlockedBy(world.traffic, world.aircraft, 0)).toBe('runway occupied');
+    expect(runwayBlockedBy(SCENARIO, world.traffic, world.aircraft, 0)).toBe('runway occupied');
   });
 
   it('gets every type airborne before an arrival released at 3 NM reaches the threshold', () => {
@@ -464,10 +488,10 @@ describe('the shared runway', () => {
     for (const depType of AIRCRAFT_TYPES) {
       for (const arrType of AIRCRAFT_TYPES) {
         const arrival = makeAircraft({
-          ...onFinalApproach(DEPARTURE_HOLD_FINAL_NM),
+          ...onFinal(SCENARIO.runwayOps.holdFinalNm),
           type: arrType,
           phase: 'gs',
-          altitudeFt: DEPARTURE_HOLD_FINAL_NM * GS_FT_PER_NM,
+          altitudeFt: SCENARIO.runwayOps.holdFinalNm * GS_FT_PER_NM,
           headingDeg: AIRPORT.runway.courseDeg,
           iasKts: arrType.vappKts,
         });
@@ -484,7 +508,7 @@ describe('the shared runway', () => {
           `${arrType.code} landed over ${depType.code} while it was still rolling`,
         ).toContain(arrival);
 
-        const marginS = finalGeometry(arrival).alongNm / (groundSpeed(arrival) / 3600);
+        const marginS = geo(arrival).alongNm / (groundSpeed(arrival) / 3600);
         expect(marginS).toBeGreaterThan(0);
         if (marginS < worstMarginS) {
           worstMarginS = marginS;
@@ -535,7 +559,7 @@ describe('the shared runway', () => {
     // Past the occupancy time, the same approach lands.
     const later = onApproach(GO_AROUND_RUNWAY_OCCUPIED_NM + 0.4, MEDIUM_TYPE.vappKts);
     const clear = quietWorld(later);
-    clear.traffic.lastLandingS = -DEPARTURE_HOLD_AFTER_LANDING_S;
+    clear.traffic.lastLandingS = -SCENARIO.runwayOps.holdAfterLandingS;
     run(clear, 30);
     expect(clear.stats.landings).toBe(1);
   });
@@ -545,7 +569,7 @@ describe('the shared runway', () => {
     // business, not ours (§9.4) — it must not be logged as a violation.
     const { ac: dep } = departure(sidNamed('RAMOX1A'), AIRCRAFT_TYPES[0]!);
     const landing = makeAircraft({
-      ...onFinalApproach(1.5),
+      ...onFinal(1.5),
       phase: 'gs',
       altitudeFt: 480,
       headingDeg: AIRPORT.runway.courseDeg,
@@ -618,7 +642,7 @@ describe('departure flow', () => {
     const rolls = world.stats.departureTimesS;
     expect(rolls.length).toBeGreaterThan(2);
     for (let i = 1; i < rolls.length; i += 1) {
-      expect(rolls[i]! - rolls[i - 1]!).toBeGreaterThanOrEqual(DEPARTURE_MIN_INTERVAL_S - PHYSICS_DT);
+      expect(rolls[i]! - rolls[i - 1]!).toBeGreaterThanOrEqual(SCENARIO.runwayOps.minDepartureIntervalS - PHYSICS_DT);
     }
     // And the queue really was the source of them.
     expect(departureQueueLength(world)).toBe(10 - world.aircraft.length);
@@ -658,7 +682,7 @@ describe('departure flow', () => {
     // Nothing is landing to hold the runway, so it should track the flow set —
     // within the wake-turbulence interval, which caps it at 30/h.
     expect(rate).toBeGreaterThan(10);
-    expect(rate).toBeLessThanOrEqual(3600 / DEPARTURE_MIN_INTERVAL_S);
+    expect(rate).toBeLessThanOrEqual(3600 / SCENARIO.runwayOps.minDepartureIntervalS);
   });
 
   it('reports no departure rate at all when the flow is off', () => {
@@ -696,7 +720,7 @@ describe('a session flown entirely as published', () => {
    * there to solve — so only pairs involving a departure are examined.
    */
   it('never loses separation against a departure, over two hours', () => {
-    const world = createWorld(20260825, 50, 20);
+    const world = createWorld(SCENARIO, 20260825, 50, 20);
     const violations: string[] = [];
     // Predicted conflicts are counted rather than banned. The 90 s look-ahead
     // takes the closest horizontal and closest vertical approach *independently*
@@ -729,7 +753,7 @@ describe('a session flown entirely as published', () => {
   });
 
   it('keeps the runway sequence sane under a saturated arrival flow', () => {
-    const world = createWorld(20260825, 50, 20);
+    const world = createWorld(SCENARIO, 20260825, 50, 20);
     run(world, 3600);
     // Departures are held for arrivals, so the flow set is an upper bound that
     // a busy final eats into — but the runway must not deadlock either.

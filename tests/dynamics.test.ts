@@ -12,7 +12,7 @@ import {
 } from '../src/sim/constants.js';
 import { trueAirspeed } from '../src/sim/units.js';
 import { analyzeSeparation } from '../src/sim/separation.js';
-import { makeAircraft, quietWorld, run } from './helpers.js';
+import { makeAircraft, quietWorld, run, RUNWAY } from './helpers.js';
 
 describe('turn performance', () => {
   it('is bank-limited at high speed and standard-rate-limited at low speed', () => {
@@ -153,7 +153,7 @@ describe('settling on an assignment', () => {
     // the vertical is the only thing keeping them apart, and 1000 ft exactly is
     // legal (§9.1). The pair is measured once settled — the descent through the
     // gap on the way down is a real conflict and not what this is about.
-    expect(analyzeSeparation([low, high]).pairs).toHaveLength(0);
+    expect(analyzeSeparation(RUNWAY, [low, high]).pairs).toHaveLength(0);
   });
 
   it('settles exactly on the assigned speed', () => {

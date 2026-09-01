@@ -9,28 +9,17 @@
  */
 import {
   altitudeAheadFt,
+  ENTRY_FIX_INDEX,
   raisedToLevel,
   speedAheadKts,
   starProfileAt,
-  type Star,
-  type StarConstraint,
-} from '../scenario/stars.js';
+} from '../scenario/routes.js';
+import type { Star, StarConstraint } from '../scenario/types.js';
 import type { Aircraft } from './aircraft.js';
 import { STAR_FIX_CAPTURE_NM, STAR_MAX_ANTICIPATION_NM } from './constants.js';
-import { turnRadiusNm } from './dynamics.js';
+import { fixPassed, routeAnticipationNm } from './dynamics.js';
 import { stepHold, type HoldEvent, type HoldNav } from './hold.js';
-import {
-  bearing,
-  clamp,
-  distance,
-  headingDelta,
-  headingDiff,
-  toRad,
-  trueAirspeed,
-  type Ft,
-  type Nm,
-  type Sec,
-} from './units.js';
+import { bearing, distance, trueAirspeed, type Ft, type Nm, type Sec } from './units.js';
 
 export interface StarNav {
   route: Star;
@@ -77,7 +66,7 @@ export type StarEvent = { kind: 'starComplete'; fix: string } | HoldEvent;
 export function joinStar(route: Star, levelFt: Ft | null = null): StarNav {
   return {
     route,
-    index: 1,
+    index: ENTRY_FIX_INDEX,
     altitudeManual: false,
     speedManual: false,
     hold: null,
@@ -145,24 +134,6 @@ export function leaveStar(ac: Aircraft): void {
   ac.star = null;
 }
 
-/**
- * How far before a fix to start the turn onto the next leg, so the track is
- * flown as a fly-by rather than an overshoot and a correction back.
- * `d = R·tan(θ/2)` is the tangent distance of the turn arc.
- */
-function anticipationNm(ac: Aircraft, nav: StarNav): Nm {
-  const waypoints = nav.route.waypoints;
-  const inbound = bearing(waypoints[nav.index - 1]!.position, waypoints[nav.index]!.position);
-  const outbound = bearing(waypoints[nav.index]!.position, waypoints[nav.index + 1]!.position);
-  const turnDeg = Math.abs(headingDelta(inbound, outbound));
-  const radiusNm = turnRadiusNm(trueAirspeed(ac.iasKts, ac.altitudeFt));
-  return clamp(
-    radiusNm * Math.tan(toRad(turnDeg / 2)),
-    STAR_FIX_CAPTURE_NM,
-    STAR_MAX_ANTICIPATION_NM,
-  );
-}
-
 /** Drive one tick of route following. Kinematics run after, except the vertical. */
 export function stepStar(ac: Aircraft, dt: Sec, timeS: Sec = 0): StarEvent[] {
   const nav = ac.star;
@@ -210,9 +181,7 @@ export function stepStar(ac: Aircraft, dt: Sec, timeS: Sec = 0): StarEvent[] {
   if (!nav.speedManual) ac.targetIasKts = profile.speedKts;
   ac.targetHeadingDeg = courseDeg;
 
-  // Sequencing. The abeam test is a backstop: pure pursuit only leaves a fix
-  // behind if the aircraft was thrown off the leg by an earlier tight turn.
-  const passed = rangeNm < STAR_FIX_CAPTURE_NM || headingDiff(ac.headingDeg, courseDeg) > 90;
+  const passed = fixPassed(rangeNm, ac.headingDeg, courseDeg, STAR_FIX_CAPTURE_NM);
   const last = nav.index === nav.route.waypoints.length - 1;
 
   if (last) {
@@ -223,6 +192,13 @@ export function stepStar(ac: Aircraft, dt: Sec, timeS: Sec = 0): StarEvent[] {
     return [];
   }
 
-  if (passed || rangeNm <= anticipationNm(ac, nav)) nav.index += 1;
+  const anticipationNm = routeAnticipationNm(
+    nav.route.waypoints,
+    nav.index,
+    trueAirspeed(ac.iasKts, ac.altitudeFt),
+    STAR_FIX_CAPTURE_NM,
+    STAR_MAX_ANTICIPATION_NM,
+  );
+  if (passed || rangeNm <= anticipationNm) nav.index += 1;
   return [];
 }

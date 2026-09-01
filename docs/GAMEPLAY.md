@@ -1,9 +1,19 @@
 # Gameplay guide
 
-You are the Approach controller at ZZZZ, a single-runway field landing on **runway 18**. Center
-hands you arrivals at the edge of a 50 NM circle, already established on a published STAR. Your job
-is to sequence them onto the ILS — correctly spaced, at or below the glideslope, slow enough to
-configure — and hand each one to Tower once it is established.
+You are the Approach controller at a single-runway field. Center hands you arrivals at the edge of
+the radar area, already established on a published STAR. Your job is to sequence them onto the ILS —
+correctly spaced, at or below the glideslope, slow enough to configure — and hand each one to Tower
+once it is established.
+
+**Two fields ship.** `?airport=ZZZZ` is the default, a trainer landing on **runway 18** inside a
+50 NM circle: four gates 90° apart, symmetrical routes, and a chart designed to be learnable.
+`?airport=VABB` is **Mumbai, runway 27**, transcribed from the real AAI charts — a 60 NM area, five
+gates weighted by where Mumbai's traffic actually comes from, a second runway it does not use, and
+departures that fan out to eight exits. It also flies higher: Center hands arrivals over between
+12,000 and 17,000 depending on the route, against ZZZZ's 11,000–13,000, so you have more vertical to
+work with and further to bring them down. Everything below describes ZZZZ; VABB plays the same and is
+harder, mostly because its arrivals all have to finish east of the field and two of the five gates
+are on the departure side.
 
 Procedures follow standard radar-control practice. Every number below is derived and justified in
 [REQUIREMENTS.md](REQUIREMENTS.md).
@@ -15,7 +25,7 @@ Procedures follow standard radar-control practice. Every number below is derived
 | Key | Action |
 | --- | --- |
 | `A` / `D` | Heading −10° / +10° |
-| `W` / `S` | Altitude +1,000 / −1,000 ft (2,000–12,000) |
+| `W` / `S` | Altitude +1,000 / −1,000 ft — MVA to the field's ceiling (2,000–13,000 at ZZZZ, 3,000–17,000 at VABB) |
 | `Q` / `E` | Speed −10 / +10 kt |
 | `C` | Clear for the ILS approach |
 | `H` | Enter / leave the published hold |
@@ -26,13 +36,15 @@ Procedures follow standard radar-control practice. Every number below is derived
 
 Click a blip or its data block to select it. **Arr −/+** in the sidebar sets arrivals per hour
 (5–50, default 25) — turn it down to learn the field, up when you want to be buried. **Dep −/+**
-sets departures per hour (0–20, default 10); `off` gives you the arrivals-only field.
+sets departures per hour (0–24; ZZZZ opens at 10, VABB at 22); `off` gives you the arrivals-only field.
 
-`?seed=1234` in the URL reproduces a session exactly, down to the pilot reaction times.
+`?seed=1234` in the URL reproduces a session exactly, down to the pilot reaction times — **for the
+same `?airport=`**. The gates an arrival is drawn from are part of the field, so one seed at two
+fields is two different sessions.
 
 ## The departures
 
-Runway 18 departs as well as lands, and those aircraft are **not yours**. They belong to Departure
+The runway departs as well as lands, and those aircraft are **not yours**. They belong to Departure
 Control: they are drawn in the muted grey the scope uses for anything you cannot instruct, tagged
 `DEP`, and they ignore you completely.
 
@@ -40,8 +52,8 @@ They fly one of three published SIDs, drawn on the scope in amber:
 
 | SID | Where it goes | The restriction |
 | --- | --- | --- |
-| `SABAR1A` | Turns right, out to the west | At or below **4,000** until MORVA, then 13,000 |
-| `KIROS1A` | Turns left, out to the east | At or below **4,000** until TELMU, then 13,000 |
+| `SABAR1A` | Turns right, out to the west | At or below **4,000** until MORVA, then 14,000 |
+| `KIROS1A` | Turns left, out to the east | At or below **4,000** until TELMU, then 14,000 |
 | `RAMOX1A` | Straight ahead, out to the south | None — it just climbs |
 
 The two turning departures cross the RIMOL and TEMBA downwinds, which is why they are held at 4,000:
@@ -51,7 +63,7 @@ back in your arrival's level before it was laterally clear of the route. Two mil
 of level flight, and then it is climbing again. As published, the two never touch.
 
 **But your arrivals are only where you left them.** Vector one south of the field and the departure
-corridor is waiting there, at 4,000 climbing to 13,000 — and a bust against a departure counts
+corridor is waiting there, at 4,000 climbing to 14,000 — and a bust against a departure counts
 against you exactly like any other, because the arrival is the half you could have moved. The amber
 lines on the scope are the thing to keep the base turn clear of.
 
@@ -109,19 +121,23 @@ either of them.
 
 ## The airspace
 
+You are working **ZZZZ, runway 18** — the field the simulator ships with. `?airport=` in the URL
+picks a field; there is only one so far, and an unrecognised name falls back to it and says so in the
+log.
+
 Four gates, 90° apart and offset 40° from the cardinals, so nothing arrives already lined up with
 the final approach course. One STAR from each:
 
 | Gate | Bearing | Handover | Route ends |
 | --- | --- | --- | --- |
-| KOVAL | 040° | 9,000 ft | Level 3,000 ft, 2 NM east of the centerline at 16 NM final |
-| VANDA | 320° | 9,000 ft | Level 3,000 ft, 2 NM west of the centerline at 16 NM final |
-| TEMBA | 130° | 12,000 ft | Downwind descending 7,000 → 3,000, 6 NM east, ending 11 NM north of the field |
-| RIMOL | 230° | 12,000 ft | Downwind descending 7,000 → 3,000, 6 NM west, ending 11 NM north of the field |
+| KOVAL | 040° | 11,000 ft | Level 3,000 ft, 2 NM east of the centerline at 16 NM final |
+| VANDA | 320° | 11,000 ft | Level 3,000 ft, 2 NM west of the centerline at 16 NM final |
+| TEMBA | 130° | 13,000 ft | Downwind descending 7,000 → 3,000, 6 NM east, ending 11 NM north of the field |
+| RIMOL | 230° | 13,000 ft | Downwind descending 7,000 → 3,000, 6 NM west, ending 11 NM north of the field |
 
 **KOVAL and VANDA** sit north of the field, the same side as the final approach course, so their
 arrivals reach the localizer with far fewer track miles to lose the height in — which is why Center
-hands them over 1,000 ft lower. Both run inbound to a corner fix abeam the field, then a level leg
+hands them over 2,000 ft lower. Both run inbound to a corner fix abeam the field, then a level leg
 at 3,000 ft that stops 2 NM short of the extended centerline, pointing at each other. Turn one onto
 final; the other has to wait.
 

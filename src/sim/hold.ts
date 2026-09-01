@@ -22,8 +22,14 @@
  * of dropping the hold state and letting `stepStar` resume from that fix.
  */
 import type { Aircraft } from './aircraft.js';
-import { HOLD_LEG_S, HOLD_SPEED_KTS, STAR_FIX_CAPTURE_NM } from './constants.js';
-import { altitudeAheadFt, starProfileAt } from '../scenario/stars.js';
+import {
+  HOLD_LEG_S,
+  HOLD_ROLLOUT_TOLERANCE_DEG,
+  HOLD_SPEED_KTS,
+  STAR_FIX_CAPTURE_NM,
+} from './constants.js';
+import { fixPassed } from './dynamics.js';
+import { altitudeAheadFt, starProfileAt } from '../scenario/routes.js';
 import { activeFix, distanceToGoNm, type StarNav } from './star.js';
 import { bearing, distance, headingDiff, normalizeHeading, type Deg, type Sec } from './units.js';
 
@@ -193,8 +199,7 @@ export function stepHold(ac: Aircraft, nav: StarNav, timeS: Sec): HoldEvent[] {
       ac.targetHeadingDeg = courseDeg;
       // Same capture test the STAR sequencing uses, minus the fly-by
       // anticipation: a hold is flown over the fix, not cut short of it.
-      const reached = rangeNm < STAR_FIX_CAPTURE_NM || headingDiff(ac.headingDeg, courseDeg) > 90;
-      if (!reached) return [];
+      if (!fixPassed(rangeNm, ac.headingDeg, courseDeg, STAR_FIX_CAPTURE_NM)) return [];
 
       if (hold.exitRequested) {
         leaveHold(ac);
@@ -223,7 +228,9 @@ export function stepHold(ac: Aircraft, nav: StarNav, timeS: Sec): HoldEvent[] {
       ac.targetHeadingDeg = hold.outboundHeadingDeg;
       // Start the clock once the turn is finished.
       if (hold.legEndsAtS === 0) {
-        if (headingDiff(ac.headingDeg, hold.outboundHeadingDeg) > 5) return [];
+        if (headingDiff(ac.headingDeg, hold.outboundHeadingDeg) > HOLD_ROLLOUT_TOLERANCE_DEG) {
+          return [];
+        }
         // Rolled out: release the forced turn so the leg can be held straight.
         hold.turningRight = false;
         ac.turnDirection = null;
@@ -244,7 +251,7 @@ export function stepHold(ac: Aircraft, nav: StarNav, timeS: Sec): HoldEvent[] {
       // during the turn would cut the corner and shrink the pattern; the turn
       // is flown first, and the inbound leg picks up the tracking.
       const reciprocal = normalizeHeading(hold.outboundHeadingDeg + 180);
-      if (headingDiff(ac.headingDeg, reciprocal) > 5) {
+      if (headingDiff(ac.headingDeg, reciprocal) > HOLD_ROLLOUT_TOLERANCE_DEG) {
         ac.targetHeadingDeg = reciprocal;
         return [];
       }

@@ -118,35 +118,125 @@ at 290 kt — the "vectors cost more track miles when fast" lesson comes out for
 
 ## 3. Airspace and airport definition
 
-All of this lives in one data file (`scenario/airport.ts`) so a second airport is a data change,
-not a code change.
+**Everything in §3 is a property of a *scenario*, not of the simulator.** The numbers below are the
+default field, ZZZZ; another airport states its own. A field is a folder under
+`src/scenario/fields/` plus a line in `src/scenario/registry.ts`, and nothing outside
+`src/scenario/` names one — see §3.0.
+
+Two fields ship: **ZZZZ**, the trainer, and **VABB** (Mumbai, RWY 27), transcribed from the published
+AAI charts and coding tables cited in `src/scenario/fields/vabb/airport.ts`. Where the two differ the
+difference is the point — VABB has a 60 NM airspace, five gates weighted by where the traffic comes
+from, a second runway it does not use, branching SIDs, arrival routes that **merge**, and crossing
+restrictions in both senses. **Those charts are not in this repository**
+— they are the publisher's copyright, and this is an AGPL-3.0 project, so redistributing them is not
+something the licence can cover. `docs/charts/` is gitignored; keep local copies there if you have
+them. The citations plus the derivation notes in the field files are what make the transcription
+checkable without them. Where the two differ the difference is the point — VABB has a 60 NM
+airspace rather than 50, five gates rather than four, weighted rather than even, a second runway it
+does not use, branching SIDs, and crossing restrictions in both senses. `tests/fixtures/rotatedField.ts`
+is a third, awkward-on-purpose field used only by the conformance suite.
+
+### 3.0 Adding a scenario
+
+1. Create `src/scenario/fields/<icao>/` with `airport.ts` (runway, airspace, gates), `stars.ts`,
+   `sids.ts` and an `index.ts` assembling a `ScenarioSpec`. A field may add files of its own —
+   `vabb/geometry.ts` holds the chart-chaining helper that field's publisher's charts need, and
+   `vabb/airlines.ts` its own carriers.
+2. Author every fix in the **runway frame**: `final(alongNm, rightNm)` for an arrival,
+   `depart(alongNm, rightNm)` for a departure, `joinsDownwind(rightNm)` for the turn onto a downwind,
+   `radial(bearingDeg, rangeNm)` off the reference point, or `xy()` outright. A fix may also be placed
+   at a `fraction` of the leg between its positioned neighbours. Nothing states a compass direction:
+   which way a route runs is a consequence of the runway, and so is which way each SID turns.
+3. Publish the **entry crossing on each STAR** (`entryAltitudeFt`, `entrySpeedKts`). A gate with no
+   STAR states its own; a gate with neither is a compile error.
+3a. A gate is placed on the boundary along its `bearingDeg`, which is what a field whose gates are
+   *designed* wants. A field transcribing published fixes gives it an `at` instead —
+   `clipToRange(radius, nextFix, entryFix)`, which puts it where the real inbound leg crosses the
+   boundary rather than on a radial from the field, so the entry bearing stays the chart's to within a
+   quarter of a degree. Use the same helper on a SID exit published too close to the edge to leave a
+   leg to fly out on.
+4. Give a gate a **`weight`** if the field's traffic is not evenly spread — the share of arrivals
+   offered there relative to the others, defaulting to 1 (§4.4).
+5. A SID with more than one way out declares a trunk plus **`exits`**; each exit compiles into its own
+   complete route, so the simulation only ever sees a flat chain of waypoints (§4.7).
+6. List any runway the field has but does not use in **`inactiveRunways`**, as its two ends. It is
+   drawn and nothing else — no module under `src/sim/` reads it.
+7. Override only what differs from `src/scenario/defaults.ts` — flows, gate cooldown, the
+   shared-runway rules, the frequencies, the missed approach, the centreline furniture.
+8. Add it to the registry, and **make `tests/scenario.test.ts` pass.** That suite is the contract:
+   `validateScenario` plus every route of the field flown by every type in its fleet. `?airport=<id>`
+   then flies it. A snapshot of the compiled chart, like `tests/vabb.chart.test.ts`, is worth adding
+   too: every position is derived, so a change to the frame or the compiler can move a fix without a
+   behavioural test noticing.
+
+The rules a field must satisfy are in `src/scenario/validate.ts`, which also runs in dev at startup
+so an authoring mistake fails in the console rather than eight minutes into a session.
 
 ### 3.1 Geometry
 
 - **Coordinate frame:** local flat Cartesian, origin at the Airport Reference Point (ARP).
   `x` = east (NM), `y` = north (NM). At 50 NM the earth-curvature error is well under the width of
   a radar blip, so **no geodesy, no lat/lon, no projection** — a deliberate simplification.
-- **Radar area:** a 50 NM circle centred on the ARP with its **northern and southern caps cut off**
-  by chords at **|y| = 42 NM**. Range rings at 10, 20, 30, 40 NM; the boundary itself is the two
-  surviving arcs plus the two chords, and the compass rose rides that outline rather than a circle.
-  The caps were dead airspace — no gate, no route, nothing but rose — and removing them lets the
-  same 50 NM of usable width draw about **20 % larger**, because the canvas height carries 84 NM
-  instead of 100. The scale is set so the chords fill the height exactly; on a narrow window the
-  circle's east–west extent takes over instead. The four gates sit at |y| = 38.3 NM, comfortably
-  inside the cuts, and the shape is defined once in `sim/airspace.ts` so the exit check and the
-  drawing cannot disagree.
-- **Runway:** single, **RWY 18** (final approach course **180°**), length 1.6 NM. Landing direction
-  is fixed (no runway changes in v1). Magnetic variation = 0, so heading = track = true bearing.
+- **Radar area:** a circle centred on the ARP with its **northern and southern caps cut off** by
+  chords — **50 NM radius cut at |y| = 42** at ZZZZ, **60 NM cut at |y| = 58** at VABB, where the five
+  TMA entry fixes sit (POKON 60.6, IGBAN 60.3, KETOR 60.0, EMRAK 60.3, MOLGO 63.2 NM). The size comes
+  from the field rather than from a choice, and the outermost range ring *is* the boundary. Range rings every 10 NM; the boundary itself is the two surviving arcs
+  plus the two chords, and the compass rose rides that outline rather than a circle. The caps are dead
+  airspace — no gate, no route, nothing but rose — and removing them lets the same east–west width
+  draw about **20 % larger**, because the canvas height no longer has to carry the full diameter. The
+  scale is set so the chords fill the height exactly; on a narrow window the circle's east–west extent
+  takes over instead. A gate on a bearing where the chord has replaced the arc is placed on the chord,
+  which is what a field with *designed* gates wants. A transcribed field's entry fixes are not all
+  the same range out, so each gate is placed where its own published inbound leg crosses the boundary
+  — `clipToRange`, which keeps the track exactly and moves only how far along it the route starts.
+  The published coordinate stays in the field's own fix table. The shape is defined once in
+  `scenario/airspace.ts` so the exit check and the drawing cannot disagree.
+- **Runway:** single and **active** — RWY 18 at ZZZZ (course 180°, 1.6 NM), RWY 27 at VABB
+  (course 270°, 1.98 NM). Landing direction is fixed (no runway changes). Magnetic variation is taken
+  as 0, so heading = track = true bearing; VABB's charted 0.75° W is inside that. The runway id and
+  the course are checked against each other by `validateScenario`.
+- **A field may have other runways, and they are scenery.** VABB's 14/32 is drawn from the aerodrome
+  chart's own threshold coordinates and read by nothing outside `render/mapLayer.ts` — stated as its
+  two ends rather than a course and a length, because it is never flown, so there is no frame to stay
+  consistent with. Exactly one runway is ever in use (A2); this does not weaken that.
+- **A field may state its coastline, and that is scenery too.** VABB's is drawn as a single light-blue
+  hairline, clipped to the boundary, with no fill on either side: there is no terrain and no water in
+  the model (A1), so shading land or sea would draw a fact the simulation does not have. It exists
+  because the field is a place — RWY 27 lands over the city and departs over the sea — and the
+  arrivals' turns are unreadable against an empty scope. The data is © OpenStreetMap contributors
+  under ODbL, joined into chains, converted with the same two constants as the published fixes and
+  simplified to 0.1 NM, which is under a pixel; it is stated as plain `[x, y]` pairs rather than
+  `FixAt` closures, since a coast is at the coordinates the world put it at.
+- **The reference point is the origin of the frame, always.** The frame is local to the field, so
+  there is nothing to gain by offsetting it and a good deal that assumes it — the airspace shape is
+  measured from it and the scope centres on it. It is not something a scenario can set.
+- **The chords are horizontal in the local frame**, i.e. they cut the north and south caps whatever
+  way the runway points. They exist to reclaim canvas height, so they follow the screen, not the
+  runway.
 - **Threshold of 18** sits at `(0, +0.8)` NM, i.e. the north end. Aircraft land southbound.
 - **Extended centerline:** drawn from the threshold on **000°** out to 20 NM, with **tick marks
   every 2 NM** (10 ticks). This is the primary visual sequencing aid.
-- **Airport elevation: 0 ft.** Therefore AAL = MSL and all altitudes are plain feet.
-- **Minimum vectoring altitude (MVA): 2000 ft** everywhere inside the circle. No terrain.
+- **Airport elevation:** 0 ft at ZZZZ, so AAL = MSL there and all altitudes are plain feet; 40 ft at
+  VABB. A departure's AGL datum is captured at the roll (`SidNav.fieldElevationFt`), which is what
+  keeps `dynamics.ts` free of any scenario at all.
+- **Minimum vectoring altitude (MVA):** 2000 ft at ZZZZ, 3000 at VABB, everywhere inside the
+  boundary. **No terrain is modelled anywhere**, so the MVA is a floor on what the controller may
+  assign rather than a statement about the ground — VABB's real 25 NM MSA is 2600/2800/3800 ft by
+  sector and none of that sectorisation exists here.
 
 ### 3.2 Entry gates (Center → Approach handover points)
 
-Four gates on the 50 NM boundary, spaced 90° apart and deliberately offset from the final approach
-course so nothing arrives already lined up on the LOC:
+Gates sit **on the boundary** — which past the arcs is a chord rather than the circle, so the range is
+`boundaryRangeAtBearing`, not the radius. Placing them at the radius would put a gate outside the
+drawn shape and several miles from its own marker.
+
+The handover altitude and speed belong to the gate's **STAR**, not to the gate: a route with a short
+run to the localizer is what knows it has to be given the height off lower. The gate carries them as
+derived values so that everything reading them — the spawn veto, the initial state, the gate label —
+needs no special case for a gate delivered on vectors.
+
+ZZZZ has four gates on its 50 NM boundary, spaced 90° apart and deliberately offset from the final
+approach course so nothing arrives already lined up on the LOC:
 
 | Gate | Bearing from ARP | Inbound heading at entry | Handover altitude | STAR |
 | --- | --- | --- | --- | --- |
@@ -160,7 +250,8 @@ course so nothing arrives already lined up on the LOC:
 
 KOVAL and VANDA lie north of the field — the same side as the final approach course for runway 18 —
 so their arrivals reach the localizer with far fewer track miles in which to lose the height. Center
-hands those two over 2000 ft lower, and their STARs are correspondingly shorter. The gate marker on
+hands those two over 2000 ft lower, and their STARs are correspondingly shorter. That is a fact about
+*this field's* geometry, which is why it is stated by the two routes rather than by a constant. The gate marker on
 the scope carries its altitude in hundreds (`KOVAL 100`).
 
 ### 3.3 Player authority limits
@@ -168,13 +259,21 @@ the scope carries its altitude in hundreds (`KOVAL 100`).
 | Parameter | Range | Step |
 | --- | --- | --- |
 | Heading | 010–360 | 10° |
-| Altitude | 2000–13,000 ft | 1000 ft |
+| Altitude | MVA to `Scenario.airspace.ceilingFt` — 2000–13,000 ft at ZZZZ, 3000–17,000 at VABB | 1000 ft |
 | Speed (IAS) | 180–250 kt outside 20 track miles; **160**–250 kt within | 10 kt |
 
-Aircraft enter at 11,000–13,000 ft against an assignable ceiling of **13,000 ft**, so a climb is
-available as a de-confliction tool everywhere except at the south gates, which arrive on the ceiling
-itself. Twelve usable levels between MVA and ceiling. Departures go *above* it, to 14,000 ft (§4.7):
-the ceiling is the top of what the controller may assign, not the top of the sky.
+The band is the *field's*, not the job's: it is `Scenario.airspace` at both ends, because what the
+controller may assign has to cover what Center hands over. At ZZZZ arrivals enter at 11,000–13,000
+against a 13,000 ceiling, so a climb is available as a de-confliction tool everywhere except at the
+south gates, which arrive on the ceiling itself — twelve usable levels. VABB's POKON hands over at
+17,000, which is what sets that field's ceiling and gives it fourteen. Departures go *above* the
+ceiling in both cases, to `Sid.topFt` (§4.7): the ceiling is the top of what the controller may
+assign, not the top of the sky.
+
+A handover level is also not a constant of the field. VABB's five differ — 17,000 at POKON down to
+12,000 at EMRAK — because a route's own length decides what it can be given: EMRAK 2A has 25 NM from
+the boundary to its only fix, and anything higher than 12,000 cannot be got down in the distance
+(§4.5).
 
 The 180 kt floor outside 20 track miles enforces the configuration gate (§2.4) rather than merely
 suggesting it. An
@@ -199,8 +298,8 @@ attempt to go below it is rejected with a log message explaining why.
 Everything above 8000 ft sits outside the 25 NM LOC capture window (§6.1a, E2), so those
 levels are for holding traffic down-level and de-conflicting, not for intercepts. The STARs deliver
 arrivals to **3000 ft** on every route. The north platform is the one that has to be an intercept
-platform: those routes end 15.3 NM from the threshold measured along the final approach course,
-where the glideslope is 4882 ft, so the level flown there must be below it — 3000 ft meets the slope
+platform: those routes end 15.2 NM from the threshold measured along the final approach course,
+where the glideslope is 4840 ft, so the level flown there must be below it — 3000 ft meets the slope
 at 9.4 NM, comfortably inside the merge. The south routes end on a downwind that is turned base
 rather than final, so their 3000 ft is where the descent has already been made rather than an
 intercept level; whatever range the base turn is flown at beyond 9.4 NM, the aircraft is under the
@@ -353,30 +452,44 @@ as either alone; asking for both late in the sequence blows the spacing; and the
 
 ### 4.4 Traffic generation
 
-- **Flow rate:** arrivals entering the airspace per hour. Default **25/h** (matching the
-  screenshot). Configurable 10–40.
+- **Flow rate:** arrivals entering the airspace per hour, a property of the field —
+  **25/h** at ZZZZ, **20/h** at VABB. The *range* the player may set is a property of the control
+  they are given, so it is a constant: 5–50 arrivals, 0–24 departures.
 - **Spawn timing:** exponential inter-arrival intervals (Poisson process), mean `3600 / flow`
   seconds, clamped to a minimum of 45 s so the queue can't clump absurdly.
-- **Gate choice:** uniform random over the four gates, with a constraint: **no two spawns at the
+- **Gate choice:** weighted random over the gates, with a constraint: **no two spawns at the
   same gate within 90 s** (at 290 kt TAS that guarantees ~7 NM initial in-trail separation).
+  A gate's `weight` defaults to 1, so a field that says nothing gets the even split. Which direction
+  traffic comes from is a fact about the route network around an airport rather than about the job,
+  and an even split is badly wrong where the gates are not evenly spread: VABB takes roughly 34 % of
+  its arrivals off the southern peninsula and 12 % from the northeast, derived from CSMIA's published
+  market share and movement mix and documented per gate in `fields/vabb/airport.ts`. A zero weight is
+  never offered, which lets a gate exist for its marker without taking traffic.
+  `Rng.pickWeighted` draws once, like `pick`, and with every weight equal lands on the index `pick`
+  would — so adding weights did not change what any existing seed produces.
 - **Spawn veto:** if a candidate spawn would be within 5 NM / 1000 ft of any existing aircraft, the
   spawn is deferred to the next tick. Center never hands over a conflict.
-- **Callsigns:** `<airline><2–4 digits>` from a small airline table (KLM, BAW, DLH, AFR, UAE, SIA,
-  IGO, AIC, QTR, THY). Uniqueness enforced against live traffic.
-- **Determinism:** all randomness from a single seeded PRNG (mulberry32), plus a second stream for
-  pilot reaction times (§7.2) so how much the player talks cannot shift the traffic sequence. A seed
-  reproduces a session exactly — essential for debugging and for replayable "scenarios" later.
+- **Callsigns:** `<airline><1–4 digits>` from the field's own airline table — a generic European and
+  Gulf mix at ZZZZ, and the carriers that actually fly into Mumbai at VABB. Uniqueness enforced
+  against live traffic.
+- **Determinism:** three seeded mulberry32 streams — traffic, pilot reaction times (§7.2), and the
+  departure flow — kept apart so neither how much the player talks nor how busy the runway is can
+  shift the arrival sequence a seed generates. A seed reproduces a session exactly **for the same
+  `?airport=`**: the gate list an arrival is drawn from is scenario data, so one seed at two fields is
+  two different sessions.
 
 ### 4.5 STARs — standard arrival routes
 
 Arrivals do not fly at the ARP and wait to be noticed: each gate has a published arrival that its
-traffic flies on autopilot until the controller intervenes. Defined in
-[`src/scenario/stars.ts`](../src/scenario/stars.ts) as a chain of waypoints, some carrying a
-published crossing altitude or speed.
+traffic flies on autopilot until the controller intervenes. Defined per field — 
+[`fields/zzzz/stars.ts`](../src/scenario/fields/zzzz/stars.ts),
+[`fields/vabb/stars.ts`](../src/scenario/fields/vabb/stars.ts) — as a chain of waypoints, some
+carrying a published crossing altitude or speed. The table below is ZZZZ's; VABB's is in its own
+file, and the two are shaped differently in one way that matters, below.
 
 | STAR | Fixes | Profile |
 | --- | --- | --- |
-| VANDA1A | VANDA → OKPUR → ALVOR → ARDIS | 10,000/250 kt → 9000/250 kt → 7000/230 kt → 3000/200 kt, to a platform 2 NM west of the centerline at 16 NM |
+| VANDA1A | VANDA → OKPUR → ALVOR → ARDIS | 11,000/250 kt → 9000/250 kt → 7000/230 kt → 3000/200 kt, to a platform 2 NM west of the centerline at 16 NM |
 | KOVAL1A | KOVAL → NIVEL → BELGA → BOXAR | mirror image, 2 NM east |
 | RIMOL1A | RIMOL → SUDIX → LOMSA → PIKON | 13,000/250 kt → 10,000/250 kt → 7000/230 kt → 3000/210 kt, north up a downwind 6 NM west of the centerline, ending 11 NM north |
 | TEMBA1A | TEMBA → TAVIR → DEMUX → KETAN | mirror image, 6 NM east |
@@ -462,6 +575,32 @@ freezes the pattern at the aircraft's constraint list rather than at `fix.altitu
 delivered above a stack would descend onto the published crossing the moment it was told to hold —
 straight into the traffic it was delivered above.
 
+#### Two STARs may share a fix, and a real field's do
+
+ZZZZ's four routes never come within 3 NM of each other, which made it easy to assume that was a
+rule. It is a property of that field's design. A real terminal area **merges** its arrival streams,
+because one runway can only take one stream: VABB's IGBAN 2A and POKON 2A both cross **EMROS** and
+both then run to **OLGUS**, which EMRAK 2A also reaches; KETOR 2A and MOLGO 2A both cross **LIKTA**
+and end at **MB395**. Those are the same fix on two routes, at the same coordinate.
+
+What keeps two converging streams apart is **the level each crosses at**. The chart itself shows how:
+EMROS is coded FL80 on IGBAN 2A and FL110 on POKON 2A — 3000 ft, published, on the shared fix. Since
+a STAR writes its own profile straight onto the aircraft (below), that separation is flown without
+anyone doing anything, which is exactly why the merge is safe in reality and why this needs no
+special case in the traffic generator.
+
+So the invariant is not "routes stay laterally apart" but: **wherever two arrival routes come within
+`SEP_HORIZ_NM`, their published profiles must differ by `SEP_VERT_FT`.** `validateScenario` checks it
+and the conformance suite checks it again over every field. ZZZZ satisfies it trivially, never being
+laterally close at all.
+
+The one exception is a route's **last fix**. Three of VABB's five terminate at OLGUS, where the
+published procedure ends — the real coding finishes each with a `VM`, a vector — and the arrivals
+there are a queue for the controller to sequence. That is the job, not a design error. Everywhere
+else a merge has to be flyable with nobody watching. Where the chart publishes no altitude at a
+shared terminal fix, the field picks levels that carry the separation through: VABB stacks its three
+flows 1000 ft apart at OLGUS, which is the tightest split on either field.
+
 ### 4.6 Holding patterns
 
 The routes buy minutes; a hold buys as long as the controller wants. When the arrival rate outruns
@@ -473,6 +612,18 @@ a racetrack and stops consuming the airspace on final. Implemented in
 tracking to, so off the route there is no fix to hold at and the instruction is refused. A hold
 **suspends** the STAR rather than replacing it: `ac.star` stays set and sequencing stays parked on
 the holding fix, which is what makes rejoining it a matter of dropping the hold state.
+
+**A field has to give the controller somewhere to hold.** The hold anchors on the fix the aircraft
+is tracking to, so a route with a 42–44 NM run from the boundary to its first published fix — three
+of VABB's five — offers nothing between the handover and the merge. Mumbai's own coding
+leaves that delay to the enroute sectors outside this airspace, which the simulation does not have.
+So VABB publishes three fixes of its own — `RCPO`, `RCKE` and `RCEM` — 20 NM inside the boundary on
+the route's own first leg, and 15 on EMRAK 2A, whose whole route is 25 NM. The other two routes reach
+a published fix 30 NM in and hold there instead. They are on the line between two published points,
+so no track moves; the `RC` prefix is not an ICAO name and is deliberately not one, so nothing
+invented can be mistaken for the chart. Each crossing is that leg's own profile interpolated at the
+fix and rounded **up** to the next 1000 ft — a level the controller can hold at, with the route still
+descending monotonically through it.
 
 **The pattern.** Standard (right-hand) turns, flown as a direct entry from wherever the aircraft is:
 
@@ -597,7 +748,7 @@ behind**. Two consequences worth keeping:
   next fix early so the turn is flown as a fly-by, and starting the climb half a mile before the
   crossing fix would start it while still underneath the arrival.
 
-#### The three routes
+#### ZZZZ's three routes
 
 | SID | Turn off 18 | Fixes | Restrictions |
 | --- | --- | --- | --- |
@@ -646,11 +797,96 @@ middle of the gaps between the arrival gates. The straight SID runs down the ext
 centreline, the one direction with no arrival traffic in it at all: the nearest STAR fix is 6 NM
 abeam.
 
+#### A SID may have several ways out
+
+VABB's do, and it is the normal shape for a real field: all three of its RWY 27 departures leave
+through one fix, MB364, and each then fans out to the airways — ANOLI 2A alone has three exits inside
+the airspace, and the AIP codes exactly that shape, one "Departure — Enroute Transition" block per
+exit, each repeating the trunk. So a `SidSpec` is a **trunk plus `exits`**, and the compiler flattens it: each exit
+becomes its own complete `Sid` carrying the trunk again.
+
+Flattening rather than modelling is the whole trick. Nothing in the simulation learns that a route can
+fork — `stepDeparture`, `ceilingAtFt` and the route sequencer keep seeing a flat chain of waypoints
+and an index into it, a recording still resolves a route by one unique name, and `tryDeparture` still
+picks one route at random, which now spreads departures over branches for free. The trunk is
+duplicated in the compiled data, which costs only the chart drawing: the shared strokes overdraw
+identically and are invisible, and `mapLayer` dedupes the labels.
+
+`Sid.chart` is the published name, shared by every branch; `Sid.name` is unique and is what identifies
+the route (`ANOLI2A/SEKVI`). A SID that declares no exits keeps the chart's own name with no suffix, so
+ZZZZ's three are named exactly as they were.
+
+`turn` stays **per branch**. It is the first leg more than 15° off the runway course, so a trunk that
+carries the turn gives every branch the label the chart prints — ANOLI 2A and VEVAK 2A are both like
+this. RAXET 2A's trunk runs within 7° of the runway course, so its two branches take their own: one
+leaves southwest and one northwest, and saying so is more useful than agreeing on a fiction.
+
+#### Where a restriction is released
+
+A published "at or below" is in force *until* its fix and an "at or above" *from* it, so both need a
+line through the fix that says "past". It is not the route sequencer's index: sequencing moves on
+early to fly the turn as a fly-by, which would release a ceiling up to six miles before the fix, and
+six miles before the fix is still underneath the arrival.
+
+The line is the one perpendicular to the **bisector of the turn**. Neither leg alone works, and VABB
+has a counter-example for each — both of which it produced when built:
+
+- Measured along the leg *out* of the fix, the half-plane reaches back up the leg *into* it. VEVAK
+  turns from southbound to eastbound, so a departure eight miles north of it — still inbound, still
+  under the arrival — already counted as past, and the ceiling lifted there.
+- Measured along the leg *into* the fix, it never releases at all where the route turns back
+  slightly. OMGIX sits 0.3 NM north of VEVAK, so an aircraft on the outbound leg never gets south of
+  VEVAK again and stayed pinned under the ceiling: measured at **8937 ft beneath an arrival
+  descending through 8000**, which the conformance suite caught.
+
+Where a route runs straight through a fix all three agree exactly, which is why ZZZZ — whose routes
+turn by a few degrees at most — showed no difference between them for as long as it was the only
+field. Flown as a fly-by the aircraft cuts the corner and never crosses the fix itself, so a line is
+the right thing to test rather than a point.
+
+#### A crossing restriction works in either of two senses
+
+A published restriction keeps a departure clear of an arrival in one of two ways, and a real chart
+uses both:
+
+- **Under**, close in. An "at or below" holds the departure beneath the descending arrival. Both of
+  ZZZZ's turning SIDs are this shape, and so are VABB's two trunk crossings under the arrival
+  downwinds: MB367 and MB368 carry ≤4000 across them and release it two miles past, for the reasons
+  above. Measured at the crossing, ZZZZ clears by **2742 ft** (arrival 6742), VABB by **2487** under
+  the northern downwind (arrival 6487) and **2169** under the southern (arrival 6169).
+- **Over**, further out. An "at or above" guarantees the departure is already past the arrival's
+  level. VABB's XOPAL publishes FL120 and OMGIX FL100 for exactly this, and those two are the only
+  over-crossings either field has: `ANOLI2A/SEKVI` crosses `IGBAN2A`'s run in from the gate with the
+  arrival at **7712 ft** and a published floor of 12,000 — **4288 ft** clear — and `VEVAK2A/PPN`
+  crosses `MOLGO2A` with the arrival at **6454** against a floor of 10,000, clear by **3546**.
+
+So `validateScenario` tests the **band the chart guarantees** — `ceilingAtFt` above, `floorAtFt`
+below — against the arrival's profile, and either edge clearing 1000 ft is enough. Checking only the
+ceiling rejects a legitimate over-crossing outright, and no reading of a published minimum makes a
+departure sitting 7000 ft above an arrival a conflict.
+
+`minAltitudeFt` is therefore not pure documentation any more: the validator reads it as a floor.
+
+**What that check does and does not prove.** It is evaluated at the *laterally closest* point of each
+pair of legs, one point per leg pair — and that is a deliberate weakening, not an oversight. The band
+is released two miles past a crossing while the departure is still inside 3 NM of the arrival track,
+so between the release and the point where it is laterally clear the published restrictions alone
+allow it to be anywhere up to the top of climb. Both fields have this property; it is the same fact
+the paragraphs above discuss for ZZZZ, and what actually carries the margin there is climb
+performance, not the chart. Tightening the check to every point within 3 NM would reject both shipped
+fields. So the static check catches the gross error — a crossing with no restriction at all, which
+`tests/scenario.test.ts` verifies it still catches in both senses — and **the flown conformance suite
+is the real assertion**, because it uses the aircraft's actual altitude rather than a bound on it.
+
 #### Climb performance
 
 Departure figures are **per type**, not per performance class, because for once there is real
-per-type data covering exactly the regime flown here: the whole airspace (0–12,000 ft) sits inside
-the EUROCONTROL Aircraft Performance Database's *initial climb* and *climb to FL150* bands.
+per-type data covering the regime flown here: a departure spends nearly all of its time on the scope
+inside the EUROCONTROL Aircraft Performance Database's *initial climb* and *climb to FL150* bands.
+VABB's `topFt` of 18,000 pokes just above the second of those — its arrivals enter as high as 17,000,
+so its departures have to top out over them — but `departureClimbFpm` is a rate *below 5000 ft* by
+definition and the type's ordinary `climbFpm` owns everything above, so nothing in the table is being
+read outside the band it was quoted for.
 
 | Type | V2 | Initial-climb IAS | Initial-climb ROC |
 | --- | --- | --- | --- |
@@ -683,6 +919,36 @@ number matters: below about 4000, the steepest climber in the fleet is left with
 `MIN_SPEED_RATE_KTS_S` floor and spends six minutes crawling to 250 kt, which is not what a
 departure does. The arrival `climbFpm` is untouched — it is the gentler rate of a level change, not
 of a departure at climb thrust.
+
+**A field may take a share off book rate: `Scenario.performance.departureClimbScale`.** The APD
+figures are quoted for a temperate day, and not every airport gets one — Mumbai in May is 35 °C at
+sea level, a density altitude around 2500 ft, and a departure out of it does not make book. VABB
+flies at **0.88**, so a B738 climbs away at 2640 fpm rather than 3000 and an A332 at 1760 rather
+than 2000; ZZZZ, which has no weather because it has no location, stays at 1.
+
+The scale is on the *climb rate* and not on the energy budget, which is the whole substance of the
+decision. Thin air costs an aircraft climb gradient; it does not reduce the total energy the engines
+put out. Scaling the budget instead would have taken the difference out of the acceleration —
+and worse, out of the wrong types: `budgetScale` already multiplies the budget, so the heavies
+would have been barely touched while the 3000 fpm climbers (B738, B77W) hit the
+`MIN_SPEED_RATE_KTS_S` floor first, which is backwards from the physics of a hot-and-high departure.
+Scaling the climb leaves *more* of the budget for acceleration, which is what a shallower climb
+actually does.
+
+It reaches the physics on `SidNav.climbScale`, captured at the roll exactly as `fieldElevationFt`
+is, because `dynamics.ts` has no scenario dependency and is worth keeping that way.
+
+Two things had to be checked rather than assumed, and both are measured rather than argued:
+
+- **The tight SID/STAR crossings do not move at all.** At VEVAK and ANOLI the departure is *level*
+  at its published ceiling by the time it reaches the arrival, so what separates them is the
+  restriction, not the rate: the worst flown separation on the field is 1262 ft at 0.88, exactly as
+  it is at 1.0.
+- **Every published "at or above" is still made good.** XOPAL's FL120 and OMGIX's FL100 are crossings
+  a slower climb could have missed, since a floor is validated but never flown *to* — the departure
+  climbs at what it has toward the next ceiling. Every type still crosses both above the published
+  level at 0.88, and `validateScenario` warns below 0.7 precisely because that stops being true
+  somewhere down there.
 
 **Are the published numbers achievable?** Yes, with margin, and the tests assert it for every type:
 
@@ -797,7 +1063,8 @@ and the departures back up behind it, exactly as they do in life.
 
 #### Flow, and what the player can and cannot do
 
-Departure flow is set separately from the arrival flow, **0–20/h in steps of 5**, default 10/h; zero
+Departure flow is set separately from the arrival flow, **0–24/h in steps of 5**, default per field —
+10/h at ZZZZ, 20/h at VABB, which is the busiest single-runway airport there is. Zero
 switches departures off entirely. Unlike the arrivals it is **not** a Poisson stream: 20/h means one
 joining the queue every three minutes, exactly. The arrivals are random because Center's delivery is
 the problem the player is given; the departures are an airline schedule. It also makes the queue
@@ -819,7 +1086,9 @@ how you read one's altitude.
 tag is `DEP`, and the assigned-altitude field shows the SID's own ceiling, so the departure's plan
 is readable off the scope without a chart. The SID charts themselves are drawn in a warm amber
 against the STARs' cool blue-grey: the two chart layers cross, and the one question asked of them
-is which traffic is the player's.
+is which traffic is the player's. **Only the restrictions are labelled on a SID, not the fix
+names**: a departure takes no instructions, so its fixes are never spoken to, and the only things
+the layer has to say are where the amber line goes and how low it is held.
 
 Leaving the airspace on a SID is the *point* of a departure, not the failure an arrival's exit is
 (§3.4): it counts in its own `DEPARTURES` tally, gets no boundary warning, and says so in the
@@ -1120,7 +1389,12 @@ Mirroring the reference screenshots:
   carries the aircraft it is about rather than being matched on its callsign text, so the filter
   does not depend on how a message happens to be worded.
 - **Label de-clutter:** data blocks are placed at the first of 8 candidate offsets that does not
-  overlap an existing block. Cheap, and it matters a lot at 25 aircraft.
+  overlap an existing block. Cheap, and it matters a lot at 25 aircraft. The vertical half of an
+  offset is a *side* — above or below — resolved against the block's own height, not a fixed number
+  of pixels. Stated as a number it was wrong: −18 px against a 24 px block put the block *astride*
+  the blip, so its lower line covered whatever was a mile abeam. On a downwind that is the next
+  aircraft in the sequence, which is the one thing the controller is comparing it with, and it shows
+  up at VABB rather than ZZZZ because five routes merge into two downwinds there.
 
 ---
 
@@ -1132,6 +1406,7 @@ The session is endless; the score is a running quality report, not a life counte
 | --- | --- |
 | Landings | Aircraft that touched down |
 | Landing rate | Landings per hour from the gaps between the last **4** landings (§8.2) |
+| Arrival rate | Arrivals handed over on a STAR per hour, from the same gap measure (§8.2) |
 | Separation violations | Count, plus total seconds in violation |
 | Go-arounds | Automatic go-arounds triggered |
 | Airspace exits | Aircraft that left the 50 NM circle laterally (handed back to Center — penalty) |
@@ -1190,6 +1465,13 @@ The **departure rate** is the same measure on the other movement, and is timed a
 *roll* rather than at the airspace exit that the `Departures` total counts — the rate is about what
 the runway got away, and an exit happens eight minutes downstream of the runway decision that caused
 it.
+
+The **arrival rate** is the same measure again, on the traffic being handed *in*. An arrival is put
+on the scope already established on its STAR, so the hand-over is the only moment it enters and there
+is no later event to time it at. It is the counterpart of the departure rate: each measures its flow
+where it crosses the boundary of the player's problem. Read against the landing rate it says whether
+the stack is growing — Center is delivering faster than the runway is taking them for as long as it
+stands above it. A go-around is not a new arrival: it never left, so nothing re-enters.
 
 The **departure queue** is neither: it is a live gauge, not a rate at all. It is the one number
 here that is caused by the player without being about them — they have no authority over a
@@ -1325,38 +1607,63 @@ to maintain**, **testability of the flight model**, and **absence of dependency 
 
 ### 11.4 Project structure
 
-The one structural rule that keeps this maintainable: **`src/sim/` never imports from `render/`,
-`input/`, or the DOM.** The simulation is a pure function of state and time, which is what makes it
-testable and what will let the same engine drive a replay viewer or a second frontend later.
+Two structural rules, both asserted in `tests/architecture.test.ts`:
+
+1. **`src/sim/` never imports from `render/`, `input/`, or the DOM.** The simulation is a pure
+   function of state and time, which is what makes it testable and what lets the same engine drive
+   the replay viewer.
+2. **Nothing outside `src/scenario/` imports a scenario value.** The field is handed to the sim —
+   `World.scenario`, and then the narrowest slice each function is about — rather than imported.
+   `src/scenario/` in turn may import only `src/sim/units.ts`, so the data layer cannot reach back
+   into the tunables layer for a number that is really its own.
+
+The line between the two files of numbers: **`constants.ts` holds the rules of the job, the
+`Scenario` holds the field.** The flow range the sidebar offers is a property of the control the
+player is given, so it is a constant; the flow a field opens at is the field's.
 
 ```
 src/
-  sim/                 # pure, headless, no DOM
-    units.ts           # unit aliases, geometry, TAS
-    constants.ts       # every tunable number, in one place
+  sim/                 # pure, headless, no DOM — and no field
+    units.ts           # unit aliases, geometry, TAS, along/cross-track projection
+    constants.ts       # every tunable that is a rule of the job, not a fact about a field
     rng.ts             # seeded mulberry32
-    aircraft.ts        # Aircraft type, radar snapshot
-    dynamics.ts        # turn / vertical / speed integration, energy coupling
+    aircraft.ts        # Aircraft type, AircraftSeed + newAircraft, radar snapshot
+    dynamics.ts        # turn / vertical / speed integration, energy coupling, route sequencing
     ils.ts             # clearance gate, LOC/GS capture, landing, go-around
     separation.ts      # pair checks, prediction, alert tiers, in-trail
-    traffic.ts         # Poisson spawner, callsigns, gate assignment
+    traffic.ts         # Poisson arrivals, fixed-interval departures, callsigns, gate assignment
+    departure.ts       # take-off roll, SID following, crossing restrictions
+    hold.ts            # holding patterns
+    star.ts            # STAR following, who owns the vertical
+    pilot.ts           # transmitted vs applied instructions, reaction delay
     commands.ts        # player instructions + readbacks + speed floor
     world.ts           # World type, step(world, dt), stats, handoff, radar sampling
-  scenario/
-    airport.ts         # runway, gates, elevation  ← swap this for a new airport
-    aircraftTypes.ts
+  scenario/            # the field: data, plus the geometry that derives from it
+    types.ts           # ScenarioSpec (authored) and Scenario (compiled)
+    geometry.ts        # the runway frame: final(), depart(), joinsDownwind(), radial(), xy()
+    compile.ts         # spec → Scenario: positions, distances, constraints, SID turn and branches
+    airspace.ts        # the boundary shape, and what is inside it
+    routes.ts          # reading a published route: profile, entry fix, SID ceiling and floor
+    defaults.ts        # what a field gets when it does not say otherwise
+    validate.ts        # the rules a field must satisfy
+    registry.ts        # every field, compiled — the only place an airport is named
+    aircraftTypes.ts   # the shared fleet catalogue
     airlines.ts
+    fields/
+      zzzz/            # the default field: airport.ts, stars.ts, sids.ts, index.ts
+      vabb/            # Mumbai RWY 27: fixes.ts (published coordinates) + airlines.ts
   render/
-    project.ts         # NM ↔ pixels
-    mapLayer.ts        # static layer: rings, compass, centerline ticks, gates, runway
+    project.ts         # NM ↔ pixels, fitted to a scenario's airspace
+    mapLayer.ts        # static layer, cached per field × canvas size
     trafficLayer.ts    # blips, leader lines, trails, data blocks, de-clutter
     scope.ts           # canvas sizing, DPR, layer order, hit testing
     sidebar.ts         # selected-aircraft readout, live clearance preview, stats
+    statsLayer.ts      # the session stats gutter
     messageLog.ts      # readback log + status line
     theme.ts           # all colours
     pathLayer.ts       # the selected aircraft's whole path, in replay (§17.3)
   replay/              # reads the sim, never writes to it
-    recorder.ts        # rolling 60 min of sim time, sampled at 5 Hz into per-aircraft tracks
+    recorder.ts        # rolling 60 min of sim time at 5 Hz, per-aircraft tracks, bound to a field
     playback.ts        # rebuilds a World at any frame + the transport
     replayBar.ts       # the stop-and-watch button, and the transport controls
   input/
@@ -1364,11 +1671,19 @@ src/
     keyboard.ts
     pointer.ts
   app/
-    main.ts            # loop, wiring, time accel, pause, live/replay switch
+    main.ts            # loop, wiring, ?airport= and ?seed=, time accel, live/replay switch
   style.css
-tests/                 # 135 tests, sim + replay, no DOM needed
+tests/                 # sim, replay, and the field contracts — no DOM needed
+  architecture.test.ts # the two structural rules above
+  scenario.test.ts     # what every field must satisfy, over every field
+  compile.test.ts      # what the compiler derives: SID branches, inactive runways
+  zzzz.chart.test.ts   # the default field's published positions, fix by fix
+  vabb.chart.test.ts   # and Mumbai's
+  fixtures/
+    rotatedField.ts    # a third field, awkward on purpose, so the suite means something
 docs/
   REQUIREMENTS.md      # this file
+  charts/              # gitignored: local copies of published charts, never distributed
 ```
 
 ---
@@ -1393,23 +1708,29 @@ Each milestone ends with something visible, so progress is never theoretical.
 ## 13. Assumptions register
 
 Recorded because these were decisions, not givens. Each is cheap to change; none is load-bearing
-for the architecture.
+for the architecture. Where one *was* load-bearing before v2 — "the airport is a singleton", "north is
+where the arrivals are" — it is gone rather than recorded.
 
 | # | Assumption |
 | --- | --- |
-| A1 | Airport elevation 0 ft; AAL = MSL |
+| A1 | ZZZZ's elevation is 0 ft, so AAL = MSL *there*. The engine carries field elevation properly — the runway holds it and a departure captures it at the roll — and the rotated test field flies at 500 ft to keep that honest |
 | A2 | No wind; heading = track; GS = TAS |
 | A3 | No magnetic variation |
-| A4 | Single landing direction, never changes |
-| A5 | Flat MVA of 2000 ft; no terrain model |
+| A4 | One runway per field, one landing direction, never changes. `Airport.runway` is singular; two runways would be a type change, though every consumer already goes through the runway rather than the airport |
+| A5 | A flat MVA per field, no terrain model |
 | A6 | Aircraft always comply, after a 1–3 s reaction; no "unable", no pilot deviations, no emergencies, no fuel state |
 | A7 | Center's handover is always conflict-free, at the gate's altitude (11,000 or 13,000 ft) / 250 kt / on the STAR — or above it, when the entry fix already has a holding stack (§4.5) |
 | A8 | Aircraft turn the short way to an assigned heading; long-way-round vectors aren't expressible |
-| A9 | 4 gates, 90° apart, offset 40° from the cardinals |
+| A9 | ZZZZ has 4 gates, 90° apart, offset 40° from the cardinals. The gate count is per field |
 | A10 | Endless session, no win/lose state; quality is reported, not enforced |
 | A11 | One STAR per gate, never rejoined once vectored off; no route changes. Holding is the one way back onto a route, and only because the aircraft never leaves it (§4.6) |
 | A12 | Departures always fly their SID exactly and are never re-routed, delayed airborne or given a level change by Departure Control. What the player sees is the published route, every time (§4.7) |
 | A13 | A departure's climb rate depends only on type and on whether the flaps are up. No weight, temperature, thrust derate or runway-length effect (§4.7) |
+| A14 | **One active field per session.** Chosen by `?airport=` at load; changing it is a reload. The map cache, the recording and every in-flight route object are bound to the scenario, and nothing needs two at once |
+| A15 | The reference point is the origin of the local frame, always. Not settable |
+| A16 | The airspace chords are horizontal in the local frame — they cut the north and south caps whatever way the runway points, because they exist to reclaim canvas height |
+| A17 | A 3° glideslope everywhere. It is a published per-approach figure in life, but no field the simulator flies differs, so it stays a constant rather than a runway field |
+| A18 | Every field shares one fleet and one airline list. Both are per-scenario in the type, so a regional mix is a data change |
 
 ---
 
@@ -1489,12 +1810,66 @@ for the architecture.
 | What playback shows | **Everything the live scope showed except the instruction artefacts** — no leader line, no assigned-heading vector, no controls (§17.3). Stats, blocks, alert colours and the message log are unchanged, because reviewing them is the point |
 | What playback adds | **The selected aircraft's whole path**, one solid line, the part still to come a shade dimmer. A live scope cannot show it; a recording already contains it |
 
+| Question | Decision (2026-09-01, multi-airport architecture) |
+| --- | --- |
+| How the field reaches the sim | **Threaded, not imported.** `World.scenario`, and then the narrowest slice each function is about — usually a `Runway`. Passing `world` everywhere was the obvious alternative and does not work: `playback.ts` calls `analyzeSeparation` *inside* the `World` literal it is building, and `ils`/`separation`/`dynamics` would all have had to import `World`, which is the runtime cycle `pilot.ts` avoids. A slice comes from `src/scenario/`, so the cycle rule holds structurally instead of by discipline (§11.4) |
+| Where a field's numbers live | **`constants.ts` holds the rules of the job, the `Scenario` holds the field.** Sixteen values moved: the airspace shape and levels, the default flows and gate cooldown, the four shared-runway rules, the two frequencies. Some were *duplicated* — `constants.ts` and the airport file each declared the airspace radius. What stayed is the flow range the sidebar offers, which is a property of the control the player is given |
+| Where the entry crossing lives | **On the STAR.** `ENTRY_ALTITUDE_NEAR_FT` existed only because two of ZZZZ's four gates happen to sit north of its runway — a per-route fact wearing a global constant. A route with a short run to the localizer is what knows it must be given the height off lower; the gate takes the values from it, so nothing reading them needs a special case for a gate delivered on vectors (§3.2) |
+| How routes are authored | **In the runway frame, declared per fix.** `final(15.2, 2)` and `depart(3.2, 8)` are the same numbers `finalGeometry` reports back and the same ones the prose already used. Route *templates* were rejected: `northStar`/`southStar` were parameterised over a shape rather than a runway, so a course-agnostic version would still need a new builder for the next field — and they forced two routes to be exact mirrors, which made an asymmetric ZZZZ inexpressible |
+| Which way a SID turns | **Derived from the resulting track.** It was a hand-written label with a hand-inverted sign, correct only for a southbound runway; a runway-36 field would have mislabelled every departure |
+| Whether to support two fields at once | **No.** One active field per session, chosen by `?airport=`; changing it is a reload (A14). The map cache, the recording and every in-flight route are bound to the scenario, and a switch would have to tear all three down — which is a reload, done worse |
+| How a field is known to be flyable | **`validateScenario` plus a flown conformance suite over every registered field.** And a second, deliberately awkward field in the fixtures: without one, the suite is a `describe.each` over a single element and every runway-relative helper could be wrong in a way that happens to work for a 180° course (§3.0) |
+| Whether the layering rules are documented or tested | **Tested.** `tests/architecture.test.ts`. Every rule it asserts was violated before v2, and every violation was invisible — nothing failed, the code just quietly knew which airport it was flying |
+
+| Question | Decision (2026-09-01, VABB) |
+| --- | --- |
+| How far out the published routes are kept | **Truncated at the 60 NM boundary, not compressed onto it.** VABB's real transitions reach 165 NM; a scope holding them makes the 20 NM that is actually played unreadable. Solving each STAR chart's leg bearings and distances back to the ARP puts the five convergence fixes at 44–73 NM, mean 59 — so the boundary radius follows the field rather than the field being squeezed to fit it, and each convergence fix becomes its gate (§3.1) |
+| Where a transcribed field's positions come from | **Published coordinates, not chart geometry.** The AAI charts give each leg as a track and a distance and never give a fix a bearing and range from the ARP, so solving positions back from them is a chain — and the chain accumulated enough error to put VABB's five entry gates 9–18° off their true bearings on the first attempt. The AIP's own WGS84 table, transcribed in `fields/vabb/fixes.ts`, has no chain in it, and the tabular coding beside it gives the fix order, tracks and published crossings outright |
+| Whether the published merges are modelled | **Yes.** Three of VABB's STARs reach OLGUS, two cross EMROS, two cross LIKTA and end at MB395 — the same fix on two routes. They are safe because each stream crosses at a different level — which is what the chart itself does, FL80 against FL110 at EMROS — and a STAR flies its own profile onto the aircraft, so the separation happens with nobody doing anything. No handover veto and no traffic-generator change was needed; what changed is the invariant, from "arrival routes stay laterally apart" — a property of ZZZZ's design — to "where they are laterally close their published profiles differ by `SEP_VERT_FT`" (§4.5) |
+| Whether multi-entry STARs are needed | **Not at either field.** VABB's entry transitions converge outside the airspace, so each STAR truncates to a single-entry route off its convergence fix. The mechanism, if a later field needs it, is the mirror of the SID exits |
+| Where a crossing restriction is released | **On the perpendicular to the bisector of the turn at its fix.** Along the outbound leg alone the half-plane reaches back up the inbound leg — eight miles early at VABB's VEVAK; along the inbound leg alone it never releases where a route turns back slightly, and held a departure 8937 ft under an arrival descending through 8000. The three agree exactly where a route runs straight through a fix, which is every fix at ZZZZ, which is why one field could not tell them apart (§4.7) |
+| How a branching SID is represented | **Flattened at compile time: one route per exit, each carrying the trunk again.** Nothing in the simulation learns a route can fork, so the sequencer, `ceilingAtFt` and resolve-by-name are untouched. The duplicated trunk costs only the chart drawing, where the strokes overdraw identically and the labels are deduped (§4.7) |
+| Which way a branching SID turns | **Per branch, off the track it flies.** A trunk that carries the turn gives every branch the chart's label; RAXET 2A's runs within 7° of the runway course, so its two branches take their own and say so. Forcing one label per chart would be agreeing on a fiction |
+| Whether a crossing restriction may separate from below | **Yes, and the validator checks both senses.** Every ZZZZ crossing holds the departure under the arrival, which is why the check only looked at the ceiling. VABB's XOPAL and OMGIX publish "at or above" because those branches cross an arrival 25–50 NM out, where the departure is far above it. The test is the band the chart guarantees — `ceilingAtFt` and a new `floorAtFt` — and either edge clearing 1000 ft is enough (§4.7) |
+| The second runway | **Drawn, and nothing else.** VABB's 14/32 comes from the aerodrome chart's own thresholds and is read only by `mapLayer`. Stated as its two ends rather than a course and a length: it is never flown, so there is no frame to stay consistent with and no derivation to get wrong. Exactly one runway is ever active (A2) |
+| Whether the scope should be square | **No — a circle with its caps cut, at 60 NM.** A square was the first idea, for screen real estate; but a literal square is limited by canvas height in a normal window and wastes the width. The existing circle-with-chords already expresses what was wanted, so no airspace code changed at all. The size is not a choice: VABB's five TMA entry fixes lie on a 60 NM arc, so that is the boundary and the outermost range ring is it |
+| Where a transcribed field holds its arrivals | **On invented fixes, named so they cannot be mistaken for published ones.** A hold anchors on the fix the aircraft is tracking to, and three of VABB's five routes run 42–44 NM from the boundary to their first published fix with nothing in between — the real delay is absorbed enroute, outside this airspace. So the three routes with no fix in their outer half get one `RC__` fix 20 NM inside the boundary, on the leg between two published points so the track is untouched, crossing at the leg's own interpolated profile rounded up to the next 1000 ft (§4.6) |
+| Whether a SID's fix names are drawn | **No, only its restrictions.** A departure takes no instructions, so its fixes are never spoken to or read back; the amber layer's whole job is where the traffic you do not control goes and how low it is held, and seven names crowding the STAR chart bought neither (§4.7) |
+| Whether to draw the coast | **Yes, as a line, and from OSM rather than by hand.** A scope with nothing on it but rings gives no sense of where Mumbai is, and both arrival streams turn inside the bay. Drawn as one hairline with no fill: land and water are identical to this simulator, so shading either would assert something the model does not know. Traced by eye it would have been the one position on the field not from a published source, so it is `natural=coastline` from OpenStreetMap (ODbL, attributed in the file and the README), joined, projected with the ARP and 56.6998 NM/°lon, and simplified to 0.1 NM (§3.1) |
+| Whether a field can change what an aircraft can do | **Yes, but only its climb, and only as a fraction.** The fleet's figures are book numbers for a temperate day, and Mumbai is not one; `departureClimbScale` is what a field says about its air. Put on the climb rather than the energy budget deliberately — thin air costs gradient, and what is not spent climbing is left to accelerate with, whereas scaling the budget would have squeezed the *steepest* climbers first, which is backwards. Carried on `SidNav` from the roll, so `dynamics.ts` still knows about no field at all. VABB flies at 0.88 with the tight crossings unchanged, because there the departure is level at its restriction before the arrival arrives (§4.7) |
+| Whether a gate sits on the boundary | **Yes, but placed along its own leg.** A radial from the field is wrong for a transcribed gate — VABB's five entry fixes are at 60.0–63.2 NM and forcing them onto one circle that way moved IGBAN 8 NM sideways. `clipToRange` walks the real inbound leg to the boundary instead: the arrival starts exactly on the edge, the track is the chart's, and the entry bearing shifts by at most a quarter of a degree. The published coordinate is kept and is what the leg aims at |
+| Which levels VABB's arrivals are flown at | **The observed ones, not the coded ones.** The supplement codes "AT OR ABOVE FL120 AT 250KT" at every entry fix, publishes an altitude at only two of the four shared fixes, and ends every route with a `VM` vector; in practice Mumbai rarely flies the coded profile at all — controllers assign by situation. So the levels are taken from observed traffic, handovers included: POKON 17,000/280, IGBAN and KETOR 15,000/260, MOLGO 14,000/260, EMRAK 12,000/250, then EMROS 8000/6000, OLGUS 7000/6000/5000, LIKTA 8000/6000, MB395 6000/5000. Every gap at a shared fix is at or above `SEP_VERT_FT`, the order of the two streams never swaps between the pair of fixes they share, and the fix *positions* remain the AIP's throughout — this is a decision about height, not about geometry |
+| Why VABB's five handovers differ from each other | **A route's length decides what it can be given.** EMRAK 2A has 25 NM from the boundary to OLGUS, its only fix, so its 12,000 is already 197 ft/NM — the steepest gradient on the field, and nothing higher would get down. The other four have 30–44 miles of first leg and enter 2000–5000 ft above it. Flown, the profiles come out at 667–976 fpm at the 99th percentile against ZZZZ's 1077, and no type overspeeds a published fix, so the coupling in `planRates` has budget to spare. Nothing in the model would *stop* a steeper profile: a STAR writes its altitude straight onto the aircraft (§4.5), so an unflyable one would simply be flown |
+| What sets a field's assignable ceiling | **Its highest handover.** POKON delivers at 17,000, and the controller has to be able to hold an arrival at the level it arrives on, so VABB's ceiling is 17,000 against ZZZZ's 13,000 — and `Sid.topFt`, which must clear the ceiling, rises with it to 18,000. That is a consequence rather than a choice: it doubles VABB's vertical range, gives it fourteen usable levels, and puts its departures further above the arrivals they cross rather than closer (§3.3) |
+| The one charted altitude the field does not fly | **ANOLI's published −FL100, held at 9000 instead.** POKON 2A descending to 9000 at EMROS is 2000 ft lower over ANOLI 2A's northbound trunk than the coded FL110 was, and the profile model interpolates that descent linearly, so the arrival is down to ~10,950 over the crossing 7 NM north of the field. At the published 10,000 a departure passes 951 ft beneath it — 48 ft short. Tightened rather than relaxed, to the same FL90 the mirror-image VEVAK trunk carries under the southern stream, and pinned in `tests/vabb.chart.test.ts` so it cannot drift back silently |
+| Where the gate weights come from | **Published movement data, not feel.** Delhi is 18 % of CSMIA's domestic share, Bengaluru 11 %, Goa 7 %, with movements about 73/27 domestic to international and the Middle East the largest international region; destinations then map onto the bearing they arrive on. Guessing had the Gulf corridor at half its real share (§4.4) |
+
 ## 15. Still open
 
 None of these blocks play; each is a small, contained change.
 
-1. **Runway identity** — built as `18` with a 180° final approach course. Match the screenshot's
-   `18C` instead? (In reality that implies parallels we are not modelling.)
+0. **The enroute transitions**, which feed VABB's five entry fixes from 73 to 210 NM out. Modelling
+   them means either an airspace three times the size or a notion of an arrival that is handed over
+   already partway down a route — the second is the interesting one, and neither is needed to fly the
+   field.
+0a. **A runway in use that can change.** Both fields hard-wire one: RWY 18 and RWY 27. VABB's 09 is
+   the other ILS end and would be a second `ScenarioSpec` (`?airport=VABB09`) long before it is worth
+   an `activeRunwayId` — a *selection*, and the wind that would justify it, is a further step again.
+   `inactiveRunways` deliberately does not start this: nothing under `src/sim/` reads it.
+0e. **A multi-entry STAR.** Not needed at either shipped field (§14), and the mechanism is the mirror
+   of the SID exits — a trunk with N stubs, each compiling to its own flat `Star`. Worth knowing the
+   shape is already proven.
+0b. **A per-approach glideslope angle.** 3° is a constant (A17). It is a published per-runway figure,
+   along with the antenna offset and threshold crossing height, and would move onto `Runway` the day
+   a field needs it.
+0c. **A non-horizontal airspace shape** (A16), and **a boundary that is not a chorded circle** — the
+   shape is one function of an `Airspace`, so a general polygon is a contained change.
+0d. **Serialised recordings.** A `Recording` carries its `Scenario`, so it is self-describing, but
+   nothing is persisted. If it ever is: a recording whose field is not registered must be *refused*,
+   with the reason shown. Never draw a recording against a different chart — the aircraft would be
+   right and the charts wrong, which is the worst failure mode a teaching tool has.
+1. **Runway identity** — ZZZZ is built as `18` with a 180° final approach course. Match the
+   screenshot's `18C` instead? (In reality that implies parallels we are not modelling.)
 2. **Speed floor policy** — currently a hard block below 180 kt (190 for heavies) outside 20 track
    miles, refused with an explanation. Softer alternative: allow it and score it.
 3. **Wake categories** — displayed on the data block, but not used for spacing. Should heavies
@@ -1550,12 +1925,19 @@ None of these blocks play; each is a small, contained change.
 nvm use          # Node 24 LTS, pinned in .nvmrc — the system default is 18 (EOL)
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 161 tests, headless, ~1.5 s
+npm test         # headless, no DOM, a few seconds
 npm run build    # typecheck + static bundle into dist/
 ```
 
-`?seed=1234` in the URL makes a session reproducible. In a dev build, `window.atc` exposes the live
-world for console poking and `window.atcRecording` the rolling recording behind it (§17).
+**URL parameters.** `?airport=ZZZZ` or `?airport=VABB` picks the field; an unknown id falls back to the
+default and says so in the message log. `?seed=1234` makes a session reproducible — **for the same `?airport=`**. The
+gate list an arrival is drawn from is scenario data, so one seed at two fields is two different
+sessions.
+
+In a dev build, `window.atc` exposes the live world for console poking, `window.atcRecording` the
+rolling recording behind it (§17), and `window.atcScenarios` the registry. `validateScenario` also
+runs over every registered field at startup and reports to the console, so authoring a field fails
+there rather than eight minutes into a session (§3.0).
 
 ---
 
@@ -1579,6 +1961,7 @@ trade: nothing to manage, nothing to clean up, no storage permission.
 | Window | **3600 s of sim time** | An hour is longer than any session anyone flies in one sitting; the cap exists so an unattended tab at 8× cannot grow without bound |
 | Prune batching | **60 s of slack** | Dropping old frames splices every channel of every track, so it is done once a minute rather than five times a second. A recording is therefore between 60 and 61 minutes long |
 | Storage | **Per aircraft, not per frame** | See below |
+| Field | **The `Scenario` itself, on the recording** | A track stores its route by *chart name*, which only means anything against the field it was flown at. Carrying the scenario means playback resolves names within it rather than against whatever is loaded — and the rebuilt `World` has a real field on it. Nothing is persisted, so a mismatch is impossible today; this is what makes the recording self-describing if that changes (§15.0d) |
 
 A departure track carries two extra channels — the SID's chart name and the index of the fix being
 tracked — for exactly the reason an arrival's carries the STAR's. `sid` being non-null is what makes

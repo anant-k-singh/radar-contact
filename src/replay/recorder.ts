@@ -32,6 +32,7 @@
  * stored, so a recording cannot disagree with the live readout.
  */
 import type { AircraftType } from '../scenario/aircraftTypes.js';
+import type { Scenario } from '../scenario/types.js';
 import type { Airline } from '../scenario/airlines.js';
 import type { Aircraft, AlertLevel, Phase } from '../sim/aircraft.js';
 import {
@@ -104,6 +105,16 @@ export interface SessionSnapshot {
 }
 
 export interface Recording {
+  /**
+   * The field the session was flown at.
+   *
+   * A track stores its route by *chart name*, which only means anything against
+   * the scenario it was flown in — so the recording carries that scenario rather
+   * than letting playback resolve names against whatever is loaded. Nothing is
+   * persisted today, so a mismatch is impossible; carrying it is what makes the
+   * recording self-describing if that ever changes (§17.1).
+   */
+  readonly scenario: Scenario;
   /** Oldest frame still held; frames are `REPLAY_SAMPLE_PERIOD_S` apart. */
   firstFrame: number;
   /** Newest frame held, or `firstFrame − 1` while the recording is empty. */
@@ -244,8 +255,9 @@ export function trackCoversFrame(track: Track, frame: number): boolean {
   return frame >= track.startFrame && frame < track.startFrame + track.x.length;
 }
 
-export function createRecording(): Recording {
+export function createRecording(scenario: Scenario): Recording {
   return {
+    scenario,
     firstFrame: 0,
     lastFrame: -1,
     tracks: [],
@@ -333,6 +345,7 @@ function cloneStats(stats: Stats): Stats {
     ...stats,
     landingTimesS: [...stats.landingTimesS],
     departureTimesS: [...stats.departureTimesS],
+    arrivalTimesS: [...stats.arrivalTimesS],
     rejections: new Map(stats.rejections),
     missedIntercepts: new Map(stats.missedIntercepts),
   };
@@ -355,6 +368,9 @@ function sumCounts(counts: Map<string, number>): number {
  * take-off roll, minutes earlier (§8.2). It is compared by its *last* entry
  * rather than its length, because the list saturates at the few timestamps the
  * rate reads and then stops growing.
+ *
+ * `arrivalTimesS` is compared the same way and for the same reason: nothing
+ * counts hand-overs, so its last entry is the only thing that moves with one.
  */
 function sessionChanged(last: SessionSnapshot, world: World): boolean {
   const a = last.stats;
@@ -367,6 +383,7 @@ function sessionChanged(last: SessionSnapshot, world: World): boolean {
     a.departures !== b.departures ||
     a.departureTimesS[a.departureTimesS.length - 1] !==
       b.departureTimesS[b.departureTimesS.length - 1] ||
+    a.arrivalTimesS[a.arrivalTimesS.length - 1] !== b.arrivalTimesS[b.arrivalTimesS.length - 1] ||
     a.handoffs !== b.handoffs ||
     a.violations !== b.violations ||
     a.goArounds !== b.goArounds ||

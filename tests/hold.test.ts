@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { AIRPORT } from '../src/scenario/airport.js';
 import type { Aircraft } from '../src/sim/aircraft.js';
 import { adjustAltitude, adjustHeading, adjustSpeed, clearForIls, toggleHold } from '../src/sim/commands.js';
-import { altitudeAheadFt, starProfileAt } from '../src/scenario/stars.js';
+import { altitudeAheadFt, starProfileAt } from '../src/scenario/routes.js';
 import {
-  CEILING_FT,
-  GATE_COOLDOWN_S,
   HOLD_LEG_S,
   HOLD_SPEED_KTS,
   PHYSICS_DT,
@@ -19,12 +16,12 @@ import { worldAtFrame } from '../src/replay/playback.js';
 import { createRecording, sample } from '../src/replay/recorder.js';
 import { stateTag } from '../src/render/trafficLayer.js';
 import { step } from '../src/sim/world.js';
-import { makeAircraft, pilotActs, quietWorld, run } from './helpers.js';
+import { AIRPORT, makeAircraft, pilotActs, quietWorld, run, SCENARIO } from './helpers.js';
 
 /** A fresh arrival at `gateName`, on its STAR, in an otherwise empty world. */
 function arrival(gateName = 'VANDA'): { ac: Aircraft; world: World } {
   const gate = AIRPORT.gates.find((candidate) => candidate.name === gateName)!;
-  const ac = createArrival(createRng(5), createTrafficState(), gate, [], 0);
+  const ac = createArrival(SCENARIO, createRng(5), createTrafficState(), gate, [], 0);
   return { ac, world: quietWorld(ac) };
 }
 
@@ -381,7 +378,7 @@ describe('delivering into a holding stack', () => {
   /** An aircraft parked in the pattern at `gate`'s entry fix, at `levelFt`. */
   function holdingAt(gateName: string, levelFt: number): Aircraft {
     const gate = AIRPORT.gates.find((candidate) => candidate.name === gateName)!;
-    const ac = createArrival(createRng(5), createTrafficState(), gate, [], 0);
+    const ac = createArrival(SCENARIO, createRng(5), createTrafficState(), gate, [], 0);
     const world = quietWorld(ac);
     pressHold(world, ac);
     flyToEstablished(world, ac);
@@ -394,7 +391,7 @@ describe('delivering into a holding stack', () => {
 
   const deliver = (gateName: string, existing: readonly Aircraft[]): Aircraft => {
     const gate = AIRPORT.gates.find((candidate) => candidate.name === gateName)!;
-    return createArrival(createRng(9), createTrafficState(), gate, existing, 0);
+    return createArrival(SCENARIO, createRng(9), createTrafficState(), gate, existing, 0);
   };
 
   it('delivers on the published chart when nothing is holding', () => {
@@ -440,13 +437,13 @@ describe('delivering into a holding stack', () => {
 
   it('stops delivering on that route once the stack reaches the ceiling', () => {
     const state = createTrafficState();
-    const full = [holdingAt('KOVAL', CEILING_FT)];
+    const full = [holdingAt('KOVAL', SCENARIO.airspace.ceilingFt)];
     // Every gate is off cooldown, so KOVAL is only missing if the stack vetoed
     // it — checked by spawning many times and never seeing it.
     const rng = createRng(3);
     const gates = new Set<string>();
     for (let i = 0; i < 200; i += 1) {
-      const ac = trySpawn(rng, state, full, i * GATE_COOLDOWN_S);
+      const ac = trySpawn(SCENARIO, rng, state, full, i * SCENARIO.traffic.gateCooldownS);
       if (ac) gates.add(ac.entryGate);
     }
     expect(gates.has('KOVAL')).toBe(false);
@@ -482,7 +479,7 @@ describe('the HOLD tag', () => {
     flyToEstablished(world, ac);
     pressHold(world, ac);
 
-    const rec = createRecording();
+    const rec = createRecording(SCENARIO);
     step(world, PHYSICS_DT);
     sample(rec, world);
     const rebuilt = worldAtFrame(rec, rec.lastFrame, {
@@ -553,7 +550,7 @@ describe('holding after delivery into a stack', () => {
   it('holds at the level it was delivered on, not the published crossing', () => {
     const gate = AIRPORT.gates.find((candidate) => candidate.name === 'KOVAL')!;
     // One already in the pattern at NIVEL on 10,000.
-    const first = createArrival(createRng(5), createTrafficState(), gate, [], 0);
+    const first = createArrival(SCENARIO, createRng(5), createTrafficState(), gate, [], 0);
     const firstWorld = quietWorld(first);
     pressHold(firstWorld, first);
     flyToEstablished(firstWorld, first);
@@ -562,7 +559,7 @@ describe('holding after delivery into a stack', () => {
     first.altitudeFt = 10_000;
 
     // The next one is delivered 1000 ft above it (§4.5)...
-    const next = createArrival(createRng(9), createTrafficState(), gate, [first], 0);
+    const next = createArrival(SCENARIO, createRng(9), createTrafficState(), gate, [first], 0);
     expect(next.altitudeFt).toBe(11_000);
     const entryFix = next.star!.route.waypoints[1]!;
     expect(entryFix.name).toBe('NIVEL');

@@ -5,27 +5,20 @@
  * holding point and released by whether the runway is free rather than by
  * anything to do with the gates.
  */
-import { AIRCRAFT_TYPES } from '../scenario/aircraftTypes.js';
-import { AIRLINES } from '../scenario/airlines.js';
-import { AIRPORT, type EntryGate } from '../scenario/airport.js';
-import { SIDS, type Sid } from '../scenario/sids.js';
-import { starForGate, type Star } from '../scenario/stars.js';
-import type { Aircraft } from './aircraft.js';
+import type { Airline } from '../scenario/airlines.js';
+
+
+import { entryFix, starForGate } from '../scenario/routes.js';
+import type { EntryGate, Scenario, Sid, Star } from '../scenario/types.js';
+import { newAircraft, type Aircraft } from './aircraft.js';
 import {
   ALTITUDE_STEP_FT,
-  CEILING_FT,
-  DEPARTURE_AIRBORNE_MARGIN_S,
   DEPARTURE_FLOW_IDLE_RECHECK_S,
-  DEPARTURE_HOLD_AFTER_LANDING_S,
-  DEPARTURE_HOLD_FINAL_NM,
-  DEPARTURE_MIN_INTERVAL_S,
-  ENTRY_SPEED_KTS,
-  GATE_COOLDOWN_S,
   MIN_SPAWN_INTERVAL_S,
   SPAWN_VETO_FT,
   SPAWN_VETO_NM,
 } from './constants.js';
-import { joinSid, MAX_DEPARTURE_ROLL_S } from './departure.js';
+import { joinSid, maxDepartureRollS } from './departure.js';
 import { groundSpeed } from './dynamics.js';
 import { finalGeometry } from './ils.js';
 import type { Rng } from './rng.js';
@@ -76,10 +69,14 @@ export function scheduleNextSpawn(
   state.nextSpawnAtS = timeS + Math.max(MIN_SPAWN_INTERVAL_S, rng.exponential(mean));
 }
 
-function callsign(rng: Rng, existing: readonly Aircraft[]): { airline: (typeof AIRLINES)[number]; text: string } {
+function callsign(
+  airlines: readonly Airline[],
+  rng: Rng,
+  existing: readonly Aircraft[],
+): { airline: Airline; text: string } {
   const used = new Set(existing.map((ac) => ac.callsign));
   for (let attempt = 0; attempt < 50; attempt += 1) {
-    const airline = rng.pick(AIRLINES);
+    const airline = rng.pick(airlines);
     const digits = 1 + rng.int(4); // 1..4 digits
     const max = 10 ** digits;
     const number = Math.max(1, rng.int(max));
@@ -87,7 +84,7 @@ function callsign(rng: Rng, existing: readonly Aircraft[]): { airline: (typeof A
     if (!used.has(text)) return { airline, text };
   }
   // Fallback that cannot collide.
-  const airline = rng.pick(AIRLINES);
+  const airline = rng.pick(airlines);
   return { airline, text: `${airline.icao}${existing.length + 900}` };
 }
 
@@ -105,21 +102,26 @@ function callsign(rng: Rng, existing: readonly Aircraft[]): { airline: (typeof A
  * the published chart and nothing about this exists.
  */
 export function holdingStackLevelFt(route: Star, existing: readonly Aircraft[]): Ft | null {
-  const entryFix = route.waypoints[1]!.name;
+  const fixName = entryFix(route).name;
   let topFt = Number.NEGATIVE_INFINITY;
   for (const ac of existing) {
     const hold = ac.star?.hold;
     // The target rather than the live altitude: an aircraft still descending
     // into the pattern already owns the level it is descending to.
-    if (hold?.fix === entryFix) topFt = Math.max(topFt, ac.targetAltitudeFt);
+    if (hold?.fix === fixName) topFt = Math.max(topFt, ac.targetAltitudeFt);
   }
   if (topFt === Number.NEGATIVE_INFINITY) return null;
   return Math.ceil(topFt / ALTITUDE_STEP_FT) * ALTITUDE_STEP_FT + ALTITUDE_STEP_FT;
 }
 
-function gateAvailable(gate: EntryGate, state: TrafficState, timeS: Sec): boolean {
+function gateAvailable(
+  scenario: Scenario,
+  gate: EntryGate,
+  state: TrafficState,
+  timeS: Sec,
+): boolean {
   const last = state.gateLastSpawnS.get(gate.name);
-  return last === undefined || timeS - last >= GATE_COOLDOWN_S;
+  return last === undefined || timeS - last >= scenario.traffic.gateCooldownS;
 }
 
 /**
@@ -132,11 +134,11 @@ function gateAvailable(gate: EntryGate, state: TrafficState, timeS: Sec): boolea
  * create the conflict the stacking exists to prevent — so neither is offered,
  * and the gate goes quiet instead.
  */
-function stackFull(gate: EntryGate, existing: readonly Aircraft[]): boolean {
-  const route = starForGate(gate.name);
+function stackFull(scenario: Scenario, gate: EntryGate, existing: readonly Aircraft[]): boolean {
+  const route = starForGate(scenario, gate.name);
   if (!route) return false;
   const levelFt = holdingStackLevelFt(route, existing);
-  return levelFt !== null && levelFt > CEILING_FT;
+  return levelFt !== null && levelFt > scenario.airspace.ceilingFt;
 }
 
 /** Would this spawn appear too close to traffic already in the airspace? */
@@ -149,19 +151,20 @@ function vetoed(gate: EntryGate, existing: readonly Aircraft[]): boolean {
 }
 
 export function createArrival(
+  scenario: Scenario,
   rng: Rng,
   state: TrafficState,
   gate: EntryGate,
   existing: readonly Aircraft[],
   timeS: Sec,
 ): Aircraft {
-  const type = rng.pick(AIRCRAFT_TYPES);
-  const { airline, text } = callsign(rng, existing);
+  const type = rng.pick(scenario.fleet);
+  const { airline, text } = callsign(scenario.airlines, rng, existing);
   const id = state.nextId;
   state.nextId += 1;
   // Center delivers the arrival established on the first leg of the STAR —
   // above whatever is already holding at its entry fix, if anything is (§4.5).
-  const route = starForGate(gate.name);
+  const route = starForGate(scenario, gate.name);
   const stackLevelFt = route ? holdingStackLevelFt(route, existing) : null;
   const altitudeFt = Math.max(gate.entryAltitudeFt, stackLevelFt ?? 0);
   const star = route ? joinStar(route, stackLevelFt) : null;
@@ -172,48 +175,24 @@ export function createArrival(
   // the published arrival, then straight in from where it ends.
   const directDistanceNm = route
     ? route.lengthNm +
-      distance(route.waypoints[route.waypoints.length - 1]!.position, AIRPORT.runway.threshold)
-    : distance(gate.position, AIRPORT.runway.threshold);
+      distance(route.waypoints[route.waypoints.length - 1]!.position, scenario.runway.threshold)
+    : distance(gate.position, scenario.runway.threshold);
 
-  return {
+  return newAircraft({
     id,
     callsign: text,
     airline,
     type,
-    x: gate.position.x,
-    y: gate.position.y,
+    position: gate.position,
     altitudeFt,
     headingDeg,
-    iasKts: ENTRY_SPEED_KTS,
-    vsFpm: 0,
-    targetHeadingDeg: headingDeg,
-    targetAltitudeFt: altitudeFt,
-    targetIasKts: ENTRY_SPEED_KTS,
-    pending: [],
-    turnDirection: null,
+    iasKts: gate.entrySpeedKts,
     star,
-    sid: null,
     phase: 'inbound',
-    handedOff: false,
-    speedAssignedAfterClearance: false,
     entryGate: gate.name,
     spawnedAtS: timeS,
-    trackMilesFlown: 0,
     directDistanceNm,
-    goArounds: 0,
-    exitWarned: false,
-    headingHintUntilS: 0,
-    // Starts empty: a freshly handed-over target has no history behind it.
-    trail: [],
-    radar: {
-      altitudeFt,
-      iasKts: ENTRY_SPEED_KTS,
-      headingDeg,
-      groundSpeedKts: ENTRY_SPEED_KTS * 1.16,
-      vsFpm: 0,
-    },
-    alert: 'none',
-  };
+  });
 }
 
 /**
@@ -221,20 +200,26 @@ export function createArrival(
  * blocked, in which case the caller retries on the next tick.
  */
 export function trySpawn(
+  scenario: Scenario,
   rng: Rng,
   state: TrafficState,
   existing: readonly Aircraft[],
   timeS: Sec,
 ): Aircraft | null {
-  const candidates = AIRPORT.gates.filter(
+  const candidates = scenario.gates.filter(
     (gate) =>
-      gateAvailable(gate, state, timeS) && !vetoed(gate, existing) && !stackFull(gate, existing),
+      gateAvailable(scenario, gate, state, timeS) &&
+      !vetoed(gate, existing) &&
+      !stackFull(scenario, gate, existing),
   );
   if (candidates.length === 0) return null;
 
-  const gate = rng.pick(candidates);
+  // Weighted, because which direction traffic comes from is a fact about the
+  // field (§4.4). A field that states no weights gets the even split it always
+  // had, from the same draw.
+  const gate = rng.pickWeighted(candidates, (candidate) => candidate.weight);
   state.gateLastSpawnS.set(gate.name, timeS);
-  return createArrival(rng, state, gate, existing, timeS);
+  return createArrival(scenario, rng, state, gate, existing, timeS);
 }
 
 // ── Departures (§4.7) ───────────────────────────────────────────────────────
@@ -269,14 +254,15 @@ export function scheduleNextDeparture(state: TrafficState, timeS: Sec, flowPerHo
  * queue length in the stats gutter is showing.
  */
 export function runwayBlockedBy(
+  scenario: Scenario,
   state: TrafficState,
   existing: readonly Aircraft[],
   timeS: Sec,
 ): string | null {
-  if (state.lastDepartureS !== null && timeS - state.lastDepartureS < DEPARTURE_MIN_INTERVAL_S) {
+  if (state.lastDepartureS !== null && timeS - state.lastDepartureS < scenario.runwayOps.minDepartureIntervalS) {
     return 'departure spacing';
   }
-  if (state.lastLandingS !== null && timeS - state.lastLandingS < DEPARTURE_HOLD_AFTER_LANDING_S) {
+  if (state.lastLandingS !== null && timeS - state.lastLandingS < scenario.runwayOps.holdAfterLandingS) {
     return 'landing traffic rolling out';
   }
   // Anything already on the runway — the previous departure has not lifted off.
@@ -288,12 +274,12 @@ export function runwayBlockedBy(
   // flying — one still carrying speed blocks from further out than one already
   // slowed to its approach speed. The take-off roll is the fleet's longest,
   // since the type is not drawn until the release itself.
-  const requiredS = MAX_DEPARTURE_ROLL_S + DEPARTURE_AIRBORNE_MARGIN_S;
+  const requiredS = maxDepartureRollS(scenario.fleet) + scenario.runwayOps.airborneMarginS;
   const shortFinal = existing.find((ac) => {
     if (ac.phase !== 'loc' && ac.phase !== 'gs') return false;
-    const alongNm = finalGeometry(ac).alongNm;
+    const alongNm = finalGeometry(scenario.runway, ac).alongNm;
     if (alongNm <= 0) return false;
-    if (alongNm <= DEPARTURE_HOLD_FINAL_NM) return true;
+    if (alongNm <= scenario.runwayOps.holdFinalNm) return true;
     const speedNmS = groundSpeed(ac) / 3600;
     return speedNmS > 0 && alongNm / speedNmS < requiredS;
   });
@@ -307,62 +293,39 @@ export function runwayBlockedBy(
  * than from a gate.
  */
 export function createDeparture(
+  scenario: Scenario,
   rng: Rng,
   state: TrafficState,
   route: Sid,
   existing: readonly Aircraft[],
   timeS: Sec,
 ): Aircraft {
-  const type = rng.pick(AIRCRAFT_TYPES);
-  const { airline, text } = callsign(rng, existing);
+  const type = rng.pick(scenario.fleet);
+  const { airline, text } = callsign(scenario.airlines, rng, existing);
   const id = state.nextId;
   state.nextId += 1;
 
-  const runway = AIRPORT.runway;
-  const altitudeFt = AIRPORT.elevationFt;
+  const runway = scenario.runway;
 
-  return {
+  return newAircraft({
     id,
     callsign: text,
     airline,
     type,
-    x: runway.threshold.x,
-    y: runway.threshold.y,
-    altitudeFt,
+    position: runway.threshold,
+    altitudeFt: scenario.elevationFt,
     headingDeg: runway.courseDeg,
+    // Stationary on the threshold — the one aircraft in the simulation that is
+    // not flying — and already spooled up to the speed it will rotate at.
     iasKts: 0,
-    vsFpm: 0,
-    targetHeadingDeg: runway.courseDeg,
-    targetAltitudeFt: altitudeFt,
     targetIasKts: type.v2Kts,
-    pending: [],
-    turnDirection: null,
-    star: null,
-    sid: joinSid(route),
+    sid: joinSid(route, scenario.elevationFt, scenario.performance.departureClimbScale),
     phase: 'roll',
-    handedOff: false,
-    speedAssignedAfterClearance: false,
     // The runway is where it entered the airspace, in the sense the entry gate
     // is for an arrival: the one place its track can be said to start.
     entryGate: `RWY${runway.id}`,
     spawnedAtS: timeS,
-    trackMilesFlown: 0,
-    // The track-mile ratio is an arrival efficiency measure and a departure
-    // never lands, so it has no shortest route to be compared against.
-    directDistanceNm: 0,
-    goArounds: 0,
-    exitWarned: false,
-    headingHintUntilS: 0,
-    trail: [],
-    radar: {
-      altitudeFt,
-      iasKts: 0,
-      headingDeg: runway.courseDeg,
-      groundSpeedKts: 0,
-      vsFpm: 0,
-    },
-    alert: 'none',
-  };
+  });
 }
 
 /**
@@ -374,13 +337,14 @@ export function createDeparture(
  * blocked ticks do not shift the type or the SID the departure ends up with.
  */
 export function tryDeparture(
+  scenario: Scenario,
   rng: Rng,
   state: TrafficState,
   existing: readonly Aircraft[],
   timeS: Sec,
 ): Aircraft | null {
-  if (runwayBlockedBy(state, existing, timeS) !== null) return null;
-  const route = rng.pick(SIDS);
+  if (runwayBlockedBy(scenario, state, existing, timeS) !== null) return null;
+  const route = rng.pick(scenario.sids);
   state.lastDepartureS = timeS;
-  return createDeparture(rng, state, route, existing, timeS);
+  return createDeparture(scenario, rng, state, route, existing, timeS);
 }
