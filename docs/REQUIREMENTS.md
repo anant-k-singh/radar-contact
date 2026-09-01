@@ -251,13 +251,21 @@ the scope carries its altitude in hundreds (`KOVAL 100`).
 | Parameter | Range | Step |
 | --- | --- | --- |
 | Heading | 010–360 | 10° |
-| Altitude | 2000–13,000 ft | 1000 ft |
+| Altitude | MVA to `Scenario.airspace.ceilingFt` — 2000–13,000 ft at ZZZZ, 3000–17,000 at VABB | 1000 ft |
 | Speed (IAS) | 180–250 kt outside 20 track miles; **160**–250 kt within | 10 kt |
 
-Aircraft enter at 11,000–13,000 ft against an assignable ceiling of **13,000 ft**, so a climb is
-available as a de-confliction tool everywhere except at the south gates, which arrive on the ceiling
-itself. Twelve usable levels between MVA and ceiling. Departures go *above* it, to 14,000 ft (§4.7):
-the ceiling is the top of what the controller may assign, not the top of the sky.
+The band is the *field's*, not the job's: it is `Scenario.airspace` at both ends, because what the
+controller may assign has to cover what Center hands over. At ZZZZ arrivals enter at 11,000–13,000
+against a 13,000 ceiling, so a climb is available as a de-confliction tool everywhere except at the
+south gates, which arrive on the ceiling itself — twelve usable levels. VABB's POKON hands over at
+17,000, which is what sets that field's ceiling and gives it fourteen. Departures go *above* the
+ceiling in both cases, to `Sid.topFt` (§4.7): the ceiling is the top of what the controller may
+assign, not the top of the sky.
+
+A handover level is also not a constant of the field. VABB's five differ — 17,000 at POKON down to
+12,000 at EMRAK — because a route's own length decides what it can be given: EMRAK 2A has 25 NM from
+the boundary to its only fix, and anything higher than 12,000 cannot be got down in the distance
+(§4.5).
 
 The 180 kt floor outside 20 track miles enforces the configuration gate (§2.4) rather than merely
 suggesting it. An
@@ -853,8 +861,12 @@ is the real assertion**, because it uses the aircraft's actual altitude rather t
 #### Climb performance
 
 Departure figures are **per type**, not per performance class, because for once there is real
-per-type data covering exactly the regime flown here: the whole airspace (0–12,000 ft) sits inside
-the EUROCONTROL Aircraft Performance Database's *initial climb* and *climb to FL150* bands.
+per-type data covering the regime flown here: a departure spends nearly all of its time on the scope
+inside the EUROCONTROL Aircraft Performance Database's *initial climb* and *climb to FL150* bands.
+VABB's `topFt` of 18,000 pokes just above the second of those — its arrivals enter as high as 17,000,
+so its departures have to top out over them — but `departureClimbFpm` is a rate *below 5000 ft* by
+definition and the type's ordinary `climbFpm` owns everything above, so nothing in the table is being
+read outside the band it was quoted for.
 
 | Type | V2 | Initial-climb IAS | Initial-climb ROC |
 | --- | --- | --- | --- |
@@ -1757,7 +1769,9 @@ where the arrivals are" — it is gone rather than recorded.
 | The second runway | **Drawn, and nothing else.** VABB's 14/32 comes from the aerodrome chart's own thresholds and is read only by `mapLayer`. Stated as its two ends rather than a course and a length: it is never flown, so there is no frame to stay consistent with and no derivation to get wrong. Exactly one runway is ever active (A2) |
 | Whether the scope should be square | **No — a circle with its caps cut, at 60 NM.** A square was the first idea, for screen real estate; but a literal square is limited by canvas height in a normal window and wastes the width. The existing circle-with-chords already expresses what was wanted, so no airspace code changed at all. The size is not a choice: VABB's five TMA entry fixes lie on a 60 NM arc, so that is the boundary and the outermost range ring is it |
 | Whether a gate sits on the boundary | **Yes, but placed along its own leg.** A radial from the field is wrong for a transcribed gate — VABB's five entry fixes are at 60.0–63.2 NM and forcing them onto one circle that way moved IGBAN 8 NM sideways. `clipToRange` walks the real inbound leg to the boundary instead: the arrival starts exactly on the edge, the track is the chart's, and the entry bearing shifts by at most a quarter of a degree. The published coordinate is kept and is what the leg aims at |
-| Which levels VABB's arrivals are flown at | **The observed ones, not the coded ones.** The supplement publishes an altitude at only two of the four shared fixes and ends every route with a `VM` vector, and in practice Mumbai rarely flies the coded profile at all — controllers assign by situation. So the levels are taken from observed traffic: EMROS 9000/7000, OLGUS 8000/7000/6000, LIKTA 9000/7000, MB395 7000/5500. Every gap is at or above `SEP_VERT_FT`, the order of the two streams never swaps between their two shared fixes, and the fix *positions* remain the AIP's throughout — this is a decision about height, not about geometry |
+| Which levels VABB's arrivals are flown at | **The observed ones, not the coded ones.** The supplement codes "AT OR ABOVE FL120 AT 250KT" at every entry fix, publishes an altitude at only two of the four shared fixes, and ends every route with a `VM` vector; in practice Mumbai rarely flies the coded profile at all — controllers assign by situation. So the levels are taken from observed traffic, handovers included: POKON 17,000/280, IGBAN and KETOR 15,000/260, MOLGO 14,000/260, EMRAK 12,000/250, then EMROS 9000/7000, OLGUS 8000/7000/6000, LIKTA 9000/7000, MB395 7000/5500. Every gap at a shared fix is at or above `SEP_VERT_FT`, the order of the two streams never swaps between the pair of fixes they share, and the fix *positions* remain the AIP's throughout — this is a decision about height, not about geometry |
+| Why VABB's five handovers differ from each other | **A route's length decides what it can be given.** EMRAK 2A has 25 NM from the boundary to OLGUS, its only fix, so its 12,000 is already 197 ft/NM — the steepest gradient on the field, and nothing higher would get down. The other four have 30–44 miles of first leg and enter 2000–5000 ft above it. Flown, the profiles come out at 667–976 fpm at the 99th percentile against ZZZZ's 1077, and no type overspeeds a published fix, so the coupling in `planRates` has budget to spare. Nothing in the model would *stop* a steeper profile: a STAR writes its altitude straight onto the aircraft (§4.5), so an unflyable one would simply be flown |
+| What sets a field's assignable ceiling | **Its highest handover.** POKON delivers at 17,000, and the controller has to be able to hold an arrival at the level it arrives on, so VABB's ceiling is 17,000 against ZZZZ's 13,000 — and `Sid.topFt`, which must clear the ceiling, rises with it to 18,000. That is a consequence rather than a choice: it doubles VABB's vertical range, gives it fourteen usable levels, and puts its departures further above the arrivals they cross rather than closer (§3.3) |
 | The one charted altitude the field does not fly | **ANOLI's published −FL100, held at 9000 instead.** POKON 2A descending to 9000 at EMROS is 2000 ft lower over ANOLI 2A's northbound trunk than the coded FL110 was, and the profile model interpolates that descent linearly, so the arrival is down to ~10,950 over the crossing 7 NM north of the field. At the published 10,000 a departure passes 951 ft beneath it — 48 ft short. Tightened rather than relaxed, to the same FL90 the mirror-image VEVAK trunk carries under the southern stream, and pinned in `tests/vabb.chart.test.ts` so it cannot drift back silently |
 | Where the gate weights come from | **Published movement data, not feel.** Delhi is 18 % of CSMIA's domestic share, Bengaluru 11 %, Goa 7 %, with movements about 73/27 domestic to international and the Middle East the largest international region; destinations then map onto the bearing they arrive on. Guessing had the Gulf corridor at half its real share (§4.4) |
 

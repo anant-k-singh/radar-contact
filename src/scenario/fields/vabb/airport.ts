@@ -51,8 +51,16 @@ import { clipToRange, xy } from '../../geometry.js';
 import type { AirspaceSpec, EntryGateSpec, InactiveRunwaySpec, RunwaySpec } from '../../types.js';
 import { VABB_FIXES as F } from './fixes.js';
 
-/** The top of what the controller may assign. The STARs are handed over at FL120. */
-export const CEILING_FT = 13_000;
+/**
+ * The top of what the controller may assign.
+ *
+ * Set by the handovers rather than chosen: POKON hands over at 17,000, so the
+ * controller has to be able to hold an arrival there. That is well above the FL120
+ * the supplement codes — see `stars.ts` for why the observed levels are used — and
+ * it is what makes VABB's vertical range twice ZZZZ's. It also lifts the default
+ * `Sid.topFt` to 18,000, since a SID's top must clear the assignable ceiling.
+ */
+export const CEILING_FT = 17_000;
 /**
  * The boundary, and therefore where Center hands over.
  *
@@ -63,9 +71,6 @@ export const CEILING_FT = 13_000;
  * whose coordinate stays in `fixes.ts`.
  */
 export const GATE_RANGE_NM = 60;
-/** What every STAR is handed over at: "AT OR ABOVE FL120 AT 250KT" on all five. */
-export const ENTRY_FT = 12_000;
-export const ENTRY_KTS = 250;
 
 /**
  * 3660 m of pavement bearing 089.2°/269.2° true. Centred on the ARP by the
@@ -138,14 +143,31 @@ export const VABB_AIRSPACE: AirspaceSpec = {
  * they read as percentages, though nothing requires it.
  */
 export const VABB_GATES: readonly EntryGateSpec[] = [
-  /** 152°, published 63.2 NM, inbound to DUGED. Bengaluru, Goa, Chennai, Hyderabad, Kochi. */
+  /**
+   * 152°, published 63.2 NM, inbound to DUGED, handed over at 14,000 / 260.
+   * Bengaluru, Goa, Chennai, Hyderabad, Kochi — the whole peninsula.
+   */
   { name: 'MOLGO', at: clipToRange(GATE_RANGE_NM, F.DUGED, F.MOLGO), weight: 34 },
-  /** 018°, published 60.3 NM, inbound to MB392. Delhi and the north Indian corridor. */
+  /**
+   * 018°, published 60.3 NM, inbound to MB392, handed over at 15,000 / 260.
+   * Delhi and the north Indian corridor, Ahmedabad, Jaipur.
+   */
   { name: 'IGBAN', at: clipToRange(GATE_RANGE_NM, F.MB392, F.IGBAN), weight: 22 },
-  /** 312°, published 60.6 NM, inbound to MB379. Dubai, Doha, Abu Dhabi, Muscat, Europe. */
+  /**
+   * 312°, published 60.6 NM, inbound to MB379, handed over at 17,000 / 280 — the
+   * highest and fastest on the field, and what `CEILING_FT` is set by. Dubai, Doha,
+   * Abu Dhabi, Muscat, Europe.
+   */
   { name: 'POKON', at: clipToRange(GATE_RANGE_NM, F.MB379, F.POKON), weight: 19 },
-  /** 228°, published 60.0 NM, inbound to MB393. The Maldives, and Gulf traffic over the sea. */
+  /**
+   * 228°, published 60.0 NM, inbound to MB393, handed over at 15,000 / 260.
+   * The Maldives, and Gulf traffic routing in over the sea.
+   */
   { name: 'KETOR', at: clipToRange(GATE_RANGE_NM, F.MB393, F.KETOR), weight: 13 },
-  /** 071°, published 60.3 NM, inbound to OLGUS. Kolkata, the northeast, Southeast Asia. */
+  /**
+   * 071°, published 60.3 NM, inbound to OLGUS, handed over at 12,000 / 250 — the
+   * lowest, because it is 25 NM from here to OLGUS and there is nowhere else to lose
+   * the height. Kolkata, the northeast, Southeast Asia.
+   */
   { name: 'EMRAK', at: clipToRange(GATE_RANGE_NM, F.OLGUS, F.EMRAK), weight: 12 },
 ];

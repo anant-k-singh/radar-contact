@@ -83,10 +83,24 @@ describe('the VABB chart', () => {
       // and its bearing shifts by a quarter of a degree.
       const trueBearing = bearing(VABB.arp, published(gate.name as 'MOLGO'));
       expect(Math.abs(gate.bearingDeg - trueBearing)).toBeLessThan(0.3);
-      expect(gate.entryAltitudeFt).toBe(12_000);
-      expect(gate.entrySpeedKts).toBe(250);
       expect(gate.inboundHeadingDeg).toBeCloseTo((gate.bearingDeg + 180) % 360, 6);
+      // Every handover is inside the assignable band, so the controller can hold an
+      // arrival at the level it arrives on.
+      expect(gate.entryAltitudeFt).toBeLessThanOrEqual(VABB.airspace.ceilingFt);
+      expect(gate.entryAltitudeFt).toBeGreaterThan(VABB.airspace.mvaFt);
     }
+    // The handover levels differ per gate: a long route enters high and has the
+    // miles to lose it, and EMRAK 2A — 25 NM from the boundary to its only fix —
+    // has to be given the height off lower or it cannot get down (§4.5).
+    expect(
+      VABB.gates.map((gate) => [gate.name, gate.entryAltitudeFt, gate.entrySpeedKts]),
+    ).toEqual([
+      ['MOLGO', 14_000, 260],
+      ['IGBAN', 15_000, 260],
+      ['POKON', 17_000, 280],
+      ['KETOR', 15_000, 260],
+      ['EMRAK', 12_000, 250],
+    ]);
   });
 
   it('publishes the five arrivals, merging into two streams', () => {
@@ -98,14 +112,14 @@ describe('the VABB chart', () => {
       ]),
     ).toEqual([
       ['IGBAN2A', 68.632689, [
-        ['IGBAN', [18.610513, 57.040765], 12000, 250],
+        ['IGBAN', [18.610513, 57.040765], 15000, 260],
         ['MB392', [16.101035, 25.618617], 10000, 230],
         ['EMROS', [15.701932, 7.239117], 7000, 220],
         ['OLGUS', [34.427681, 7.423783], 6000, 210],
       ]],
       ['POKON2A', 93.511864, [
-        ['POKON', [-44.355437, 40.405386], 12000, 250],
-        ['MB379', [-14.86794, 7.459783], 12000, 230],
+        ['POKON', [-44.355437, 40.405386], 17000, 280],
+        ['MB379', [-14.86794, 7.459783], 12000, 250],
         ['EMROS', [15.701932, 7.239117], 9000, 220],
         ['OLGUS', [34.427681, 7.423783], 8000, 210],
       ]],
@@ -114,14 +128,14 @@ describe('the VABB chart', () => {
         ['OLGUS', [34.427681, 7.423783], 7000, 220],
       ]],
       ['KETOR2A', 85.370164, [
-        ['KETOR', [-44.885959, -39.815206], 12000, 250],
-        ['MB393', [-14.252904, -11.134383], 11000, 230],
+        ['KETOR', [-44.885959, -39.815206], 15000, 260],
+        ['MB393', [-14.252904, -11.134383], 11000, 250],
         ['LIKTA', [16.21097, -9.860717], 9000, 220],
         ['MB395', [29.114434, -9.298217], 7000, 210],
       ]],
       ['MOLGO2A', 58.373015, [
-        ['MOLGO', [28.201578, -52.959145], 12000, 250],
-        ['DUGED', [16.597789, -25.53755], 9000, 230],
+        ['MOLGO', [28.201578, -52.959145], 14000, 260],
+        ['DUGED', [16.597789, -25.53755], 10000, 230],
         ['LIKTA', [16.21097, -9.860717], 7000, 220],
         ['MB395', [29.114434, -9.298217], 5500, 220],
       ]],
@@ -169,7 +183,9 @@ describe('the VABB chart', () => {
       expect(sid.waypoints[1]!.name).toBe('MB364');
       expect(at(sid.waypoints[1]!.position)).toEqual([-6.507865, -0.269717]);
       expect(sid.waypoints[1]!.minAltitudeFt).toBe(2600);
-      expect(sid.topFt).toBe(14_000);
+      // A thousand above the field's own assignable ceiling, which VABB's 17,000
+      // handover at POKON is what sets.
+      expect(sid.topFt).toBe(18_000);
     }
   });
 
