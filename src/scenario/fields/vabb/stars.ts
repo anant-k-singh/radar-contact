@@ -165,7 +165,7 @@ export const VABB_STARS: readonly StarSpec[] = [
         altitudeFt: 10_000,
         speedKts: 230,
       },
-      { name: 'OLGUS', at: F.OLGUS, altitudeFt: 6000, speedKts: 220 },
+      { name: 'OLGUS', at: F.OLGUS, altitudeFt: 6000, speedKts: 210 },
     ],
   },
   {
@@ -196,7 +196,7 @@ export const VABB_STARS: readonly StarSpec[] = [
     fixes: [
       { name: 'DUGED', at: F.DUGED, altitudeFt: 10_000, speedKts: 230 },
       { name: 'LIKTA', at: F.LIKTA, altitudeFt: 6000, speedKts: 220 },
-      { name: 'MB395', at: F.MB395, altitudeFt: 5000, speedKts: 220 },
+      { name: 'MB395', at: F.MB395, altitudeFt: 5000, speedKts: 210 },
     ],
   },
 ];
