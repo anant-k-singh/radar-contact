@@ -31,16 +31,53 @@ export interface Rect {
   h: number;
 }
 
-const CANDIDATES: ReadonlyArray<{ dx: number; dy: number; align: 'left' | 'right' }> = [
-  { dx: 14, dy: -18, align: 'left' },
-  { dx: 14, dy: 6, align: 'left' },
-  { dx: -14, dy: -18, align: 'right' },
-  { dx: -14, dy: 6, align: 'right' },
-  { dx: 14, dy: -34, align: 'left' },
-  { dx: 14, dy: 22, align: 'left' },
-  { dx: -14, dy: -34, align: 'right' },
-  { dx: -14, dy: 22, align: 'right' },
+/** Sideways clearance from the blip to the near edge of the block. */
+const BLOCK_DX_PX = 14;
+/**
+ * Vertical clearance from the blip's *centre* to the near edge of the block. The
+ * glyph is 13 px tall, so this leaves a few pixels of air rather than resting the
+ * text on the aircraft — and it is deliberately under `CONNECTOR_GAP_PX`, so the
+ * default placement still counts as adjacent and draws no connector to itself.
+ */
+const BLOCK_GAP_PX = 10;
+/** How far the second tier of candidates is displaced, when the first four collide. */
+const BLOCK_TIER_PX = 16;
+
+/**
+ * Where a data block may sit, tried in order: right of the blip then left,
+ * above before below, and a second tier further out when the first four collide.
+ *
+ * `above` is a side rather than an offset because the block has to clear the blip
+ * by its own height, and stating that as a number is how it stops doing so. A
+ * fixed −18 against a 24 px block left the whole thing *straddling* the aircraft,
+ * so the lower line covered whatever was a mile abeam — which on a downwind is
+ * the next aircraft in the sequence, the one thing the controller is comparing it
+ * with. Measured from the height, "above" means above.
+ */
+const CANDIDATES: ReadonlyArray<{
+  dx: number;
+  above: boolean;
+  tierPx: number;
+  align: 'left' | 'right';
+}> = [
+  { dx: BLOCK_DX_PX, above: true, tierPx: 0, align: 'left' },
+  { dx: BLOCK_DX_PX, above: false, tierPx: 0, align: 'left' },
+  { dx: -BLOCK_DX_PX, above: true, tierPx: 0, align: 'right' },
+  { dx: -BLOCK_DX_PX, above: false, tierPx: 0, align: 'right' },
+  { dx: BLOCK_DX_PX, above: true, tierPx: -BLOCK_TIER_PX, align: 'left' },
+  { dx: BLOCK_DX_PX, above: false, tierPx: BLOCK_TIER_PX, align: 'left' },
+  { dx: -BLOCK_DX_PX, above: true, tierPx: -BLOCK_TIER_PX, align: 'right' },
+  { dx: -BLOCK_DX_PX, above: false, tierPx: BLOCK_TIER_PX, align: 'right' },
 ];
+
+/** The top edge of a block of this height placed at this candidate. */
+function candidateTop(
+  candidate: (typeof CANDIDATES)[number],
+  by: number,
+  height: number,
+): number {
+  return by + (candidate.above ? -(height + BLOCK_GAP_PX) : BLOCK_GAP_PX) + candidate.tierPx;
+}
 
 /**
  * Strike a string through with U+0336 COMBINING LONG STROKE OVERLAY.
@@ -154,13 +191,19 @@ function placeBlock(
 
   for (const candidate of CANDIDATES) {
     const x = candidate.align === 'left' ? bx + candidate.dx : bx + candidate.dx - width;
-    const y = by + candidate.dy;
+    const y = candidateTop(candidate, by, height);
     const rect: Rect = { x, y, w: width, h: height };
     const onScreen = x > 2 && y > 2 && x + width < p.width - 2 && y + height < p.height - 2;
     if (onScreen && !placed.some((other) => overlaps(rect, other))) return rect;
   }
   // Everything collided — fall back to the first candidate.
-  return { x: bx + 14, y: by - 18, w: width, h: height };
+  const fallback = CANDIDATES[0]!;
+  return {
+    x: bx + fallback.dx,
+    y: candidateTop(fallback, by, height),
+    w: width,
+    h: height,
+  };
 }
 
 /**

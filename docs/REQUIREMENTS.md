@@ -1337,7 +1337,12 @@ Mirroring the reference screenshots:
   carries the aircraft it is about rather than being matched on its callsign text, so the filter
   does not depend on how a message happens to be worded.
 - **Label de-clutter:** data blocks are placed at the first of 8 candidate offsets that does not
-  overlap an existing block. Cheap, and it matters a lot at 25 aircraft.
+  overlap an existing block. Cheap, and it matters a lot at 25 aircraft. The vertical half of an
+  offset is a *side* — above or below — resolved against the block's own height, not a fixed number
+  of pixels. Stated as a number it was wrong: −18 px against a 24 px block put the block *astride*
+  the blip, so its lower line covered whatever was a mile abeam. On a downwind that is the next
+  aircraft in the sequence, which is the one thing the controller is comparing it with, and it shows
+  up at VABB rather than ZZZZ because five routes merge into two downwinds there.
 
 ---
 
