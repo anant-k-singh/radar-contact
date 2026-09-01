@@ -240,6 +240,7 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
       inboundHeadingDeg: bearing(position, arp),
       entryAltitudeFt,
       entrySpeedKts,
+      weight: gateSpec.weight ?? 1,
     };
   });
 

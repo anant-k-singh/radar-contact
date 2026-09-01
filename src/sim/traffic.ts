@@ -214,7 +214,10 @@ export function trySpawn(
   );
   if (candidates.length === 0) return null;
 
-  const gate = rng.pick(candidates);
+  // Weighted, because which direction traffic comes from is a fact about the
+  // field (§4.4). A field that states no weights gets the even split it always
+  // had, from the same draw.
+  const gate = rng.pickWeighted(candidates, (candidate) => candidate.weight);
   state.gateLastSpawnS.set(gate.name, timeS);
   return createArrival(scenario, rng, state, gate, existing, timeS);
 }

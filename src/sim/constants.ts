@@ -237,7 +237,16 @@ export const STAR_MAX_ANTICIPATION_NM = 6;
  * global to every departure lives in this file.
  */
 export const DEPARTURE_FLOW_MIN_PER_HOUR = 0;
-export const DEPARTURE_FLOW_MAX_PER_HOUR = 20;
+/**
+ * The top of the departure flow the player may ask for.
+ *
+ * Raised from 20 for VABB, which is the world's busiest single-runway airport and
+ * whose whole character is that number: ~46 movements an hour declared, and 1,036
+ * in a day on record. A field that opens at 22 departures an hour needs a control
+ * that can express it. `minDepartureIntervalS` still caps the runway itself at 40
+ * an hour, so this only widens what can be requested, never what can be released.
+ */
+export const DEPARTURE_FLOW_MAX_PER_HOUR = 24;
 export const DEPARTURE_FLOW_STEP_PER_HOUR = 5;
 /**
  * How often the spawner reconsiders a departure while the flow is set to zero.

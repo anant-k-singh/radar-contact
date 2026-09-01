@@ -121,6 +121,16 @@ export interface EntryGateSpec {
   /** Bearing from the ARP. The gate is placed on the boundary along it. */
   bearingDeg: Deg;
   /**
+   * Share of the arrivals this gate is offered, relative to the field's other
+   * gates. Defaults to 1, i.e. an even split.
+   *
+   * A property of the field, not of the job: which direction a real airport's
+   * traffic comes from is a fact about the route network around it, and at a
+   * field whose gates are 30° apart in one sector and 90° apart in another an
+   * even split is the unrealistic choice.
+   */
+  weight?: number;
+  /**
    * How Center delivers to a gate with **no** published STAR. Declare these only
    * for such a gate: when a STAR names this gate, its own entry crossing is used
    * instead, and declaring both is a validation error.
@@ -268,6 +278,8 @@ export interface EntryGate {
   entryAltitudeFt: Ft;
   /** Speed Center hands the arrival over at. Taken from the STAR. */
   entrySpeedKts: Kts;
+  /** Share of the arrivals offered here, relative to the other gates. */
+  weight: number;
 }
 
 export interface StarWaypoint {
