@@ -567,11 +567,11 @@ because one runway can only take one stream: VABB's IGBAN 2A and POKON 2A both c
 both then run to **OLGUS**, which EMRAK 2A also reaches; KETOR 2A and MOLGO 2A both cross **LIKTA**
 and end at **MB395**. Those are the same fix on two routes, at the same coordinate.
 
-What keeps two converging streams apart is **the level each is published at**. The chart crosses
-EMROS at FL80 on IGBAN 2A and FL110 on POKON 2A — 3000 ft, published, on the shared fix. Since a STAR
-writes its own profile straight onto the aircraft (below), that separation is flown without anyone
-doing anything, which is exactly why the merge is safe in reality and why this needs no special case
-in the traffic generator.
+What keeps two converging streams apart is **the level each crosses at**. The chart itself shows how:
+EMROS is coded FL80 on IGBAN 2A and FL110 on POKON 2A — 3000 ft, published, on the shared fix. Since
+a STAR writes its own profile straight onto the aircraft (below), that separation is flown without
+anyone doing anything, which is exactly why the merge is safe in reality and why this needs no
+special case in the traffic generator.
 
 So the invariant is not "routes stay laterally apart" but: **wherever two arrival routes come within
 `SEP_HORIZ_NM`, their published profiles must differ by `SEP_VERT_FT`.** `validateScenario` checks it
@@ -583,7 +583,7 @@ published procedure ends — the real coding finishes each with a `VM`, a vector
 there are a queue for the controller to sequence. That is the job, not a design error. Everywhere
 else a merge has to be flyable with nobody watching. Where the chart publishes no altitude at a
 shared terminal fix, the field picks levels that carry the separation through: VABB stacks its three
-flows 1500 ft apart at OLGUS.
+flows 1000 ft apart at OLGUS, which is the tightest split on either field.
 
 ### 4.6 Holding patterns
 
@@ -1748,7 +1748,7 @@ where the arrivals are" — it is gone rather than recorded.
 | --- | --- |
 | How far out the published routes are kept | **Truncated at the 60 NM boundary, not compressed onto it.** VABB's real transitions reach 165 NM; a scope holding them makes the 20 NM that is actually played unreadable. Solving each STAR chart's leg bearings and distances back to the ARP puts the five convergence fixes at 44–73 NM, mean 59 — so the boundary radius follows the field rather than the field being squeezed to fit it, and each convergence fix becomes its gate (§3.1) |
 | Where a transcribed field's positions come from | **Published coordinates, not chart geometry.** The AAI charts give each leg as a track and a distance and never give a fix a bearing and range from the ARP, so solving positions back from them is a chain — and the chain accumulated enough error to put VABB's five entry gates 9–18° off their true bearings on the first attempt. The AIP's own WGS84 table, transcribed in `fields/vabb/fixes.ts`, has no chain in it, and the tabular coding beside it gives the fix order, tracks and published crossings outright |
-| Whether the published merges are modelled | **Yes.** Three of VABB's STARs reach OLGUS, two cross EMROS, two cross LIKTA and end at MB395 — the same fix on two routes. They are safe because the chart gives the two streams different levels there, FL80 against FL110 at EMROS, and a STAR flies its own profile onto the aircraft, so the separation happens with nobody doing anything. No handover veto and no traffic-generator change was needed; what changed is the invariant, from "arrival routes stay laterally apart" — a property of ZZZZ's design — to "where they are laterally close their published profiles differ by `SEP_VERT_FT`" (§4.5) |
+| Whether the published merges are modelled | **Yes.** Three of VABB's STARs reach OLGUS, two cross EMROS, two cross LIKTA and end at MB395 — the same fix on two routes. They are safe because each stream crosses at a different level — which is what the chart itself does, FL80 against FL110 at EMROS — and a STAR flies its own profile onto the aircraft, so the separation happens with nobody doing anything. No handover veto and no traffic-generator change was needed; what changed is the invariant, from "arrival routes stay laterally apart" — a property of ZZZZ's design — to "where they are laterally close their published profiles differ by `SEP_VERT_FT`" (§4.5) |
 | Whether multi-entry STARs are needed | **Not at either field.** VABB's entry transitions converge outside the airspace, so each STAR truncates to a single-entry route off its convergence fix. The mechanism, if a later field needs it, is the mirror of the SID exits |
 | Where a crossing restriction is released | **On the perpendicular to the bisector of the turn at its fix.** Along the outbound leg alone the half-plane reaches back up the inbound leg — eight miles early at VABB's VEVAK; along the inbound leg alone it never releases where a route turns back slightly, and held a departure 8937 ft under an arrival descending through 8000. The three agree exactly where a route runs straight through a fix, which is every fix at ZZZZ, which is why one field could not tell them apart (§4.7) |
 | How a branching SID is represented | **Flattened at compile time: one route per exit, each carrying the trunk again.** Nothing in the simulation learns a route can fork, so the sequencer, `ceilingAtFt` and resolve-by-name are untouched. The duplicated trunk costs only the chart drawing, where the strokes overdraw identically and the labels are deduped (§4.7) |
@@ -1757,6 +1757,8 @@ where the arrivals are" — it is gone rather than recorded.
 | The second runway | **Drawn, and nothing else.** VABB's 14/32 comes from the aerodrome chart's own thresholds and is read only by `mapLayer`. Stated as its two ends rather than a course and a length: it is never flown, so there is no frame to stay consistent with and no derivation to get wrong. Exactly one runway is ever active (A2) |
 | Whether the scope should be square | **No — a circle with its caps cut, at 60 NM.** A square was the first idea, for screen real estate; but a literal square is limited by canvas height in a normal window and wastes the width. The existing circle-with-chords already expresses what was wanted, so no airspace code changed at all. The size is not a choice: VABB's five TMA entry fixes lie on a 60 NM arc, so that is the boundary and the outermost range ring is it |
 | Whether a gate sits on the boundary | **Yes, but placed along its own leg.** A radial from the field is wrong for a transcribed gate — VABB's five entry fixes are at 60.0–63.2 NM and forcing them onto one circle that way moved IGBAN 8 NM sideways. `clipToRange` walks the real inbound leg to the boundary instead: the arrival starts exactly on the edge, the track is the chart's, and the entry bearing shifts by at most a quarter of a degree. The published coordinate is kept and is what the leg aims at |
+| Which levels VABB's arrivals are flown at | **The observed ones, not the coded ones.** The supplement publishes an altitude at only two of the four shared fixes and ends every route with a `VM` vector, and in practice Mumbai rarely flies the coded profile at all — controllers assign by situation. So the levels are taken from observed traffic: EMROS 9000/7000, OLGUS 8000/7000/6000, LIKTA 9000/7000, MB395 7000/5500. Every gap is at or above `SEP_VERT_FT`, the order of the two streams never swaps between their two shared fixes, and the fix *positions* remain the AIP's throughout — this is a decision about height, not about geometry |
+| The one charted altitude the field does not fly | **ANOLI's published −FL100, held at 9000 instead.** POKON 2A descending to 9000 at EMROS is 2000 ft lower over ANOLI 2A's northbound trunk than the coded FL110 was, and the profile model interpolates that descent linearly, so the arrival is down to ~10,950 over the crossing 7 NM north of the field. At the published 10,000 a departure passes 951 ft beneath it — 48 ft short. Tightened rather than relaxed, to the same FL90 the mirror-image VEVAK trunk carries under the southern stream, and pinned in `tests/vabb.chart.test.ts` so it cannot drift back silently |
 | Where the gate weights come from | **Published movement data, not feel.** Delhi is 18 % of CSMIA's domestic share, Bengaluru 11 %, Goa 7 %, with movements about 73/27 domestic to international and the Middle East the largest international region; destinations then map onto the bearing they arrive on. Guessing had the Gulf corridor at half its real share (§4.4) |
 
 ## 15. Still open

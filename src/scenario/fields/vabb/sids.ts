@@ -29,20 +29,25 @@
  * whose only fix is outside the airspace (RAXET→SAKUN and RAXET→BISET) are dropped
  * rather than invented: RAXET keeps the DARMI fan, through MB370.
  *
- * ## The crossing restrictions are the chart's own
+ * ## The crossing restrictions
  *
- * Both trunks that pass under an arrival stream carry a published ceiling, and both
- * are enough:
+ * Both trunks leave the field under an arrival stream, and both carry a published
+ * ceiling that says so:
  *
  * - **ANOLI (−FL100)** runs north from MB364 straight under POKON 2A's leg into
- *   EMROS, which is descending 12,000 → 11,000 there. Held at or below 10,000, the
- *   departure passes about 1800 ft beneath it.
- * - **VEVAK (−FL90)** runs south under KETOR 2A's leg into LIKTA, descending
- *   11,000 → 10,000. Held at or below 9000, it passes about 1100 ft beneath.
+ *   EMROS. **Flown here at or below 9000, not the published 10,000** — the only
+ *   place this field departs from a charted altitude. POKON 2A descends to 9000 at
+ *   EMROS rather than the supplement's FL110 (see `stars.ts`), and the profile
+ *   model interpolates that descent linearly, so the arrival is down to ~10,950
+ *   over the crossing 7 NM north of the field. At the published 10,000 the
+ *   departure passes 951 ft beneath it; at 9000 it passes 1950. FL90 is also what
+ *   the mirror-image trunk carries, below.
+ * - **VEVAK (−FL90)** runs south under KETOR 2A's leg into LIKTA. Held at or below
+ *   9000 as published, it passes about 1300 ft beneath.
  *
  * Further out the separation is the other way round: **XOPAL's +FL120** and
  * **OMGIX's +FL100** put those branches above the arrival tracks they cross. Both
- * senses, both from the chart — see §4.7.
+ * senses — see §4.7.
  */
 import { clipToRange } from '../../geometry.js';
 import type { SidFixSpec, SidSpec } from '../../types.js';
@@ -65,7 +70,9 @@ const EXIT_RANGE_NM = 55;
 export const VABB_SIDS: readonly SidSpec[] = [
   {
     name: 'ANOLI2A',
-    fixes: [MB364, { name: 'ANOLI', at: F.ANOLI, maxAltitudeFt: 10_000 }],
+    // 9000, not the published 10,000 — see the header. The one charted altitude
+    // this field does not fly, and it is tightened rather than relaxed.
+    fixes: [MB364, { name: 'ANOLI', at: F.ANOLI, maxAltitudeFt: 9000 }],
     exits: [
       {
         // The eastern fan — AAU, MELAX, NONEN and KAKPO all leave this way.

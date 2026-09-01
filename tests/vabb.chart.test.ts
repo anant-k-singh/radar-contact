@@ -100,30 +100,30 @@ describe('the VABB chart', () => {
       ['IGBAN2A', 68.632689, [
         ['IGBAN', [18.610513, 57.040765], 12000, 250],
         ['MB392', [16.101035, 25.618617], 10000, 230],
-        ['EMROS', [15.701932, 7.239117], 8000, 220],
+        ['EMROS', [15.701932, 7.239117], 7000, 220],
         ['OLGUS', [34.427681, 7.423783], 6000, 210],
       ]],
       ['POKON2A', 93.511864, [
         ['POKON', [-44.355437, 40.405386], 12000, 250],
         ['MB379', [-14.86794, 7.459783], 12000, 230],
-        ['EMROS', [15.701932, 7.239117], 11000, 230],
-        ['OLGUS', [34.427681, 7.423783], 9000, 210],
+        ['EMROS', [15.701932, 7.239117], 9000, 220],
+        ['OLGUS', [34.427681, 7.423783], 8000, 210],
       ]],
       ['EMRAK2A', 25.38785, [
         ['EMRAK', [56.714048, 19.583584], 12000, 250],
-        ['OLGUS', [34.427681, 7.423783], 7500, 230],
+        ['OLGUS', [34.427681, 7.423783], 7000, 220],
       ]],
       ['KETOR2A', 85.370164, [
         ['KETOR', [-44.885959, -39.815206], 12000, 250],
         ['MB393', [-14.252904, -11.134383], 11000, 230],
-        ['LIKTA', [16.21097, -9.860717], 10000, 230],
-        ['MB395', [29.114434, -9.298217], 8000, 210],
+        ['LIKTA', [16.21097, -9.860717], 9000, 220],
+        ['MB395', [29.114434, -9.298217], 7000, 210],
       ]],
       ['MOLGO2A', 58.373015, [
         ['MOLGO', [28.201578, -52.959145], 12000, 250],
         ['DUGED', [16.597789, -25.53755], 9000, 230],
-        ['LIKTA', [16.21097, -9.860717], 7000, 230],
-        ['MB395', [29.114434, -9.298217], 5000, 210],
+        ['LIKTA', [16.21097, -9.860717], 7000, 220],
+        ['MB395', [29.114434, -9.298217], 5500, 220],
       ]],
     ]);
   });
@@ -140,16 +140,19 @@ describe('the VABB chart', () => {
     }
     expect(at(fix('KETOR2A', 'LIKTA').position)).toEqual(at(fix('MOLGO2A', 'LIKTA').position));
 
-    // EMROS: the chart's own FL80 against FL110.
-    expect(fix('POKON2A', 'EMROS').altitudeFt! - fix('IGBAN2A', 'EMROS').altitudeFt!).toBe(3000);
-    // LIKTA: the same 3000 ft split on the southern pair.
-    expect(fix('KETOR2A', 'LIKTA').altitudeFt! - fix('MOLGO2A', 'LIKTA').altitudeFt!).toBe(3000);
-    // OLGUS: three flows terminate there, stacked 1500 ft apart.
+    // Every shared fix is crossed at a different level, and the order of the flows
+    // never swaps: POKON 2A is above IGBAN 2A at both of theirs, KETOR 2A above
+    // MOLGO 2A at both of theirs.
+    expect(fix('POKON2A', 'EMROS').altitudeFt! - fix('IGBAN2A', 'EMROS').altitudeFt!).toBe(2000);
+    expect(fix('KETOR2A', 'LIKTA').altitudeFt! - fix('MOLGO2A', 'LIKTA').altitudeFt!).toBe(2000);
+    expect(fix('KETOR2A', 'MB395').altitudeFt! - fix('MOLGO2A', 'MB395').altitudeFt!).toBe(1500);
+    // OLGUS: three flows terminate there, stacked exactly 1000 ft apart — the
+    // tightest split on the field, and the reason it is worth pinning.
     expect(
       [fix('IGBAN2A', 'OLGUS'), fix('EMRAK2A', 'OLGUS'), fix('POKON2A', 'OLGUS')].map(
         (w) => w.altitudeFt,
       ),
-    ).toEqual([6000, 7500, 9000]);
+    ).toEqual([6000, 7000, 8000]);
   });
 
   it('flattens the three departures into seven ways out, all through MB364', () => {
@@ -198,7 +201,10 @@ describe('the VABB chart', () => {
       byName.get(sid)!.waypoints.find((w) => w.name === name)!;
 
     // Under: the two trunks that pass beneath an arrival stream close to the field.
-    expect(wpt('ANOLI2A/SEKVI', 'ANOLI').maxAltitudeFt).toBe(10_000);
+    // ANOLI is 9000 rather than its published 10,000, because POKON 2A is flown 2000
+    // ft lower into EMROS than the supplement codes — the one altitude on this field
+    // that is not the chart's, pinned here so it cannot drift back silently.
+    expect(wpt('ANOLI2A/SEKVI', 'ANOLI').maxAltitudeFt).toBe(9000);
     expect(wpt('VEVAK2A/DOGAP', 'VEVAK').maxAltitudeFt).toBe(9000);
     // Over: the two branches that cross an arrival track well out, where the arrival
     // is below them. These are the chart's own "at or above".

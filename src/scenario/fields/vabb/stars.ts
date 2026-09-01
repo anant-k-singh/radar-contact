@@ -2,8 +2,9 @@
  * VABB's standard arrivals — the five RWY 27 STARs, as published.
  *
  * Source: AIP Supplement 84/2020, §6.1–6.5 (cited in `airport.ts`). The fix
- * sequences, the tracks and the published speeds are the supplement's tabular
- * coding; the coordinates are its own table, via `fixes.ts`.
+ * sequences and the tracks are the supplement's tabular coding; the coordinates are
+ * its own table, via `fixes.ts`. The **levels are what Mumbai actually flies**, not
+ * what the supplement codes — see below.
  *
  * ## Two flows, and they merge
  *
@@ -26,15 +27,34 @@
  *
  * Three routes reach OLGUS and two reach EMROS, and a STAR writes its published
  * altitude straight onto the aircraft (§4.5) — so what stops two arrivals meeting
- * there is that **the chart gives them different levels**. IGBAN 2A crosses EMROS
- * at FL80 and POKON 2A at FL110: 3000 ft apart, published, on the same fix. That
- * is how a real merge is deconflicted, and it is why this field needs no special
- * handling in the traffic generator.
+ * there is that **each route crosses at a different level**. That is how a real
+ * merge is deconflicted, and it is why this field needs no special handling in the
+ * traffic generator.
  *
- * Where the chart publishes *no* altitude the level is chosen here, and chosen to
- * carry that separation through — the three flows arrive at OLGUS 1500 ft apart
- * and the two southern ones at MB395 3000 ft apart. Each such choice is marked
- * `designed` below. The speeds are all the chart's.
+ * ## Why the levels are observed rather than coded
+ *
+ * The supplement codes an altitude at only two of the four shared fixes (EMROS at
+ * FL80 on IGBAN 2A and FL110 on POKON 2A; FL100 at LIKTA on KETOR 2A) and ends
+ * every route with a `VM` vector, leaving OLGUS and MB395 to the controller. In
+ * practice Mumbai rarely flies the coded profile at all and assigns by situation,
+ * so the levels here are the ones the traffic is observed at:
+ *
+ * | Fix | | | |
+ * | --- | --- | --- | --- |
+ * | EMROS | POKON 2A 9000 | IGBAN 2A 7000 | |
+ * | OLGUS | POKON 2A 8000 | EMRAK 2A 7000 | IGBAN 2A 6000 |
+ * | LIKTA | KETOR 2A 9000 | MOLGO 2A 7000 | |
+ * | MB395 | KETOR 2A 7000 | MOLGO 2A 5500 | |
+ *
+ * Every gap is at or above `SEP_VERT_FT`; the three-way split at OLGUS is exactly
+ * 1000 ft between neighbours, which is the tightest thing on the field. OLGUS and
+ * MB395 are each route's *last* fix, where `checkStarSeparation` stops requiring a
+ * vertical split because the queue onto the ILS is the player's from there — the
+ * split is kept anyway so an untouched arrival is still separated.
+ *
+ * One consequence outside this file: POKON 2A descending to 9000 at EMROS is 2000 ft
+ * lower over ANOLI 2A's northbound trunk than the coded FL110 was, which is why
+ * `sids.ts` holds ANOLI at 9000 rather than its published 10,000.
  */
 import type { StarSpec } from '../../types.js';
 import { ENTRY_FT, ENTRY_KTS } from './airport.js';
@@ -50,32 +70,31 @@ export const VABB_STARS: readonly StarSpec[] = [
     entrySpeedKts: ENTRY_KTS,
     fixes: [
       { name: 'MB392', at: F.MB392, altitudeFt: 10_000, speedKts: 230 },
-      { name: 'EMROS', at: F.EMROS, altitudeFt: 8000, speedKts: 220 },
+      { name: 'EMROS', at: F.EMROS, altitudeFt: 7000, speedKts: 220 },
       { name: 'OLGUS', at: F.OLGUS, altitudeFt: 6000, speedKts: 210 },
     ],
   },
   {
-    // POKON 2A joins the northern stream at EMROS, 3000 ft above IGBAN 2A the
-    // whole way in — the chart's own FL110 against FL80.
+    // POKON 2A joins the northern stream at EMROS, 2000 ft above IGBAN 2A and
+    // staying above it all the way to OLGUS.
     name: 'POKON2A',
     gate: 'POKON',
     entryAltitudeFt: ENTRY_FT,
     entrySpeedKts: ENTRY_KTS,
     fixes: [
       { name: 'MB379', at: F.MB379, altitudeFt: 12_000, speedKts: 230 },
-      { name: 'EMROS', at: F.EMROS, altitudeFt: 11_000, speedKts: 230 },
-      { name: 'OLGUS', at: F.OLGUS, altitudeFt: 9000, speedKts: 210 },
+      { name: 'EMROS', at: F.EMROS, altitudeFt: 9000, speedKts: 220 },
+      { name: 'OLGUS', at: F.OLGUS, altitudeFt: 8000, speedKts: 210 },
     ],
   },
   {
-    // EMRAK 2A is the shortest route in and joins only at OLGUS, between the other
-    // two: 1500 ft above IGBAN 2A and 1500 below POKON 2A. designed — the chart
-    // publishes no altitude at OLGUS on any of the three.
+    // EMRAK 2A is the shortest route in and joins only at OLGUS, slotted between
+    // the other two: 1000 ft above IGBAN 2A and 1000 below POKON 2A.
     name: 'EMRAK2A',
     gate: 'EMRAK',
     entryAltitudeFt: ENTRY_FT,
     entrySpeedKts: ENTRY_KTS,
-    fixes: [{ name: 'OLGUS', at: F.OLGUS, altitudeFt: 7500, speedKts: 230 }],
+    fixes: [{ name: 'OLGUS', at: F.OLGUS, altitudeFt: 7000, speedKts: 220 }],
   },
   {
     // KETOR 2A: the southern stream, round the south of the field.
@@ -85,22 +104,22 @@ export const VABB_STARS: readonly StarSpec[] = [
     entrySpeedKts: ENTRY_KTS,
     fixes: [
       { name: 'MB393', at: F.MB393, altitudeFt: 11_000, speedKts: 230 },
-      { name: 'LIKTA', at: F.LIKTA, altitudeFt: 10_000, speedKts: 230 },
-      { name: 'MB395', at: F.MB395, altitudeFt: 8000, speedKts: 210 },
+      { name: 'LIKTA', at: F.LIKTA, altitudeFt: 9000, speedKts: 220 },
+      { name: 'MB395', at: F.MB395, altitudeFt: 7000, speedKts: 210 },
     ],
   },
   {
-    // MOLGO 2A joins the southern stream at LIKTA, 3000 ft below KETOR 2A —
-    // designed, mirroring the split the chart makes on the northern pair. The
-    // chart's own @FL90 at DUGED is what sets the level it arrives on.
+    // MOLGO 2A joins the southern stream at LIKTA, 2000 ft below KETOR 2A and
+    // 1500 below it at MB395. The chart's own @FL90 at DUGED is what sets the level
+    // it arrives on.
     name: 'MOLGO2A',
     gate: 'MOLGO',
     entryAltitudeFt: ENTRY_FT,
     entrySpeedKts: ENTRY_KTS,
     fixes: [
       { name: 'DUGED', at: F.DUGED, altitudeFt: 9000, speedKts: 230 },
-      { name: 'LIKTA', at: F.LIKTA, altitudeFt: 7000, speedKts: 230 },
-      { name: 'MB395', at: F.MB395, altitudeFt: 5000, speedKts: 210 },
+      { name: 'LIKTA', at: F.LIKTA, altitudeFt: 7000, speedKts: 220 },
+      { name: 'MB395', at: F.MB395, altitudeFt: 5500, speedKts: 220 },
     ],
   },
 ];

@@ -262,9 +262,10 @@ function checkSid(scenario: Scenario, sid: Sid, problems: Problem[]): void {
  *
  * Real STARs merge — that is what a merge fix is for — so "keep the routes apart"
  * cannot mean laterally. What keeps two converging streams safe is the level each
- * is published at: VABB's IGBAN 2A crosses EMROS at FL80 and POKON 2A crosses the
- * same fix at FL110, and an arrival on either flies its own chart onto the aircraft
- * (§4.5), so the 3000 ft is what makes the merge work without the controller.
+ * crosses at, which is what a chart itself does: VABB's IGBAN 2A is coded across
+ * EMROS at FL80 and POKON 2A across the same fix at FL110. An arrival on either
+ * flies its own profile onto the aircraft (§4.5), so the split is what makes the
+ * merge work without the controller.
  *
  * The exception is the last fix of a route. Where two routes *terminate* together
  * the published procedure has ended and the aircraft are a queue for the controller
