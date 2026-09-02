@@ -1,8 +1,8 @@
 /** Canvas plumbing: sizing, DPR, layer order, and hit testing. */
 import type { Aircraft } from '../sim/aircraft.js';
-import type { World } from '../sim/world.js';
+import { messagesFor, type World } from '../sim/world.js';
 import { mapLayer } from './mapLayer.js';
-import { drawMessages, drawStatusLine } from './messageLog.js';
+import { createLogScroll, drawMessages, drawStatusLine, scrollLog } from './messageLog.js';
 import { drawTrackPath, type TrackPathView } from './pathLayer.js';
 import type { Airspace } from '../scenario/types.js';
 import { createProjection, screenX, screenY, type Projection } from './project.js';
@@ -39,6 +39,16 @@ export interface Scope {
   render(world: World, options?: RenderOptions): void;
   /** Aircraft under a click, or null. Blips and data blocks are both clickable. */
   pick(world: World, clientX: number, clientY: number): Aircraft | null;
+  /** Whether a point is over the message log, so a wheel can be aimed at it. */
+  overMessages(clientX: number, clientY: number): boolean;
+  /**
+   * Wheel the message log back by whole lines, positive being back in time.
+   *
+   * The offset is view state and lives here rather than on the world: a replay
+   * frame is rebuilt every redraw, so anything written onto it is lost (§17.3)
+   * — the same reason playback holds its own selection.
+   */
+  scrollMessages(world: World, lines: number): void;
 }
 
 export function createScope(canvas: HTMLCanvasElement): Scope {
@@ -47,6 +57,9 @@ export function createScope(canvas: HTMLCanvasElement): Scope {
 
   let projection: Projection | null = null;
   let blocks = new Map<number, Rect>();
+  const logScroll = createLogScroll();
+  /** Selection the log offset was taken against — a new one is a new log. */
+  let logScrollSelection: number | null = null;
 
   const resize = (airspace: Airspace): Projection => {
     const dpr = window.devicePixelRatio || 1;
@@ -72,7 +85,14 @@ export function createScope(canvas: HTMLCanvasElement): Scope {
       blocks = drawTraffic(ctx, world, p, options);
       drawStatusLine(ctx, world, options.mode);
       drawStats(ctx, world, p);
-      drawMessages(ctx, world, p);
+      // The log is filtered by the selection (§7.1), so changing selection
+      // replaces the list under the offset — holding it would leave the new
+      // aircraft's exchange scrolled back for no reason the player asked for.
+      if (world.selectedId !== logScrollSelection) {
+        logScroll.offset = 0;
+        logScrollSelection = world.selectedId;
+      }
+      drawMessages(ctx, world, p, logScroll);
     },
 
     pick(world: World, clientX: number, clientY: number): Aircraft | null {
@@ -102,6 +122,20 @@ export function createScope(canvas: HTMLCanvasElement): Scope {
         }
       }
       return null;
+    },
+
+    overMessages(clientX: number, clientY: number): boolean {
+      // Nothing is over the log before one has been drawn.
+      const area = logScroll.area;
+      if (!area) return false;
+      const rect = canvas.getBoundingClientRect();
+      const px = clientX - rect.left;
+      const py = clientY - rect.top;
+      return px >= area.x && px <= area.x + area.w && py >= area.y && py <= area.y + area.h;
+    },
+
+    scrollMessages(world: World, lines: number): void {
+      scrollLog(logScroll, lines, messagesFor(world).length);
     },
   };
 }

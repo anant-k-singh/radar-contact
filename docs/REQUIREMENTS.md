@@ -1316,6 +1316,21 @@ altitude, levels, and picks the path up further in. Only one that never manages 
   I tell *this* aircraft, and what did it say". A separation call names two aircraft and appears
   under either of them. This holds in replay too, where reading one aircraft's exchanges back is
   most of what a review is (§17.2).
+- **The log scrolls back fifteen lines**, a line at a time, on the wheel over the log itself. Five
+  visible lines is what the scope has room for without covering the traffic, and filtering to the
+  selection is what makes those five the relevant ones — but the question that gets asked after a
+  go-around is "did I assign it a wrong speed on final", and the answer is an instruction given
+  several exchanges earlier. Fifteen is three screens, which covers one aircraft's whole exchange,
+  and it sits inside the 60 the world retains so the lines are still there to reach. Nothing else
+  about the log changes: the same five lines in the same place, the newest still the bright one.
+  The offset is view state held by the scope, not the world — the same reason
+  playback holds its own selection (§17.3) — so it resets when the selection changes, since
+  filtering replaces the list underneath it. The wheel is **aimed before it is accumulated**: a
+  trackpad delivers a few pixels an event where a mouse notch delivers tens, so the travel is banked
+  until it makes a line — but banking it for a wheel the log does not own means a long scroll over
+  the traffic is paid out in full by the next notch over the log, which sent it straight to the
+  oldest line. So the hit test comes first and the accumulator is dropped whenever the pointer is
+  elsewhere.
 - The altitude row carries the **current vertical rate in brackets** — `7001 (−1200) → 5000` —
   dim rather than yellow, since it is a trend the aircraft is producing, not a value assigned to
   it. Rounded to 50 fpm and blank in level flight, so it reads as a trend rather than jitter.
@@ -1406,7 +1421,8 @@ Mirroring the reference screenshots:
   has to mean "read this".
 - **Static map layer** (range rings, centerline + 2 NM ticks, gate markers, runway) is drawn once
   to an offscreen canvas and blitted each frame.
-- **Message log**, bottom of the scope: pilot readbacks and system messages, ~4 lines visible,
+- **Message log**, bottom of the scope: pilot readbacks and system messages, 5 lines visible and
+  15 of scrollback on the wheel (§7.1),
   styled like the screenshot's green text. Filtered to the selected aircraft (§7.1). Each line
   carries the aircraft it is about rather than being matched on its callsign text, so the filter
   does not depend on how a message happens to be worded.

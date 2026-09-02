@@ -400,6 +400,15 @@ export const MOVEMENT_RATE_STALE_S = 180;
 // ── Misc ────────────────────────────────────────────────────────────────────
 export const MESSAGE_LOG_MAX = 60;
 export const MESSAGE_LOG_VISIBLE = 5;
+/**
+ * How far back the log can be scrolled. Five lines is what the scope has room
+ * for without covering the traffic, and at 20-plus aircraft five lines is a few
+ * seconds of frequency — so the readback that answers "what did I assign this
+ * one" has usually already gone by the time it is looked for (§7.1). Fifteen is
+ * three screens of that, which covers one aircraft's whole exchange, and it sits
+ * inside `MESSAGE_LOG_MAX` so the lines are still there to scroll to.
+ */
+export const MESSAGE_LOG_SCROLLBACK = 15;
 /** How long the scope shows the assigned-heading vector after a turn is given. */
 export const HEADING_HINT_S = 5;
 /**
