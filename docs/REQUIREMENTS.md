@@ -200,13 +200,33 @@ so an authoring mistake fails in the console rather than eight minutes into a se
   two ends rather than a course and a length, because it is never flown, so there is no frame to stay
   consistent with. Exactly one runway is ever in use (A2); this does not weaken that.
 - **A field may state its coastline, and that is scenery too.** VABB's is drawn as a single light-blue
-  hairline, clipped to the boundary, with no fill on either side: there is no terrain and no water in
-  the model (A1), so shading land or sea would draw a fact the simulation does not have. It exists
-  because the field is a place — RWY 27 lands over the city and departs over the sea — and the
-  arrivals' turns are unreadable against an empty scope. The data is © OpenStreetMap contributors
-  under ODbL, joined into chains, converted with the same two constants as the published fixes and
-  simplified to 0.1 NM, which is under a pixel; it is stated as plain `[x, y]` pairs rather than
-  `FixAt` closures, since a coast is at the coordinates the world put it at.
+  hairline, clipped to the boundary, with no fill on either side: land and water are the same thing to
+  this simulator, so shading one of them would draw a fact the model does not have. It exists because
+  the field is a place — RWY 27 lands over the city and departs over the sea — and the arrivals' turns
+  are unreadable against an empty scope. The data is © OpenStreetMap contributors under ODbL, joined
+  into chains, converted with the same two constants as the published fixes and simplified to 0.1 NM,
+  which is under a pixel; it is stated as plain `[x, y]` pairs rather than `FixAt` closures, since a
+  coast is at the coordinates the world put it at.
+- **A field may state its terrain, as bands of minimum safe altitude, and it is scenery as well.**
+  VABB's is the Western Ghats, filled in four steps of a dim grey-green ramp. This does *not* weaken A1/A5: nothing under `src/sim/`
+  reads it, the flat `mvaFt` is still the only floor the simulation enforces, and the shading is there
+  because RWY 27's arrivals turn over rising ground and an empty scope says nothing about that.
+  - **The stored level is an MSA, not a ground elevation**, because it is the figure the scope prints
+    and a controller reads altitudes. The source contours are keyed by ground elevation, where a
+    published MSA is that plus 2000 ft of obstacle clearance; converting at
+    author time keeps the two from being confused downstream. Getting this backwards understated
+    every VABB band by 2000 ft in the first version of the data.
+  - **The published contours are generalised, deliberately and visibly.** They are traced at the
+    source's own grid resolution and carry its staircase and its filament arms; a morphological
+    open-then-close, one Chaikin pass and a 0.25 NM Douglas–Peucker take 2147 rings to 26 while
+    preserving area to ~2 %. The result is where the high ground is to a mile or two, which is what a
+    radar background asserts and all this needs to.
+  - **The figures are drawn outside the boundary, on leader lines**, one per band, because the
+    compass rose and the gate labels already own the edge of the scope where the terrain is. See the
+    decisions register.
+  - **Known conflict:** ~11 % of VABB's airspace is shaded above its own `mvaFt` of 3000, up to 6000.
+    The contradiction predates the shading — the real 25 NM MSA is 3800 in that sector — and drawing
+    it only makes it visible. See Q-series below.
 - **The reference point is the origin of the frame, always.** The frame is local to the field, so
   there is nothing to gain by offsetting it and a good deal that assumes it — the airspace shape is
   measured from it and the scope centres on it. It is not something a scenario can set.
@@ -222,7 +242,9 @@ so an authoring mistake fails in the console rather than eight minutes into a se
 - **Minimum vectoring altitude (MVA):** 2000 ft at ZZZZ, 3000 at VABB, everywhere inside the
   boundary. **No terrain is modelled anywhere**, so the MVA is a floor on what the controller may
   assign rather than a statement about the ground — VABB's real 25 NM MSA is 2600/2800/3800 ft by
-  sector and none of that sectorisation exists here.
+  sector and none of that sectorisation exists here. VABB now *draws* its terrain as MSA bands
+  (§3.1), which does not change this: the drawn figures exceed the flat MVA over about 11 % of the
+  airspace, and the simulation still clears aircraft to 3000 there.
 
 ### 3.2 Entry gates (Center → Approach handover points)
 
@@ -1545,6 +1567,46 @@ only the next departure; it now also sends an arrival around at 0.3 NM, which is
 occupancy real rather than a rule about departures. An in-trail sequence at the §9.3 minimum is
 77–103 s apart and never trips it; one flown tighter than about 2.3 NM does.
 
+### 9.5 Terrain
+
+A field may shade bands of minimum safe altitude (§3.1). Where it does, an aircraft **below the MSA of
+the ground at or near its position** is a violation of the ordinary kind: the target goes red, the
+count goes up, and the seconds accrue exactly as for a lost pair. No new alert level and no new
+statistic — from the controller's seat it is the same failure as losing 1000 ft against another
+aircraft, and a separate scoreboard would say otherwise.
+
+The rule is `altitudeFt < msaAt(position)`, where `msaAt` is the highest band whose polygon is within
+`TERRAIN_BUFFER_NM` (0.5 NM), **inside a polygon counting as zero**. That last clause is the whole
+rule rather than a detail: stated as "within half a mile of a band" it flags an aircraft beside a
+plateau and clears one over the middle of it, because the middle of a large polygon is nowhere near
+its edge. The buffer is a margin for navigational slop around the hazard, not the test for the hazard.
+
+It reads the *generalised* outlines the map draws, not a finer source, so the player is held to what
+the player can see. A violation against terrain that is not on the scope would be unreadable, and a
+scope shading ground the rules ignore would be a lie in the other direction.
+
+Two exemptions, and only two:
+
+- **An aircraft on the takeoff roll.** The roll happens at field elevation by definition; the terrain
+  layer has no business asserting a minimum over the aerodrome.
+- **A field with no terrain**, which answers 0 everywhere. ZZZZ is one.
+
+There is deliberately **no exemption for an aircraft on the approach**, which was considered and
+rejected on the evidence: at VABB the extended centreline is clear of shaded ground for the entire
+usable final, so the exemption would have been dead code at both shipped fields. Where a small peak
+did sit under the glideslope, the data was corrected instead (§3.1) — the published approach
+guarantees clearance, so terrain is not asserted inside 10 NM rather than being asserted and then
+excused.
+
+**The flat MVA and the drawn MSA disagree, and that is not resolved here.** `airspace.mvaFt` is one
+number for the field, and `adjustAltitude` clamps every assignment to it, so 3000 ft is assignable
+anywhere at VABB while 12 % of its airspace is shaded higher. A player who descends to the legal floor
+over high ground is therefore authorised by one rule and penalised by another. The shading is the
+warning, and reading it is the player's job: the terrain is drawn, so it is information the player
+has. Making the clamp refuse a descent below the *local* minimum means `mvaFt` becoming a position
+lookup and the clearance check reading position — a change to the simulation rather than to its
+scenery, and not made.
+
 ## 10. Handoff to Tower
 
 Automatic, when **all** hold (§2.3):
@@ -1838,6 +1900,21 @@ where the arrivals are" — it is gone rather than recorded.
 | Whether to draw the coast | **Yes, as a line, and from OSM rather than by hand.** A scope with nothing on it but rings gives no sense of where Mumbai is, and both arrival streams turn inside the bay. Drawn as one hairline with no fill: land and water are identical to this simulator, so shading either would assert something the model does not know. Traced by eye it would have been the one position on the field not from a published source, so it is `natural=coastline` from OpenStreetMap (ODbL, attributed in the file and the README), joined, projected with the ARP and 56.6998 NM/°lon, and simplified to 0.1 NM (§3.1) |
 | Whether a field can change what an aircraft can do | **Yes, but only its climb, and only as a fraction.** The fleet's figures are book numbers for a temperate day, and Mumbai is not one; `departureClimbScale` is what a field says about its air. Put on the climb rather than the energy budget deliberately — thin air costs gradient, and what is not spent climbing is left to accelerate with, whereas scaling the budget would have squeezed the *steepest* climbers first, which is backwards. Carried on `SidNav` from the roll, so `dynamics.ts` still knows about no field at all. VABB flies at 0.88 with the tight crossings unchanged, because there the departure is level at its restriction before the arrival arrives (§4.7) |
 | Whether a gate sits on the boundary | **Yes, but placed along its own leg.** A radial from the field is wrong for a transcribed gate — VABB's five entry fixes are at 60.0–63.2 NM and forcing them onto one circle that way moved IGBAN 8 NM sideways. `clipToRange` walks the real inbound leg to the boundary instead: the arrival starts exactly on the edge, the track is the chart's, and the entry bearing shifts by at most a quarter of a degree. The published coordinate is kept and is what the leg aims at |
+
+| Question | Decision (2026-09-02, VABB terrain) |
+| --- | --- |
+| Whether to shade terrain at all | **Yes, and it stays scenery.** A1/A5 say no terrain is *modelled*, which is about what the simulation computes, not what the scope shows. RWY 27's arrivals turn over rising ground and the empty east side of the scope asserted, wrongly, that there was nothing there. Nothing under `src/sim/` reads it and the flat `mvaFt` is still the only enforced floor, so the assumption holds |
+| Whether the bands are elevation or MSA | **Minimum safe altitude — elevation plus 2000 ft, converted at author time.** The source contours are keyed by terrain elevation while a published MSA is that plus obstacle clearance, so the two differ by a fixed offset and are trivially confusable; the first version of this data printed the elevations and understated every VABB band by 2000 ft. Converting in the field file means the number stored is the number drawn, and `TerrainSpec` says so in its type. Confirmed three ways: two bands matched by colour to published MSAs of 5,000' and 6,000', and the AAI chart's published 3800 ft within 25 NM against the 4000 this yields there |
+| Whether terrain counts as a violation | **Yes, as the ordinary violation.** A separate terrain alert level would need a colour, a ring and a statistic of its own to say something the existing red already says. `alerts` is per aircraft rather than per pair, so raising `'violation'` on one aircraft needed no renderer change at all |
+| How a terrain bust is carried | **Beside `pairs`, not in it.** A `ConflictPair` is two aircraft and the renderers draw the line between them; admitting a one-aircraft entry means nullable `a`/`b` and a check at every consumer. `SeparationReport.terrain` is a separate list, and nothing downstream of `alerts` needs to know it exists |
+| Whether an aircraft on final is exempt | **No.** Considered, and the data says it would be dead code: VABB's extended centreline is clear of shaded ground for the whole usable final. Where a peak did sit under the glideslope the terrain data was corrected instead of the rule being excused |
+| Counting a bust that moves between bands | **A second violation.** The key is `terrain-<id>-<msaFt>`, so descending from a 4000 band into a 5000 one counts again — it is a second mistake, and the climb needed to fix it is larger |
+| How faithfully the contours are reproduced | **Deliberately not faithfully.** The published rings are traced at the source's grid resolution and carry its signature — a one-cell staircase and filament arms a few hundred metres wide, one 58 sq NM ring having a 251 NM perimeter. A morphological open-then-close removes the arms as *features*, which a looser Douglas–Peucker cannot do (DP thins a spike into a triangle and keeps it); one Chaikin pass and DP at 0.25 NM finish it. 2147 rings become 26, area preserved to ~2 %. The intent is a rough estimate of where the high ground is, not a copy of someone's dataset |
+| Where a band's figure is placed | **Outside the boundary, on a leader line, one per band.** Labelling from inside does not work here and the bands' size is not why: the compass rose prints its bearings 24 px inside the boundary and the gates own the edge on their radials, so the eastern third of the airspace — exactly where the terrain is — is already spoken for, and an interior `MSA 4000` lands on the `090` tick while a coastal one collides with the fix labels being read. The chart is the working layer and terrain is context, so context moves to the margin. A leader crossing the boundary once and ending on bare background cannot be mistaken for a crossing restriction, which is also why the `MSA` prefix is no longer needed. One per band, not per ring: the figure names a step in the ramp, and the fill already says which patch belongs to which band |
+| Where the leader's foot attaches | **The pole of inaccessibility of the band's most generous ring, restricted to the drawn airspace.** The average of a ring's vertices is usually not inside a long concave ring at all — for the largest VABB band it fell 23 NM outside the polygon. And a ring may overhang the boundary, where the fill is clipped away, so the search takes the airspace test as a predicate; without it the leader points at bare background. The clearance gate is 0.25 NM, low deliberately: the highest band's best patch clears only 0.41 NM, and a gate tuned to the escarpment silently dropped the band most worth pointing at |
+| How the figures are spaced | **Each level with its own anchor, moved only to resolve an overlap.** Stacking them downward from the first drags the whole set to the bottom of the canvas behind the lowest band's anchor, and every leader then cuts diagonally across the fill it is pointing at. Each figure takes its anchor's height and, if that collides, the nearest free slot above or below — so leaders stay short and near-horizontal |
+| Where a leader stops | **A few pixels past the boundary arc at its own height, not at the canvas edge.** Running it to the edge drew a full-width rule across the scope and, on a height-fitted window where the circle nearly reaches the stats gutter, put the figures under the panel. The exit is the boundary's own half-width at the label's height, so the figures follow the curve of the circle and read as belonging to it rather than forming a column against the screen edge. A label in the top ~214 px stops short of the gutter as well, since the stats block is a block at the top of it and not the whole column |
+| That the drawn MSA exceeds the field's MVA | **Left as is, and documented.** About 11 % of VABB's airspace shades above its `mvaFt` of 3000, up to 6000. The contradiction is not new — the real 25 NM MSA is 3800 in that sector against an MVA chosen as a play floor — and the shading only makes it visible. Fixing it means per-sector minima: polygons carrying their own figures, `mvaFt` becoming a lookup, and the clearance check reading position. That is a change to the simulation rather than to its scenery, and is not in this change |
 | Which levels VABB's arrivals are flown at | **The observed ones, not the coded ones.** The supplement codes "AT OR ABOVE FL120 AT 250KT" at every entry fix, publishes an altitude at only two of the four shared fixes, and ends every route with a `VM` vector; in practice Mumbai rarely flies the coded profile at all — controllers assign by situation. So the levels are taken from observed traffic, handovers included: POKON 17,000/280, IGBAN and KETOR 15,000/260, MOLGO 14,000/260, EMRAK 12,000/250, then EMROS 8000/6000, OLGUS 7000/6000/5000, LIKTA 8000/6000, MB395 6000/5000. Every gap at a shared fix is at or above `SEP_VERT_FT`, the order of the two streams never swaps between the pair of fixes they share, and the fix *positions* remain the AIP's throughout — this is a decision about height, not about geometry |
 | Why VABB's five handovers differ from each other | **A route's length decides what it can be given.** EMRAK 2A has 25 NM from the boundary to OLGUS, its only fix, so its 12,000 is already 197 ft/NM — the steepest gradient on the field, and nothing higher would get down. The other four have 30–44 miles of first leg and enter 2000–5000 ft above it. Flown, the profiles come out at 667–976 fpm at the 99th percentile against ZZZZ's 1077, and no type overspeeds a published fix, so the coupling in `planRates` has budget to spare. Nothing in the model would *stop* a steeper profile: a STAR writes its altitude straight onto the aircraft (§4.5), so an unflyable one would simply be flown |
 | What sets a field's assignable ceiling | **Its highest handover.** POKON delivers at 17,000, and the controller has to be able to hold an arrival at the level it arrives on, so VABB's ceiling is 17,000 against ZZZZ's 13,000 — and `Sid.topFt`, which must clear the ceiling, rises with it to 18,000. That is a consequence rather than a choice: it doubles VABB's vertical range, gives it fourteen usable levels, and puts its departures further above the arrivals they cross rather than closer (§3.3) |

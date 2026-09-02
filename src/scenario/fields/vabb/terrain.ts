@@ -1,0 +1,334 @@
+/**
+ * The high ground east of the field, as the radar shades it — by the **minimum
+ * safe altitude** over each band, not by the elevation of the ground itself.
+ *
+ * Pure scenery, for the same reason the coastline is: this field is a *place*, and
+ * the Western Ghats are the most prominent thing on its scope after the sea.
+ * Nothing in the simulation reads it (§3.1 A1). What the player is actually held
+ * to is `airspace.mvaFt`, one number for the whole field, which `commands.ts`
+ * clamps every assignment to — see the note at the end, because these figures and
+ * that one do not agree everywhere.
+ *
+ * ## Source and licence
+ *
+ * Generalised from a third-party elevation contour set, which is not
+ * redistributable under this repository's AGPL-3.0 and so stays local in the
+ * gitignored `docs/terrain/`, exactly as the AAI charts do. Only these outlines
+ * are in the repository.
+ *
+ * ## The levels are MSA, and the source contours are not
+ *
+ * The source contours are keyed by **terrain elevation**. What a chart or a moving
+ * map shows a pilot is the minimum safe altitude over that ground, which is the
+ * elevation plus 2000 ft of obstacle clearance — so the two are a fixed offset
+ * apart and it is easy to print one while believing it is the other. That was the
+ * first version of this file, and it understated every band by 2000 ft.
+ *
+ * The offset is confirmed three independent ways:
+ *
+ * - The two lowest contours here match, by colour, bands published as **MSA
+ *   5,000'** and **MSA 6,000'** — 2000 ft above their contour elevations.
+ * - Both give the same offset, so it is uniform rather than a per-band table.
+ * - The AAI chart's published MSA within 25 NM is 2600/2800/**3800** ft by sector
+ *   (cited in `airport.ts`), and the highest contour inside that radius is the
+ *   2000 ft one — which this converts to 4000, just above the published 3800. A
+ *   per-sector figure sitting a little under a per-cell one is what should happen.
+ *
+ * So the stored `levelFt` is `ceil(elevation / 1000) * 1000 + 2000`, applied at
+ * conversion so the number in this file *is* the number the scope prints and
+ * nothing downstream has to remember the conversion. Rounding is up, because an
+ * MSA rounded down is not safe.
+ *
+ * One band is dropped: the 5000 ft contour (MSA 7000, the highest ground on the
+ * field) is a single elevation cell 0.1 NM across at (47.1, 30.1). It is
+ * inside the boundary and it is real, but there is no shape there to draw.
+ *
+ * ## How it is generalised
+ *
+ * The published contours are traced at the resolution of the source's elevation
+ * grid and carry two things that are unmistakably theirs: a one-cell staircase
+ * along every edge, and long filament arms a few hundred metres wide reaching down
+ * the valleys — one 58 sq NM ring had a 251 NM perimeter, which is a raster
+ * artifact of a contour walked cell by cell rather than the shape of a ridge. Both
+ * are removed, by a morphological **open then close** on a quarter-mile grid:
+ *
+ * - *Open* (erode, then dilate by the same radius) deletes anything narrower than
+ *   the brush. That is what takes the filaments out, and it is why this is not
+ *   just a looser Douglas–Peucker: DP only drops vertices, so it thins a spike
+ *   into a triangle and keeps it. Morphology removes the feature.
+ * - *Close* (dilate, then erode) fills the notches left between the fingers, so a
+ *   ridge reads as one mass instead of a comb.
+ *
+ * Then Chaikin corner-cutting **once**, which takes the staircase off without
+ * curving through everything, and DP at 0.25 NM to drop the vertices it no longer
+ * needs. A second Chaikin pass reads as too soft — the escarpment stops having
+ * corners at all — so the brush does the generalising and the corner treatment
+ * stays light. Outside the approach corridor 2147 published rings become 26, and
+ * 2824 points become 649, with
+ * the area preserved to about 2 %: open and close are near-inverses at the scale
+ * of the brush, so the shape moves rather than shrinks.
+ *
+ * The brush radius is **per band**, tied to `sqrt(area)` of the band's largest
+ * ring, so each is generalised by the same proportion of itself. One radius for
+ * the field cannot work: the MSA 4000 escarpment is 2900 sq NM and wants a wide
+ * brush, while the MSA 6000 summits are 4 sq NM and a wide brush erases them. A
+ * band too small to erode at all gets the closing pass only — rounded off but
+ * never thinned, since the highest ground is the part worth shading.
+ *
+ * Rings are ordered largest first within a level, and every ring winds the same
+ * way unless it is a genuine hole, which matters: `mapLayer` fills with nonzero
+ * winding, where a reversed ring subtracts.
+ *
+ * ## The final approach corridor is exempt from the brush
+ *
+ * Generalising by area is the wrong test on the approach path. The brush deleted
+ * real summits under the RWY 27 final at about 0.3 sq NM each, narrower than the
+ * brush for their band. Total area was preserved to 2 % throughout, which is
+ * exactly why the loss was invisible: 0.3 sq NM out of a 3000 sq NM band is nothing
+ * to the metric and everything to an aircraft.
+ *
+ * So from **10 to 25 NM off the threshold, 1 NM either side of the course**, no peak
+ * is dropped at any size. Those rings are traced from the source at full resolution
+ * and smoothed with a DP tolerance scaled to **their own** radius (a fifth of it)
+ * rather than the band's, since a tolerance wider than the feature collapses it to a
+ * degenerate sliver. Where one summit is split across the source's grid the lobes
+ * are kept as separate rings rather than merged: merging needs a brush wider than
+ * the gap, which is the operation that deleted them in the first place, and both
+ * lobes are near enough to matter to the same aircraft anyway.
+ *
+ * **Inside 10 NM the corridor is deliberately bare.** There was one 0.34 sq NM cell
+ * straddling the centreline at 9 NM, and at +2000 ft it read as MSA 3000 while a 3°
+ * glideslope is at 2906 there — so shading it made every correctly flown ILS a
+ * terrain violation, from 8.7 to 9.2 NM, 190 ft low at worst. A certified approach
+ * does not descend into high ground: the 3000 is an artefact of applying a blanket
+ * obstacle clearance to a single grid sample, which a surveyed MSA sector absorbs
+ * (the AAI chart gives 2600/2800 ft in the sector holding the final). The inner
+ * final is where a published procedure already guarantees clearance, so terrain is
+ * not asserted there.
+ *
+ * The asymmetry is deliberate, in both directions: beyond 10 NM the controller is
+ * vectoring and a small peak is the whole point, and inside it the approach owns the
+ * vertical.
+ *
+ * ## These figures exceed the field's MVA
+ *
+ * 11 % of the airspace is shaded at an MSA above `airspace.mvaFt` of 3000 — most
+ * of it 4000, a little 5000, and two samples 6000. That contradiction is real and
+ * predates this file: VABB's own published MSA is 3800 ft in the sector holding
+ * this ground, against an `mvaFt` of 3000 chosen as a floor on what the controller
+ * may assign rather than as a statement about the terrain. Shading it just makes
+ * it visible. Resolving it means per-sector minima — polygons with their own
+ * figures and a lookup in the clearance check — which is a change to the
+ * simulation, not to its scenery, and is not made here.
+ */
+import type { TerrainSpec } from '../../types.js';
+
+export const VABB_TERRAIN: TerrainSpec = [
+  [3000, [
+    [
+      [39.59, 34.56], [40.97, 34.56], [42.59, 35.81], [43.97, 35.81], [45.34, 37.06], [47.97, 37.06],
+      [48.34, 37.56], [49.97, 37.56], [51.03, 38.62], [51.03, 40.25], [52.09, 41.31], [53.72, 41.31],
+      [54.84, 42.56], [55.47, 42.56], [56.78, 43.87], [56.78, 44.75], [59.84, 48.31], [60.47, 48.31],
+      [61.59, 49.56], [62.97, 49.56], [64.09, 50.81], [68.72, 51.06], [69.78, 52.12], [69.78, 65.5],
+      [68.72, 66.56], [68.09, 66.56], [67.47, 67.31], [64.47, 68.06], [63.34, 68.06], [62.47, 67.06],
+      [60.34, 67.06], [59.47, 68.06], [57.84, 68.06], [56.78, 67], [56.78, 65.62], [58.03, 64.5],
+      [58.28, 58.12], [56.47, 56.81], [53.34, 56.81], [52.72, 57.56], [50.84, 57.56], [49.72, 58.31],
+      [48.59, 58.31], [47.53, 57.25], [47.53, 56.12], [48.59, 55.06], [49.97, 54.81], [52.03, 52.75],
+      [52.03, 50.62], [53.03, 49.75], [52.78, 46.87], [50.97, 45.06], [44.34, 45.06], [43.47, 44.06],
+      [40.34, 44.06], [39.97, 44.56], [36.34, 44.56], [35.47, 45.31], [33.34, 45.31], [32.28, 46.37],
+      [32.03, 50.5], [33.28, 51.62], [33.28, 54.5], [34.28, 55.37], [34.28, 58.25], [35.34, 59.31],
+      [36.72, 59.31], [38.84, 61.56], [40.47, 62.06], [41.53, 63.12], [41.53, 63.75], [43.53, 65.62],
+      [43.28, 68.5], [41.72, 70.56], [34.84, 70.56], [33.78, 69.5], [33.78, 68.37], [34.78, 67.5],
+      [34.78, 65.37], [33.47, 64.06], [30.84, 64.06], [30.47, 64.56], [26.59, 64.81], [25.03, 63.25],
+      [25.03, 61.87], [27.03, 60], [27.03, 58.87], [29.03, 57], [29.03, 54.87], [26.72, 52.06],
+      [24.09, 52.06], [23.03, 53.12], [23.03, 54.25], [21.72, 55.56], [20.34, 55.56], [17.97, 58.31],
+      [16.84, 58.31], [15.78, 57.25], [15.28, 56.5], [15.28, 55.37], [19.03, 51.25], [19.28, 49.12],
+      [20.34, 48.06], [22.47, 48.06], [23.53, 47], [23.53, 46.12], [24.84, 44.81], [27.97, 44.81],
+      [29.03, 43.75], [29.03, 41.37], [28.28, 40.75], [28.28, 39.37], [29.59, 37.81], [30.22, 37.81],
+      [30.59, 37.31], [32.47, 37.31], [34.59, 34.81], [39.22, 35.06], [39.59, 34.56]
+    ],
+    [
+      [62.84, -38.69], [65.34, -38.19], [68.47, -38.19], [69.78, -36.88], [69.78, -25.25],
+      [68.78, -24.38], [68.78, -23.25], [67.72, -22.19], [66.09, -21.94], [61.47, -17.69],
+      [59.84, -17.44], [58.78, -18.5], [58.78, -21.38], [57.72, -22.44], [54.09, -22.19],
+      [53.34, -21.94], [51.72, -20.19], [50.59, -20.19], [49.47, -21.44], [47.84, -21.69],
+      [45.53, -24], [45.78, -26.63], [48.03, -28.75], [48.03, -30.88], [49.09, -31.94],
+      [49.72, -31.94], [50.09, -32.44], [52.47, -32.44], [54.53, -34.25], [54.53, -34.88],
+      [56.09, -36.44], [59.97, -36.19], [60.59, -36.94], [61.22, -36.94], [62.84, -38.69]
+    ],
+    // ── Peaks in the RWY 27 final approach corridor (10–25 NM, 1 NM either side) ──
+    // ridge 16–22 NM out, north of the course.
+    [
+      [19.08, 3.36], [18.34, 2.63], [18.13, 1.80], [20.05, 0.05], [20.04, -0.47], [20.40, -0.34],
+      [20.70, -1.78], [22.03, -2.03], [22.22, -1.74], [21.01, -0.90], [19.63, 1.14], [19.22, 2.22],
+      [19.43, 3.17], [19.08, 3.36]
+    ],
+    // knoll 15–17 NM out.
+    [
+      [17.24, 2.00], [17.38, 1.30], [17.05, 1.17], [16.68, 1.47], [16.57, 1.12], [17.09, 1.10],
+      [17.56, 0.57], [17.72, 0.80], [18.00, 0.77], [18.00, 1.60], [17.24, 2.00]
+    ],
+  ]],
+  [4000, [
+    [
+      [67.17, -69.69], [68.8, -69.69], [69.86, -68.63], [69.86, -67], [69.11, -66.38], [69.11, -64],
+      [69.86, -63.38], [69.86, -61.5], [68.3, -59.94], [66.67, -59.94], [65.61, -58.88],
+      [65.61, -56.75], [66.67, -55.69], [68.55, -55.69], [69.86, -54.38], [69.61, -39.5],
+      [68.55, -38.44], [61.42, -38.69], [60.3, -37.69], [59.42, -37.69], [58.3, -36.44],
+      [55.92, -36.94], [55.05, -37.94], [52.92, -37.94], [51.86, -36.88], [51.86, -34.75],
+      [50.55, -33.44], [47.67, -33.44], [46.61, -32.38], [46.86, -29], [44.8, -26.94],
+      [43.42, -26.44], [42.36, -25.38], [42.36, -23], [43.86, -21.63], [43.86, -20.75],
+      [44.92, -19.69], [50.55, -19.69], [50.92, -20.19], [52.3, -20.19], [54.42, -22.19],
+      [56.05, -22.19], [57.11, -21.13], [56.86, -16.5], [57.92, -15.44], [60.05, -15.44],
+      [62.36, -17.75], [62.61, -18.63], [63.92, -19.94], [64.55, -19.94], [66.42, -21.94],
+      [67.55, -21.94], [68.61, -20.88], [68.61, -20], [69.86, -18.88], [69.86, -7.75],
+      [68.61, -6.63], [68.61, -4.5], [69.86, -3.38], [69.86, 23], [68.11, 24.62], [68.11, 27],
+      [69.86, 28.62], [69.86, 46.25], [68.11, 48.37], [68.11, 50], [67.05, 51.06], [65.92, 51.06],
+      [65.55, 50.56], [64.42, 50.56], [63.55, 49.56], [61.67, 49.56], [58.11, 46], [57.11, 44.12],
+      [54.36, 41.75], [53.86, 39.87], [53.36, 39.5], [53.36, 38.62], [52.05, 37.31], [48.67, 37.31],
+      [47.55, 36.06], [46.17, 36.06], [44.05, 33.31], [42.42, 33.31], [41.36, 32.25], [41.36, 31.12],
+      [43.36, 28.75], [43.36, 27.87], [46.61, 25], [46.36, 21.62], [47.42, 20.56], [48.55, 20.31],
+      [51.11, 17.75], [51.11, 15.37], [50.05, 14.31], [47.92, 13.56], [46.61, 12.25], [46.61, 10.37],
+      [42.8, 6.81], [40.42, 6.31], [38.36, 4.5], [38.36, 2.12], [37.86, 1.5], [37.61, -1.88],
+      [38.61, -2.75], [38.61, -5.38], [36.55, -7.44], [35.17, -7.44], [34.11, -8.5], [34.11, -9.88],
+      [33.11, -10.75], [32.86, -12.63], [31.36, -14.5], [31.11, -16.88], [30.36, -18],
+      [30.36, -19.63], [28.61, -21.25], [28.61, -22.38], [29.61, -23.25], [29.61, -26.13],
+      [28.61, -27], [28.36, -28.13], [27.11, -29.25], [27.11, -30.63], [28.67, -32.19],
+      [29.8, -32.19], [31.17, -30.69], [33.3, -30.69], [35.86, -33.25], [35.86, -35.63],
+      [34.55, -36.94], [31.92, -36.94], [30.61, -38.25], [30.61, -40.38], [31.61, -41.25],
+      [31.86, -42.75], [31.86, -46.13], [33.92, -48.19], [35.8, -48.69], [37.86, -50.75],
+      [37.86, -51.88], [38.92, -52.94], [39.8, -52.94], [40.42, -53.69], [42.3, -54.19],
+      [43.36, -55.25], [43.36, -57.88], [42.11, -59], [42.11, -60.38], [43.67, -61.94],
+      [49.05, -61.69], [49.42, -61.19], [51.55, -61.19], [51.92, -61.69], [53.05, -61.69],
+      [53.42, -61.19], [57.3, -61.19], [59.17, -62.94], [61.55, -62.94], [65.05, -64.44],
+      [66.11, -65.5], [66.11, -68.63], [67.17, -69.69]
+    ],
+    [
+      [38.92, 45.06], [50.55, 45.31], [52.11, 46.87], [52.11, 48], [51.11, 48.87], [51.36, 52.5],
+      [49.86, 53.87], [49.86, 56], [50.92, 57.06], [56.05, 56.81], [56.67, 57.56], [57.55, 57.56],
+      [58.61, 58.62], [58.61, 60], [58.11, 60.37], [58.11, 62.75], [57.61, 63.12], [57.61, 64.75],
+      [56.61, 65.62], [56.61, 66.75], [55.36, 67.87], [55.36, 69.25], [54.05, 70.56], [44.42, 70.56],
+      [43.36, 69.5], [43.36, 65.12], [42.11, 64], [42.11, 62.87], [41.05, 61.81], [39.42, 61.81],
+      [36.55, 58.81], [35.92, 58.81], [34.86, 57.75], [34.86, 56.62], [34.11, 55.75], [34.11, 53.87],
+      [33.61, 53.5], [33.61, 50.87], [32.61, 50], [32.61, 48.87], [34.67, 46.31], [37.55, 46.31],
+      [38.92, 45.06]
+    ],
+    // ── Peaks in the RWY 27 final approach corridor (10–25 NM, 1 NM either side) ──
+    // summit 18.5 NM out, just north of the course.
+    [
+      [19.68, 0.43], [19.73, 0.44], [19.73, 0.69], [19.67, 0.71], [19.66, 0.82], [19.56, 0.82],
+      [19.55, 0.74], [19.61, 0.72], [19.61, 0.53], [19.67, 0.52], [19.68, 0.43]
+    ],
+    // its northern lobe.
+    [
+      [19.50, 0.82], [19.55, 0.83], [19.54, 0.88], [19.49, 0.88], [19.49, 0.83], [19.50, 0.82]
+    ],
+  ]],
+  [5000, [
+    [
+      [44.85, 28.46], [45.48, 28.46], [45.85, 29.46], [47.85, 29.71], [49.73, 28.96], [49.54, 31.15],
+      [49.85, 31.46], [51.48, 31.71], [51.79, 30.27], [52.48, 30.21], [53.85, 32.46], [55.73, 31.71],
+      [56.35, 30.71], [58.73, 30.96], [63.73, 30.46], [63.48, 31.71], [61.1, 31.96], [60.73, 32.46],
+      [59.85, 32.46], [59.23, 33.46], [57.85, 33.46], [57.29, 34.02], [57.29, 34.65], [58.1, 35.46],
+      [59.79, 35.27], [59.79, 35.9], [58.79, 36.27], [59.35, 37.71], [60.23, 37.71], [60.6, 36.96],
+      [61.54, 37.02], [62.04, 39.4], [59.48, 39.71], [58.1, 39.71], [57.73, 39.21], [54.85, 39.46],
+      [55.04, 37.77], [54.04, 37.15], [53.54, 35.02], [52.04, 34.15], [51.73, 32.96], [50.6, 32.96],
+      [49.48, 31.71], [47.85, 31.96], [46.98, 30.71], [46.23, 30.46], [43.1, 30.71], [42.79, 30.4],
+      [42.85, 29.71], [44.48, 29.71], [44.85, 28.46]
+    ],
+    [
+      [51.6, 1.96], [52.54, 2.02], [53.04, 2.77], [53.04, 3.65], [51.6, 3.96], [51.29, 4.9],
+      [52.73, 5.21], [52.79, 5.9], [47.35, 6.46], [47.04, 6.77], [47.29, 8.65], [48.48, 8.96],
+      [48.48, 9.71], [45.1, 9.21], [43.73, 6.96], [42.35, 6.96], [41.29, 6.15], [40.98, 4.96],
+      [38.54, 5.4], [38.54, 4.27], [39.6, 3.46], [40.23, 3.46], [40.6, 2.71], [41.23, 2.71],
+      [41.6, 3.71], [45.23, 3.46], [45.73, 2.96], [46.04, 4.15], [45.54, 4.52], [45.54, 5.15],
+      [46.98, 5.46], [47.29, 5.15], [47.29, 3.77], [47.85, 3.21], [48.48, 3.21], [48.85, 3.96],
+      [49.73, 3.96], [50.1, 2.96], [51.54, 2.65], [51.6, 1.96]
+    ],
+    [
+      [60.35, 13.71], [62.04, 13.77], [62.04, 14.65], [61.1, 14.71], [60.79, 15.65], [62.1, 16.21],
+      [64.23, 15.71], [64.85, 14.71], [65.48, 14.71], [65.79, 15.4], [66.54, 15.77], [66.54, 16.4],
+      [65.73, 17.21], [64.6, 17.21], [63.98, 17.96], [62.35, 17.96], [61.98, 18.71], [59.85, 18.71],
+      [58.73, 19.96], [55.35, 18.96], [54.98, 18.21], [54.1, 18.21], [53.35, 18.71], [52.98, 20.21],
+      [52.35, 20.21], [52.29, 19.52], [51.04, 18.9], [51.35, 17.46], [52.98, 17.46], [53.35, 17.96],
+      [53.98, 17.96], [56.29, 15.65], [56.35, 14.71], [57.98, 14.71], [60.35, 13.71]
+    ],
+    [
+      [46.35, -2.54], [47.29, -2.48], [47.54, -1.1], [48.48, -0.79], [48.79, 0.15], [48.35, 0.21],
+      [47.98, 0.96], [47.35, 0.96], [47.29, 0.27], [46.35, -0.04], [46.04, 0.27], [46.29, 1.9],
+      [45.48, 2.46], [44.48, 1.71], [43.35, 1.71], [42.98, 0.46], [39.35, 0.46], [38.98, 1.46],
+      [38.35, 1.46], [38.04, 0.9], [38.04, -1.23], [38.6, -1.54], [43.98, -0.79], [44.6, -1.54],
+      [45.98, -1.29], [46.35, -2.54]
+    ],
+    [
+      [48.85, 21.96], [52.48, 22.21], [52.54, 23.15], [53.29, 23.52], [53.6, 24.46], [55.23, 24.46],
+      [55.79, 24.77], [55.79, 25.4], [54.1, 25.71], [52.85, 25.21], [52.23, 25.96], [51.1, 25.96],
+      [51.04, 24.52], [49.98, 23.71], [49.1, 23.71], [47.79, 24.77], [47.73, 25.46], [47.1, 25.46],
+      [47.04, 22.52], [48.48, 22.71], [48.85, 21.96]
+    ],
+    [
+      [37.35, -41.04], [39.54, -40.73], [39.54, -40.1], [38.85, -40.04], [38.48, -39.04],
+      [37.35, -39.04], [36.98, -38.29], [36.1, -38.29], [35.73, -39.04], [34.29, -39.1],
+      [34.35, -39.79], [36.98, -39.79], [37.35, -41.04]
+    ],
+    [
+      [37.6, -15.04], [38.48, -15.04], [38.54, -14.35], [37.73, -13.29], [36.85, -13.29],
+      [36.48, -12.29], [34.98, -11.79], [33.54, -11.85], [33.6, -12.79], [36.98, -13.79],
+      [37.54, -14.35], [37.6, -15.04]
+    ],
+    [
+      [37.1, -37.29], [40.98, -37.29], [41.04, -36.6], [39.6, -36.54], [38.98, -35.54],
+      [38.35, -35.54], [37.04, -36.6], [37.1, -37.29]
+    ],
+    [
+      [37.85, -49.29], [38.54, -49.23], [38.54, -47.1], [35.85, -46.79], [35.79, -47.98],
+      [37.23, -47.79], [37.85, -49.29]
+    ],
+    [
+      [42.35, -13.04], [43.04, -12.98], [43.04, -12.1], [42.73, -11.29], [41.85, -11.29],
+      [41.79, -12.23], [42.35, -13.04]
+    ],
+    [
+      [44.85, -9.04], [45.73, -9.04], [45.79, -8.35], [44.98, -7.79], [44.1, -7.79], [44.04, -8.48],
+      [44.85, -9.04]
+    ],
+    [
+      [38.1, -28.04], [39.29, -27.98], [39.23, -26.79], [38.6, -26.79], [38.04, -27.35],
+      [38.1, -28.04]
+    ],
+    [
+      [34.1, -43.79], [34.73, -43.79], [35.29, -43.23], [35.23, -42.54], [34.6, -42.54],
+      [34.04, -43.1], [34.1, -43.79]
+    ],
+    [
+      [55.85, 10.96], [57.23, 11.21], [57.29, 11.9], [56.1, 11.96], [55.85, 10.96]
+    ],
+    [
+      [45.6, -38.54], [46.98, -38.54], [47.04, -37.85], [45.6, -37.79], [45.6, -38.54]
+    ],
+    [
+      [38.6, -9.04], [39.23, -9.04], [39.29, -8.35], [38.1, -8.04], [38.04, -8.73], [38.6, -9.04]
+    ],
+    [
+      [32.1, -28.79], [32.98, -28.79], [33.04, -28.1], [32.1, -28.04], [32.1, -28.79]
+    ],
+    [
+      [50.1, 12.21], [50.98, 12.21], [51.04, 12.9], [50.1, 12.96], [50.1, 12.21]
+    ],
+  ]],
+  [6000, [
+    [
+      [57.94, 16.62], [58.38, 16.93], [58.38, 18.06], [56.94, 19.12], [56.63, 18.68], [57.63, 17.81],
+      [57.94, 16.62]
+    ],
+    [
+      [51.19, 22.37], [51.63, 23.06], [51.07, 23.62], [50.44, 23.62], [50.13, 23.18], [51.19, 22.37]
+    ],
+    [
+      [55.44, 16.87], [55.88, 17.31], [54.94, 18.12], [54.63, 17.68], [55.44, 16.87]
+    ],
+    [
+      [48.69, 22.87], [49.13, 23.31], [48.44, 23.87], [48.13, 23.43], [48.69, 22.87]
+    ],
+  ]],
+];

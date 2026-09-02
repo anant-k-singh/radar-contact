@@ -2,7 +2,7 @@
  * Separation monitoring (docs §9). IF ATC manual 6.2.2: no closer than 3 NM
  * laterally *or* 1000 ft vertically — so a violation needs both to be breached.
  */
-import type { Runway } from '../scenario/types.js';
+import type { Runway, TerrainBand } from '../scenario/types.js';
 import type { Aircraft, AlertLevel } from './aircraft.js';
 import { isDeparture } from './aircraft.js';
 import { groundSpeed } from './dynamics.js';
@@ -22,6 +22,7 @@ import {
   SEP_HORIZ_NM,
   SEP_VERT_FT,
 } from './constants.js';
+import { analyzeTerrain, type TerrainConflict } from './terrain.js';
 import { distance, headingVector, type Nm } from './units.js';
 
 export interface ConflictPair {
@@ -37,6 +38,14 @@ export interface ConflictPair {
 
 export interface SeparationReport {
   pairs: ConflictPair[];
+  /**
+   * Aircraft below the MSA of the terrain under them. Kept beside `pairs` rather
+   * than in it: a `ConflictPair` is two aircraft and the renderers draw the line
+   * between them, so terrain would have to make `a`/`b` nullable and every
+   * consumer check for it. The alert it raises is the ordinary one, so nothing
+   * downstream of `alerts` needs to know this list exists.
+   */
+  terrain: TerrainConflict[];
   alerts: Map<number, AlertLevel>;
   /** Distance to the aircraft ahead on final, per aircraft id. */
   inTrail: Map<number, Nm>;
@@ -148,7 +157,11 @@ function predictedMinima(a: Aircraft, b: Aircraft): { horizNm: Nm; vertFt: numbe
   return { horizNm: bestHoriz, vertFt: bestVert };
 }
 
-export function analyzeSeparation(runway: Runway, aircraft: readonly Aircraft[]): SeparationReport {
+export function analyzeSeparation(
+  runway: Runway,
+  aircraft: readonly Aircraft[],
+  terrain: readonly TerrainBand[] = [],
+): SeparationReport {
   const alerts = new Map<number, AlertLevel>();
   const pairs: ConflictPair[] = [];
   const {
@@ -224,5 +237,20 @@ export function analyzeSeparation(runway: Runway, aircraft: readonly Aircraft[])
     });
   }
 
-  return { pairs, alerts, inTrail, inTrailLeader, inTrailMinimum };
+  // Terrain busts. A single aircraft raises the same violation as a pair, which
+  // is what makes this a new *cause* rather than a new kind of alert (§9.5).
+  const terrainConflicts = analyzeTerrain(terrain, aircraft);
+  for (const conflict of terrainConflicts) {
+    const ac = aircraft.find((candidate) => candidate.id === conflict.aircraftId);
+    if (ac) raise(ac, 'violation');
+  }
+
+  return {
+    pairs,
+    terrain: terrainConflicts,
+    alerts,
+    inTrail,
+    inTrailLeader,
+    inTrailMinimum,
+  };
 }

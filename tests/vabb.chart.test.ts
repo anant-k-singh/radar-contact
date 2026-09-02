@@ -17,10 +17,77 @@
 import { describe, expect, it } from 'vitest';
 import { VABB_FIXES } from '../src/scenario/fields/vabb/fixes.js';
 import { scenarioById } from '../src/scenario/registry.js';
+import { createRng } from '../src/sim/rng.js';
+import { createArrival } from '../src/sim/traffic.js';
+import { createWorld, step } from '../src/sim/world.js';
 import { bearing, distance, magnitude } from '../src/sim/units.js';
+import { labelSpot } from '../src/render/mapLayer.js';
+import { isInsideAirspace } from '../src/scenario/airspace.js';
+import { createProjection, STATS_GUTTER_PX, toScreen } from '../src/render/project.js';
+
+/** Distance from a point to the nearest of a ring's segments. */
+function distanceToRing(
+  ring: readonly { x: number; y: number }[],
+  p: { x: number; y: number },
+): number {
+  let nearest = Infinity;
+  for (let i = 1; i < ring.length; i++) {
+    const a = ring[i - 1]!;
+    const b = ring[i]!;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lenSq = dx * dx + dy * dy;
+    let t = lenSq === 0 ? 0 : ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    nearest = Math.min(nearest, Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy));
+  }
+  return nearest;
+}
+
+/** Signed area of a closed ring: positive is counter-clockwise in this frame. */
+function signedArea(ring: readonly { x: number; y: number }[]): number {
+  let sum = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++)
+    sum += ring[j]!.x * ring[i]!.y - ring[i]!.x * ring[j]!.y;
+  return sum / 2;
+}
+
+/** Whether a ring encloses a point — the usual crossing count. */
+function encloses(ring: readonly { x: number; y: number }[], p: { x: number; y: number }): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const a = ring[i]!;
+    const b = ring[j]!;
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x)
+      inside = !inside;
+  }
+  return inside;
+}
+
+/** Unsigned area of a closed ring, in square NM — the shoelace formula. */
+function ringArea(ring: readonly { x: number; y: number }[]): number {
+  let sum = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++)
+    sum += ring[j]!.x * ring[i]!.y - ring[i]!.x * ring[j]!.y;
+  return Math.abs(sum) / 2;
+}
 
 const VABB = scenarioById('VABB')!;
 const CTX = { runway: VABB.runway, arp: VABB.arp };
+
+/**
+ * The final approach corridor, where terrain is kept at any size (10–25 NM off
+ * the threshold, 1 NM either side of the course). RWY 27 lands westbound, so
+ * along-track from the threshold runs +x and `threshold.x - point.x` is negative
+ * out along the approach — hence the sign.
+ */
+const APPROACH_CORRIDOR_XTK_NM = 1;
+function inApproachCorridor(ring: readonly { x: number; y: number }[]): boolean {
+  return ring.some((point) => {
+    const alongNm = point.x - VABB.runway.threshold.x;
+    return alongNm >= 0 && alongNm <= 25 && Math.abs(point.y) <= APPROACH_CORRIDOR_XTK_NM;
+  });
+}
 const nm = (v: number) => Number(v.toFixed(6)) + 0;
 const at = (p: { x: number; y: number }) => [nm(p.x), nm(p.y)];
 const published = (name: keyof typeof VABB_FIXES) => VABB_FIXES[name](CTX);
@@ -216,6 +283,158 @@ describe('the VABB chart', () => {
     ).toEqual([5000, 6000, 7000]);
   });
 
+  it('carries terrain, as bands of high ground east of the field', () => {
+    // Scenery like the coastline, and pinned the same way: the contours are
+    // generalised from third-party data, so what is asserted is that they arrive
+    // in the local frame at the right scale and in the right order, not what any
+    // one point is.
+    const bands = VABB.terrain;
+    // Minimum safe altitudes, not ground elevations — the source contours are
+    // keyed by elevation and these are that plus 2000 ft of obstacle clearance.
+    // The first version of this data printed the elevations, understating every
+    // band; the bands published as MSA 5,000' and 6,000' are the 5000 and 6000 here.
+    expect(bands.map((band) => band.levelFt)).toEqual([3000, 4000, 5000, 6000]);
+    // Above the field, or it is not a safe altitude over anything.
+    for (const band of bands) expect(band.levelFt).toBeGreaterThan(VABB.elevationFt);
+
+    // Low to high, which is the order `mapLayer` relies on to fill each band over
+    // the one below.
+    for (let i = 1; i < bands.length; i++)
+      expect(bands[i]!.levelFt).toBeGreaterThan(bands[i - 1]!.levelFt);
+
+    for (const band of bands) {
+      // A whole number of thousands: rounded up at conversion, and what lets the
+      // band be labelled.
+      expect(band.levelFt % 1000).toBe(0);
+      expect(band.rings.length).toBeGreaterThan(0);
+
+      for (const ring of band.rings) {
+        // Closed, and enough points to bound an area.
+        expect(ring.length).toBeGreaterThanOrEqual(4);
+        expect(ring[0]).toEqual(ring[ring.length - 1]);
+        // Kept only if it reaches inside the boundary; the overhang past it is
+        // trimmed by `mapLayer`'s clip rather than here.
+        expect(ring.some((point) => magnitude(point) < 61)).toBe(true);
+
+        // Two area floors, because the field is generalised two ways. Away from
+        // the approach the brush sets the floor: nothing survives it under about
+        // a third of a square mile. In the final approach corridor no peak is
+        // dropped at any size, so a ring there is allowed to be tiny — that
+        // exemption is the whole point, and a single floor for the field is what
+        // deleted the peaks this corridor exists to keep.
+        expect(ringArea(ring)).toBeGreaterThan(inApproachCorridor(ring) ? 0.002 : 0.3);
+      }
+    }
+
+    // Largest ring first *among the brush-generalised rings*, so a small high ring
+    // is never buried by a big one. The corridor peaks are appended after them and
+    // are deliberately out of that order: they are kept for their position, not
+    // their size, and `mapLayer` draws every ring of a band with one fill.
+    for (const band of bands) {
+      const areas = band.rings.filter((ring) => !inApproachCorridor(ring)).map(ringArea);
+      for (let i = 1; i < areas.length; i++)
+        expect(areas[i]!).toBeLessThanOrEqual(areas[i - 1]!);
+    }
+
+    // The inner final is bare on purpose. A 0.34 sq NM cell at 9 NM read as MSA
+    // 3000 once the blanket obstacle clearance was added, and a 3° glideslope is
+    // at 2906 ft there — so shading it made every correctly flown ILS a terrain
+    // violation. Inside 10 NM the published approach owns the vertical.
+    for (const band of bands) {
+      for (const ring of band.rings) {
+        for (const point of ring) {
+          const alongNm = point.x - VABB.runway.threshold.x;
+          if (Math.abs(point.y) > APPROACH_CORRIDOR_XTK_NM) continue;
+          if (alongNm < 0) continue;
+          expect(alongNm).toBeGreaterThanOrEqual(10);
+        }
+      }
+    }
+
+    // Every outer ring winds the same way. `mapLayer` fills with nonzero winding,
+    // where a reversed ring *subtracts* — which is how an earlier generalisation
+    // pass silently erased whole bands while every other assertion here passed.
+    // A hole is allowed to wind the other way, but it has to be enclosed by one
+    // of the band's own rings, which is what makes it a hole rather than a bug.
+    for (const band of bands) {
+      const outer = band.rings.filter((ring) => signedArea(ring) > 0);
+      expect(outer.length).toBeGreaterThan(0);
+      for (const ring of band.rings)
+        if (signedArea(ring) < 0)
+          expect(outer.some((o) => encloses(o, ring[0]!))).toBe(true);
+    }
+
+    // Every callout's foot is inside the ring it points at, and inside the drawn
+    // airspace.
+    //
+    // Two bugs live here, both of which shipped. The foot used to be the average
+    // of the ring's vertices, which for a long concave ring is usually not inside
+    // it at all — for the largest band here it fell 23 NM outside the polygon and
+    // printed on the boundary arc, reading as a compass tick. And `labelSpot`
+    // works on unclipped rings, so without the airspace predicate it can anchor
+    // in the part of a ring that overhangs the boundary, where the fill has been
+    // clipped away and the leader points at bare background.
+    const inAirspace = (point: { x: number; y: number }) =>
+      isInsideAirspace(VABB.airspace, point);
+    for (const band of bands)
+      for (const ring of band.rings) {
+        const spot = labelSpot(ring, inAirspace);
+        if (spot === null) continue;
+        expect(encloses(ring, spot)).toBe(true);
+        expect(inAirspace(spot)).toBe(true);
+        // The clearance it reports is really the distance to the edge, so the
+        // gate upstream is deciding on a true figure.
+        expect(spot.clearanceNm).toBeGreaterThan(0);
+        expect(Math.abs(spot.clearanceNm - distanceToRing(ring, spot))).toBeLessThan(0.3);
+      }
+
+    // Every band gets exactly one callout — the figure names a step in the ramp,
+    // so repeating it per ring would be noise. All four have to qualify: the
+    // highest band's best patch clears only 0.41 NM, and a foot-clearance gate
+    // tuned to the escarpment silently dropped the one band most worth pointing
+    // at.
+    const anchored = bands.filter((band) =>
+      band.rings.some((ring) => {
+        const spot = labelSpot(ring, inAirspace);
+        return spot !== null && spot.clearanceNm >= 0.25;
+      }),
+    );
+    expect(anchored.length).toBe(bands.length);
+
+    // A callout's figure sits just outside the boundary, not at the edge of the
+    // canvas. Running the leader to the canvas edge drew a full-width rule across
+    // the scope and put the figures under the stats panel; what it has to do is
+    // leave the airspace.
+    const projection = createProjection(VABB.airspace, 1158, 1134);
+    const radiusPx = VABB.airspace.radiusNm * projection.pxPerNm;
+    for (const band of bands) {
+      let best: ReturnType<typeof labelSpot> = null;
+      for (const ring of band.rings) {
+        const spot = labelSpot(ring, inAirspace);
+        if (spot !== null && (best === null || spot.clearanceNm > best.clearanceNm)) best = spot;
+      }
+      if (best === null) continue;
+      const foot = toScreen(projection, best);
+      // The foot is inside the circle and the figure is outside it, so the leader
+      // crosses the boundary exactly once.
+      expect(Math.hypot(foot.x - projection.cx, foot.y - projection.cy)).toBeLessThan(radiusPx);
+      // And the exit is close to the arc rather than out at the canvas edge — the
+      // half-width at the label's own height, which is what makes the figures
+      // follow the curve instead of forming a column.
+      const dy = Math.abs(foot.y - projection.cy);
+      const halfWidth = Math.sqrt(Math.max(0, radiusPx * radiusPx - dy * dy));
+      const exitX = projection.cx + halfWidth + 6;
+      expect(exitX).toBeGreaterThan(foot.x);
+      expect(exitX).toBeLessThan(1158 - STATS_GUTTER_PX + 40);
+    }
+
+    // The Ghats are east of the field, and the high ground is the eastern end of
+    // that: every 4000 ft ring sits well to the east of the ARP.
+    const high = bands[bands.length - 1]!;
+    for (const ring of high.rings)
+      for (const point of ring) expect(point.x).toBeGreaterThan(20);
+  });
+
   it('carries a coastline, as scenery inside the boundary', () => {
     // Scenery, so nothing about it is a rule the simulation enforces — but it is
     // data, and data can drift. Pinned loosely: the shape is OSM's, not this
@@ -311,5 +530,86 @@ describe('the VABB chart', () => {
     expect(new Set(VABB.sids.filter((s) => s.chart === 'VEVAK2A').map((s) => s.turn))).toEqual(
       new Set(['left']),
     );
+  });
+});
+
+describe('terrain violations at VABB', () => {
+  // The accounting lives in `world.ts`, and only a field with terrain exercises
+  // it — ZZZZ has none, so `tests/separation.test.ts` can only test the geometry.
+  const overTheGhats = (): { x: number; y: number; levelFt: number } => {
+    // Take a point genuinely inside the highest band rather than guessing one, so
+    // this cannot rot if the outlines are regenerated.
+    const band = [...VABB.terrain].sort((a, b) => b.levelFt - a.levelFt)[0]!;
+    const ring = band.rings[0]!;
+    let x = 0;
+    let y = 0;
+    for (const point of ring) {
+      x += point.x;
+      y += point.y;
+    }
+    return { x: x / ring.length, y: y / ring.length, levelFt: band.levelFt };
+  };
+
+  it('counts an aircraft below the MSA, and logs why', () => {
+    const spot = overTheGhats();
+    const world = createWorld(VABB, 7);
+    world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+    world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
+    world.departureFlowPerHour = 0;
+    world.messages = [];
+
+    const ac = world.aircraft[0] ?? null;
+    expect(ac).toBeNull();
+
+    const intruder = createArrival(VABB, createRng(1), world.traffic, VABB.gates[0]!, [], 0);
+    intruder.star = null;
+    intruder.x = spot.x;
+    intruder.y = spot.y;
+    intruder.altitudeFt = spot.levelFt - 1000;
+    intruder.targetAltitudeFt = intruder.altitudeFt;
+    world.aircraft = [intruder];
+
+    step(world, 0.05);
+
+    expect(world.separation.terrain).toHaveLength(1);
+    expect(world.separation.terrain[0]!.msaFt).toBe(spot.levelFt);
+    expect(world.separation.alerts.get(intruder.id)).toBe('violation');
+    expect(world.stats.violations).toBe(1);
+    expect(world.stats.violationSeconds).toBeGreaterThan(0);
+    expect(world.messages.some((m) => m.text.startsWith('TERRAIN:'))).toBe(true);
+
+    // Standing in the same place is one violation, not one per tick.
+    step(world, 0.05);
+    expect(world.stats.violations).toBe(1);
+
+    // Climbing above it clears the alert and stops the clock.
+    intruder.altitudeFt = spot.levelFt + 500;
+    step(world, 0.05);
+    const seconds = world.stats.violationSeconds;
+    expect(world.separation.terrain).toHaveLength(0);
+    // `ac.alert` is a 1 Hz radar sample rather than an instantaneous truth (§5),
+    // so the report is what clears first; the target's colour follows on the next
+    // sweep.
+    expect(world.separation.alerts.get(intruder.id)).toBeUndefined();
+    step(world, 0.05);
+    expect(world.stats.violationSeconds).toBeCloseTo(seconds, 6);
+  });
+
+  it('leaves an aircraft over the sea alone', () => {
+    // West of the field is water: RWY 27 departs over it, and nothing is shaded.
+    const world = createWorld(VABB, 7);
+    world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+    world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
+    world.departureFlowPerHour = 0;
+    const ac = createArrival(VABB, createRng(1), world.traffic, VABB.gates[0]!, [], 0);
+    ac.star = null;
+    ac.x = -30;
+    ac.y = 0;
+    ac.altitudeFt = 3000;
+    world.aircraft = [ac];
+
+    step(world, 0.05);
+    expect(world.separation.terrain).toHaveLength(0);
+    expect(world.stats.violations).toBe(0);
   });
 });

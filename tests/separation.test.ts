@@ -138,3 +138,91 @@ describe('in-trail spacing on final', () => {
     expect(report.pairs).toHaveLength(1);
   });
 });
+
+describe('terrain awareness (§9.5)', () => {
+  // A square of high ground away from the runway, so nothing here depends on the
+  // shipped fields: 10 NM on a side, needing 5000 ft.
+  const BAND = [
+    {
+      levelFt: 5000,
+      rings: [
+        [
+          { x: 20, y: 20 },
+          { x: 30, y: 20 },
+          { x: 30, y: 30 },
+          { x: 20, y: 30 },
+          { x: 20, y: 20 },
+        ],
+      ],
+    },
+  ];
+
+  it('is the ordinary violation, not a new alert level', () => {
+    const ac = makeAircraft({ x: 25, y: 25, altitudeFt: 4000 });
+    const report = analyzeSeparation(RUNWAY, [ac], BAND);
+    expect(report.alerts.get(ac.id)).toBe('violation');
+    expect(report.terrain).toHaveLength(1);
+    expect(report.terrain[0]).toMatchObject({ aircraftId: ac.id, msaFt: 5000, belowFt: 1000 });
+    // Nothing was added to `pairs` — there is no second aircraft to pair with.
+    expect(report.pairs).toHaveLength(0);
+  });
+
+  it('clears an aircraft at or above the MSA', () => {
+    const at = makeAircraft({ x: 25, y: 25, altitudeFt: 5000 });
+    expect(analyzeSeparation(RUNWAY, [at], BAND).terrain).toHaveLength(0);
+    const above = makeAircraft({ x: 25, y: 25, altitudeFt: 5001 });
+    expect(analyzeSeparation(RUNWAY, [above], BAND).terrain).toHaveLength(0);
+  });
+
+  it('catches an aircraft over the middle of a band, not just near its edge', () => {
+    // The centre of this band is 5 NM from any edge — ten times the buffer. A rule
+    // written as "within TERRAIN_BUFFER_NM of a polygon" misses exactly this case,
+    // which is why being inside counts as distance zero.
+    const middle = makeAircraft({ x: 25, y: 25, altitudeFt: 3000 });
+    expect(analyzeSeparation(RUNWAY, [middle], BAND).terrain).toHaveLength(1);
+  });
+
+  it('extends the band by the buffer, and no further', () => {
+    // 0.4 NM clear of the western edge: inside the half-mile margin.
+    const near = makeAircraft({ x: 19.6, y: 25, altitudeFt: 3000 });
+    expect(analyzeSeparation(RUNWAY, [near], BAND).terrain).toHaveLength(1);
+    // 0.6 NM clear: outside it.
+    const clear = makeAircraft({ x: 19.4, y: 25, altitudeFt: 3000 });
+    expect(analyzeSeparation(RUNWAY, [clear], BAND).terrain).toHaveLength(0);
+  });
+
+  it('takes the highest band where two overlap', () => {
+    const stacked = [
+      BAND[0]!,
+      {
+        levelFt: 7000,
+        rings: [
+          [
+            { x: 24, y: 24 },
+            { x: 26, y: 24 },
+            { x: 26, y: 26 },
+            { x: 24, y: 26 },
+            { x: 24, y: 24 },
+          ],
+        ],
+      },
+    ];
+    const ac = makeAircraft({ x: 25, y: 25, altitudeFt: 6000 });
+    const report = analyzeSeparation(RUNWAY, [ac], stacked);
+    expect(report.terrain[0]!.msaFt).toBe(7000);
+  });
+
+  it('says nothing about a field with no terrain', () => {
+    const ac = makeAircraft({ x: 25, y: 25, altitudeFt: 500 });
+    expect(analyzeSeparation(RUNWAY, [ac]).terrain).toHaveLength(0);
+    expect(analyzeSeparation(RUNWAY, [ac], []).terrain).toHaveLength(0);
+  });
+
+  it('exempts an aircraft still on the runway', () => {
+    // The roll happens at field elevation by definition, so terrain must not
+    // assert a minimum over the aerodrome itself.
+    const rolling = makeAircraft({ x: 25, y: 25, altitudeFt: 100 });
+    rolling.phase = 'roll';
+    expect(analyzeSeparation(RUNWAY, [rolling], BAND).terrain).toHaveLength(0);
+  });
+});

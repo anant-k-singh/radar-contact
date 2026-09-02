@@ -32,6 +32,8 @@ export interface ScenarioSpec {
   inactiveRunways?: readonly InactiveRunwaySpec[];
   /** Scenery: the coast, if the field is anywhere near one. */
   coastline?: CoastlineSpec;
+  /** Scenery: high ground, if the field has any worth shading. */
+  terrain?: TerrainSpec;
   airspace: AirspaceSpec;
   gates: readonly EntryGateSpec[];
   stars: readonly StarSpec[];
@@ -275,6 +277,8 @@ export interface Scenario {
   inactiveRunways: readonly InactiveRunway[];
   /** Drawn, and read by nothing else. Empty for a field that states no coast. */
   coastline: readonly (readonly Point[])[];
+  /** Drawn, and read by nothing else. Empty for a field that states no terrain. */
+  terrain: readonly TerrainBand[];
   airspace: Airspace;
   gates: readonly EntryGate[];
   stars: readonly Star[];
@@ -313,6 +317,35 @@ export interface Runway extends Required<RunwaySpec> {
  * closures would also be several hundred allocations to say what two numbers say.
  */
 export type CoastlineSpec = readonly (readonly (readonly [Nm, Nm])[])[];
+
+/**
+ * High ground, as bands of closed rings in the field's local NM frame.
+ *
+ * One entry per band, `[levelFt, rings]`, ordered low to high — which is also the
+ * order it is drawn in, each band filling over the one below. A ring encloses
+ * ground needing at least its level, so a higher band lies inside a lower one
+ * wherever both cover the same hill.
+ *
+ * **`levelFt` is a minimum safe altitude, not a ground elevation.** It is the
+ * figure the scope prints, so it has to be the one a controller would read: the
+ * terrain plus its obstacle clearance. A field converting from a source keyed by
+ * elevation has to add that itself — see `fields/vabb/terrain.ts`, where getting
+ * this backwards understated every band by 2000 ft.
+ *
+ * Coordinate pairs rather than the `FixAt` closures a route is authored with, for
+ * the reason `CoastlineSpec` gives: a `FixAt` exists so a fix can be stated in the
+ * frame a chart states it in, and none of that applies to a hill.
+ *
+ * A whole number of thousands. Nothing enforces it — it is what a field's own
+ * conversion produces, and what lets the scope label a band.
+ */
+export type TerrainSpec = readonly (readonly [Ft, readonly (readonly (readonly [Nm, Nm])[])[]])[];
+
+/** A compiled terrain band: one minimum safe altitude and the rings needing it. */
+export interface TerrainBand {
+  levelFt: Ft;
+  rings: readonly (readonly Point[])[];
+}
 
 export interface InactiveRunway {
   id: string;
