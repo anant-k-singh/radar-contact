@@ -97,12 +97,29 @@ export function issue(world: World, ac: Aircraft, instruction: Instruction): voi
   else ac.pending.push(entry);
 }
 
-/** A vector or an altitude change while on the approach cancels the clearance. */
+/** A vector while on the approach cancels the clearance (§6.1c). */
 function cancelApproach(ac: Aircraft): Readback | null {
   if (ac.phase !== 'cleared' && ac.phase !== 'loc' && ac.phase !== 'gs') return null;
   ac.phase = 'inbound';
   ac.speedAssignedAfterClearance = false;
   return { text: `${ac.callsign}, cancelling the approach clearance.`, kind: 'pilot' };
+}
+
+/**
+ * An altitude given to an aircraft already flying the glideslope, which is the
+ * one altitude that *does* cancel (§6.1c).
+ *
+ * Descending an aircraft before the localizer is the standard way of setting up
+ * the intercept — "descend 3000, cleared ILS" — and it supports the clearance
+ * rather than abandoning it, so in `cleared` and `loc` the clearance stands. On
+ * the glideslope it is the opposite: the path writes `altitudeFt` directly
+ * (§5, the two places that bypass kinematics), so an assigned level is not
+ * something the aircraft can fly while still on it. Taking it off the approach is
+ * the honest reading of the instruction — and the only one that leaves the
+ * aircraft doing what it was told.
+ */
+function cancelApproachForAltitude(ac: Aircraft): Readback | null {
+  return ac.phase === 'gs' ? cancelApproach(ac) : null;
 }
 
 function apply(runway: Runway, ac: Aircraft, instruction: Instruction): Readback[] {
@@ -127,7 +144,7 @@ function apply(runway: Runway, ac: Aircraft, instruction: Instruction): Readback
     }
 
     case 'altitude': {
-      const cancelled = cancelApproach(ac);
+      const cancelled = cancelApproachForAltitude(ac);
       if (cancelled) readbacks.push(cancelled);
       // The published profile is off, but the aircraft stays on the route.
       if (ac.star) ac.star.altitudeManual = true;

@@ -1251,6 +1251,34 @@ underneath the path. An aircraft descending through the path simply continues to
 altitude, levels, and picks the path up further in. Only one that never manages it reaches the
 5 NM gate and goes around.
 
+### 6.1c What cancels a clearance
+
+An **instruction that changes where the aircraft is going** cancels it; one that changes how it gets
+there does not. So:
+
+| Instruction | Effect on the clearance |
+| --- | --- |
+| Heading (vector) | **Cancels.** The aircraft is being sent somewhere other than the localizer |
+| Altitude, before the glideslope (`cleared` / `loc`) | **Stands.** Descending an aircraft is how the intercept is set up |
+| Altitude, on the glideslope (`gs`) | **Cancels** — the one altitude that cannot stand |
+| Speed | Stands (§6.2.3) |
+
+**The descent is part of the technique, not a departure from it.** Vectored onto a 30° intercept at
+15 NM and 4000 ft, an aircraft reaches the centreline around 12 NM — where the 3° path is already
+below 4000. It has to be given a lower level to join from, and "descend 3000, cleared ILS" is how
+that is said. Cancelling on it made the standard set-up impossible to fly: the clearance was gone
+before the aircraft ever reached the localizer, and it flew through the centreline having been
+handled correctly.
+
+**On the glideslope the reading flips**, which is why the rule is stated per phase rather than per
+instruction kind. The path writes `altitudeFt` directly (§5), so an assigned level is not something
+an aircraft can fly while still on it — the two are contradictory, and taking it off the approach is
+the only reading that leaves it doing what it was told.
+
+A vector still cancels in every phase, and the ordering rule of §7.2 still applies to it: a turn and
+a clearance given in the same breath are flown in the order transmitted, so the clearance is not
+cancelled by the vector it was issued alongside.
+
 ### 6.2 Capture and landing
 
 1. **LOC capture** — once cleared, when cross-track error < 0.5 NM *and the intercept window of
@@ -1888,6 +1916,7 @@ where the arrivals are" — it is gone rather than recorded.
 | Question | Decision (2026-08-15, later) |
 | --- | --- |
 | When an ILS clearance is tested | **Three times, for different things.** The clearance gate keeps only what makes a clearance meaningless (§6.1); the localizer window is tested at the localizer (§6.1a); the glideslope window on the path (§6.1b). A controller must be able to turn an aircraft onto the intercept and clear it in the same breath, or clear one that will level off before it gets there. Refusing on instantaneous state forced a vector-wait-watch-clear rhythm that cost the most attention exactly when there was least to spare |
+| What cancels a clearance | **A vector always; an altitude only on the glideslope** (§6.1c). Cancelling on any altitude made the standard set-up unflyable — "descend 3000, cleared ILS" is how an aircraft vectored onto a 30° intercept at 4000 is given the level to join the path from, and it lost the clearance before reaching the localizer. On the glideslope the path owns the vertical, so an assigned level really is incompatible and the cancellation is the honest reading |
 | What a missed intercept costs | **The aircraft flies through the localizer**, the clearance is cancelled, and it must be re-vectored and re-cleared. Not a go-around: at 15 NM this is a vectoring failure, not a runway one, and track miles plus a broken sequence are the honest price |
 | The intercept speed limit | **230 kt**, a ceiling the published platform speeds (200/210 kt) sit under with margin. It is the one condition the controller can only fix well in advance, which is the point — an aircraft left at 250 kt off the STAR will not intercept |
 | Whether the G/S is part of the localizer window | **No — it keeps its own capture, from below only.** That already *is* an individual check at the time of intercept, and an aircraft that intercepts the LOC high is caught by the 5 NM stability gate (§6.2.5) |

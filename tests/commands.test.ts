@@ -8,8 +8,10 @@ import {
 } from '../src/sim/commands.js';
 import {
   HEADING_HINT_S,
+  PHYSICS_DT,
   SPEED_FLOOR_CLEAN_KTS,
 } from '../src/sim/constants.js';
+import { step } from '../src/sim/world.js';
 import { displayHeading } from '../src/sim/units.js';
 import { HEAVY_TYPE, makeAircraft, MEDIUM_TYPE, onFinal, pilotActs, quietWorld, RUNWAY, SCENARIO } from './helpers.js';
 
@@ -247,6 +249,69 @@ describe('the C key', () => {
 
     adjustHeading(world, ac, 1);
     pilotActs(world);
+    expect(ac.phase).toBe('inbound');
+    expect(world.messages.some((m) => m.text.includes('cancelling'))).toBe(true);
+  });
+
+  it('is not cancelled by a descent given to set up the intercept', () => {
+    // "Descend 3000, cleared ILS" is the standard set-up: vectored onto a 30°
+    // intercept at 15 NM and 4000, the aircraft reaches the centreline where the
+    // glideslope is already below 4000, so it has to be given the lower level to
+    // join from. The descent supports the clearance rather than abandoning it
+    // (§6.1c).
+    const ac = makeAircraft({
+      ...onFinal(15, -2),
+      altitudeFt: 4000,
+      headingDeg: RUNWAY.courseDeg + 30,
+      iasKts: 200,
+      vsFpm: 0,
+    });
+    const world = quietWorld(ac);
+
+    clearForIls(world, ac);
+    pilotActs(world);
+    expect(ac.phase).toBe('cleared');
+
+    adjustAltitude(world, ac, -1);
+    pilotActs(world);
+
+    expect(ac.phase).toBe('cleared');
+    expect(ac.targetAltitudeFt).toBe(3000);
+    expect(world.messages.some((m) => m.text.includes('cancelling'))).toBe(false);
+  });
+
+  it('flies that set-up all the way to a landing', () => {
+    // The end the technique exists for: level at 3000 by the localizer, the
+    // glideslope then caught from below where it comes down to meet it.
+    const ac = makeAircraft({
+      ...onFinal(15, -2),
+      altitudeFt: 4000,
+      headingDeg: RUNWAY.courseDeg + 30,
+      iasKts: 200,
+      vsFpm: 0,
+    });
+    const world = quietWorld(ac);
+
+    clearForIls(world, ac);
+    pilotActs(world);
+    adjustAltitude(world, ac, -1);
+    pilotActs(world);
+
+    for (let i = 0; i < 20_000 && world.aircraft.length > 0; i += 1) step(world, PHYSICS_DT);
+
+    expect(world.stats.landings).toBe(1);
+    expect(world.stats.goArounds).toBe(0);
+  });
+
+  it('is still cancelled by an altitude given on the glideslope', () => {
+    // The one altitude that cannot stand: the path writes `altitudeFt` directly,
+    // so an assigned level is not something the aircraft can fly while on it.
+    const ac = makeAircraft({ ...onFinal(8), phase: 'gs', altitudeFt: 2546, iasKts: 160, vsFpm: -700 });
+    const world = quietWorld(ac);
+
+    adjustAltitude(world, ac, 1);
+    pilotActs(world);
+
     expect(ac.phase).toBe('inbound');
     expect(world.messages.some((m) => m.text.includes('cancelling'))).toBe(true);
   });
