@@ -1264,10 +1264,23 @@ altitude, levels, and picks the path up further in. Only one that never manages 
    discretion, on a schedule keyed to along-track distance: ≤250 kt beyond 12 NM, ≤210 kt from
    12 NM, ≤180 kt from 8 NM, and **Vapp from 5 NM regardless**. Each gate only ever slows the
    aircraft — the schedule never speeds one back up. A speed the player assigns **once the aircraft
-   is established** (`loc` or `gs`) replaces the schedule entirely and is honoured until 5 NM (the
-   "maintain 170 kt to 5 mile final" technique of §2.3), which is also the trap: assign 210
-   and forget, and the 5 NM gate drops the target straight to Vapp with the aircraft 70 kt above
-   it, failing the stability check below.
+   is established** (`loc` or `gs`) is honoured the same way — the "maintain 170 kt to 5 mile final"
+   technique of §2.3 — but it is bounded by the schedule rather than replacing it: **the target is
+   the lower of the assignment and the gate in force**, so an assignment can slow an aircraft
+   further and can never carry it past a gate it should have made.
+
+   It used to replace the schedule outright, and that made the technique unusable. The aircraft held
+   the assigned speed to 5 NM, where the target drops to Vapp and the stability gate below starts
+   checking on the same tick — with no distance left to lose the speed in. At best deceleration a
+   medium assigned 200 needs 0.86 NM just to get under the gate's Vapp+45, so it went around for
+   excessive speed having been flown correctly. **190 is the sharp case**: it is `minCleanKts` for a
+   medium and therefore the slowest a clean assignment is *allowed* to be (§3.3), so the trap could
+   be sprung by an assignment the player had no legal way to avoid. Bounding rather than replacing
+   removes it while keeping the technique: 190 stands to the 8 NM gate, then 3 NM to shed 20 kt.
+
+   The flag reads correctly this way too. `speedAssignedAfterClearance` is set by *any* assignment
+   once established — 160 as much as 210 — so it never meant "the player wants to stay fast", and
+   taking the lower of the two is the only reading under which both cases behave.
    A speed assigned while merely *cleared* — before the intercept — is **ordinary speed control**
    and does not arm 6.14.4. Since §6.1a lets the clearance be given 20 NM out, sequencing speed
    control lands in that window constantly; treating it as the technique would silently carry the
@@ -1836,6 +1849,7 @@ where the arrivals are" — it is gone rather than recorded.
 | The intercept speed limit | **230 kt**, a ceiling the published platform speeds (200/210 kt) sit under with margin. It is the one condition the controller can only fix well in advance, which is the point — an aircraft left at 250 kt off the STAR will not intercept |
 | Whether the G/S is part of the localizer window | **No — it keeps its own capture, from below only.** That already *is* an individual check at the time of intercept, and an aircraft that intercepts the LOC high is caught by the 5 NM stability gate (§6.2.5) |
 | What arms the 6.14.4 speed technique | **Established, not merely cleared.** Once the clearance can precede the intercept by 20 NM, "speed assigned after the clearance" stops being a reliable proxy for "maintain XXX to X mile final" — it catches every ordinary sequencing reduction as well, switches off the deceleration schedule, and goes an otherwise good approach around for excessive speed (§6.2.3) |
+| What an armed assignment then does | **Bounds the schedule, never replaces it** — the target is the lower of the two (§6.2.3). Replacing it held the speed to 5 NM, where the target drops to Vapp and the stability gate starts checking on the same tick, leaving no distance to comply in. Narrowing what *arms* the flag (the row above) fixed the false positives but not this: it still fired on a correctly flown approach that really had been given "maintain 190 to the marker", and 190 is `minCleanKts` for a medium, so the trap could be sprung by the slowest assignment §3.3 permits |
 
 | Question | Decision (2026-08-15, display) |
 | --- | --- |

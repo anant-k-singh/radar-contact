@@ -3,6 +3,7 @@ import type { Aircraft } from '../src/sim/aircraft.js';
 import { adjustHeading, adjustSpeed, clearForIls } from '../src/sim/commands.js';
 import { PHYSICS_DT } from '../src/sim/constants.js';
 import {
+  approachSpeedTargetKts,
   evaluateClearance,
   canCaptureGlideslope,
   isEstablished,
@@ -520,5 +521,80 @@ describe('a complete approach', () => {
     expect(follower.phase).toBe('goAround');
     expect(lead.phase).toBe('gs'); // the one ahead is unaffected
     expect(world.messages.some((m) => m.text.includes('insufficient spacing'))).toBe(true);
+  });
+});
+
+/**
+ * The speed schedule is a ceiling that a post-clearance assignment cannot lift.
+ *
+ * Assigning a speed after the clearance used to replace the schedule outright, so
+ * the aircraft held the assigned speed to 5 NM — where the target drops to Vapp and
+ * the stability gate starts checking on the same tick. There was no distance left
+ * to lose the speed in, and a correctly flown approach went around for excessive
+ * speed. The 190 case is the sharp one: it is `minCleanKts` for a medium, the
+ * slowest speed a clean assignment is allowed to be (§6.2).
+ */
+describe('a speed assigned after the clearance', () => {
+  /** Established on final at `alongNm`, holding `assignedKts` by the real command path. */
+  function onFinalHolding(assignedKts: number, alongNm = 15) {
+    // Level at 4000 rather than on the profile: the aircraft has to fly down to
+    // the glideslope and intercept it, which is what keeps it off Tower's
+    // frequency long enough to take a speed — the handoff comes with the
+    // glideslope, and a handed-off aircraft takes no instructions.
+    const ac = makeAircraft({
+      ...onFinal(alongNm),
+      headingDeg: RUNWAY.courseDeg,
+      altitudeFt: 4000,
+      iasKts: assignedKts,
+      targetIasKts: assignedKts,
+      vsFpm: 0,
+    });
+    const world = quietWorld(ac);
+    clearForIls(world, ac);
+    pilotActs(world, ac);
+    // The flag arms on an *established* aircraft, not a merely cleared one, so the
+    // approach has to be flown to capture before the speed is assigned — which is
+    // the order the technique is used in anyway.
+    for (let i = 0; i < 4000 && ac.phase !== 'loc'; i += 1) step(world, PHYSICS_DT);
+    expect(ac.phase).toBe('loc');
+
+    // Press the speed key, which is what arms the override.
+    adjustSpeed(world, ac, -1);
+    adjustSpeed(world, ac, 1);
+    pilotActs(world, ac);
+    expect(ac.speedAssignedAfterClearance).toBe(true);
+    expect(ac.targetIasKts).toBe(assignedKts);
+    return { ac, world };
+  }
+
+  for (const assignedKts of [190, 200]) {
+    it(`${assignedKts} kt held to the marker still lands`, () => {
+      const { ac, world } = onFinalHolding(assignedKts);
+      for (let i = 0; i < 20_000 && world.aircraft.length > 0; i += 1) step(world, PHYSICS_DT);
+
+      expect(world.stats.goArounds).toBe(0);
+      expect(world.stats.landings).toBe(1);
+      expect(ac.goArounds).toBe(0);
+    });
+  }
+
+  it('is honoured out to the 8 NM gate, then gives way to it', () => {
+    const { ac } = onFinalHolding(200);
+    // Outside 8 NM the assignment stands; at the gate the schedule takes over, so
+    // the aircraft arrives at the 5 NM stability check at 180 rather than at 200.
+    expect(approachSpeedTargetKts(ac, 10)).toBe(200);
+    expect(approachSpeedTargetKts(ac, 8.1)).toBe(200);
+    expect(approachSpeedTargetKts(ac, 8)).toBe(180);
+    expect(approachSpeedTargetKts(ac, 5.1)).toBe(180);
+  });
+
+  it('can still slow an aircraft below the schedule, which is the other half of the technique', () => {
+    // The flag is set by *any* post-clearance assignment, so it never meant "stay
+    // fast": an assignment under every gate has to survive all of them.
+    const { ac } = onFinalHolding(200);
+    ac.targetIasKts = 160;
+    for (const alongNm of [12, 10, 8, 6, 5.1]) {
+      expect(approachSpeedTargetKts(ac, alongNm)).toBe(160);
+    }
   });
 });
