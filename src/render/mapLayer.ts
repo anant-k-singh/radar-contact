@@ -47,7 +47,18 @@ function haloText(ctx: CanvasRenderingContext2D, text: string, x: number, y: num
   ctx.fillText(text, x, y);
 }
 
-let cache: { key: string; canvas: HTMLCanvasElement } | null = null;
+/**
+ * Two entries, and the reason is the zoom.
+ *
+ * The resting 1x layer is the one the scope spends nearly all its time drawing, so
+ * it is kept in its own slot: a single entry would be evicted by the first frame of
+ * a pinch and rebuilt on the way back out, which is the one redraw the player would
+ * actually notice. The other slot holds whatever zoom the gesture is currently at.
+ * VABB's chart costs a few ms to redraw, so a pinch stays inside frame budget, but
+ * there is no reason to pay it for going home.
+ */
+let restCache: { key: string; canvas: HTMLCanvasElement } | null = null;
+let zoomCache: { key: string; canvas: HTMLCanvasElement } | null = null;
 
 export function mapLayer(
   scenario: Scenario,
@@ -56,7 +67,13 @@ export function mapLayer(
 ): HTMLCanvasElement {
   // Keyed by the field as well as the canvas: the chart is what this layer draws,
   // so a different field is a different layer even at the same size.
-  const key = `${scenario.id}|${projection.width}x${projection.height}@${dpr}`;
+  // The viewport is in the key: zoom and pan change what this layer draws, so a
+  // pinch redraws it per frame and then hits cache again the moment it settles.
+  const key =
+    `${scenario.id}|${projection.width}x${projection.height}@${dpr}` +
+    `|${projection.pxPerNm}|${projection.cx},${projection.cy}`;
+  const atRest = projection.pxPerNm === projection.base.pxPerNm;
+  const cache = atRest ? restCache : zoomCache;
   if (cache && cache.key === key) return cache.canvas;
 
   const canvas = document.createElement('canvas');
@@ -67,7 +84,8 @@ export function mapLayer(
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     draw(ctx, scenario, projection);
   }
-  cache = { key, canvas };
+  if (atRest) restCache = { key, canvas };
+  else zoomCache = { key, canvas };
   return canvas;
 }
 
@@ -75,6 +93,10 @@ function draw(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection):
   ctx.fillStyle = THEME.background;
   ctx.fillRect(0, 0, p.width, p.height);
 
+  // Everything that lives *in* the airspace is drawn zoomed and clipped to the
+  // fixed circle, so magnifying the content cannot spill it across the scope.
+  ctx.save();
+  clipToAirspace(ctx, scenario, p);
   // Under everything, in the order the ground itself is layered: high ground
   // shaded, then the coast drawn on top of it.
   drawTerrain(ctx, scenario, p);
@@ -88,6 +110,16 @@ function draw(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection):
   drawCenterline(ctx, scenario, p);
   drawRunway(ctx, scenario, p);
   drawGates(ctx, scenario, p);
+  ctx.restore();
+
+  // The boundary itself is the frame, not content: it is drawn from the base
+  // frame at its fitted size and does not move. Drawn last so the clipped
+  // content inside meets a clean edge.
+  drawBoundary(ctx, scenario, p);
+  // The terrain legend lives out in the right-hand margin, *outside* the circle
+  // (see `drawTerrainCallouts`), so it is neither clipped nor zoomed — only its
+  // leader's foot, which points at a patch of ground, follows the zoom.
+  drawTerrainCallouts(ctx, scenario, p);
 }
 
 /**
@@ -239,9 +271,10 @@ const clampToCanvas = (v: number, lo: number, hi: number): number =>
  * corner the cap cuts off.
  */
 function boundaryHalfWidthPx(scenario: Scenario, p: Projection, screenY: number): number {
-  const radiusPx = scenario.airspace.radiusNm * p.pxPerNm;
-  const dy = Math.abs(screenY - p.cy);
-  if (dy > scenario.airspace.halfHeightNm * p.pxPerNm) return radiusPx;
+  // The fixed frame: the legend sits outside a circle that does not move.
+  const radiusPx = scenario.airspace.radiusNm * p.base.pxPerNm;
+  const dy = Math.abs(screenY - p.base.cy);
+  if (dy > scenario.airspace.halfHeightNm * p.base.pxPerNm) return radiusPx;
   return dy >= radiusPx ? 0 : Math.sqrt(radiusPx * radiusPx - dy * dy);
 }
 
@@ -253,18 +286,20 @@ function boundaryHalfWidthPx(scenario: Scenario, p: Projection, screenY: number)
  * into a boundary intersection. Two clip regions, exactly the two the shape is.
  * The caller owns the surrounding `save`/`restore`.
  */
-function clipToAirspace(
+export function clipToAirspace(
   ctx: CanvasRenderingContext2D,
   scenario: Scenario,
   p: Projection,
 ): void {
-  const radiusPx = scenario.airspace.radiusNm * p.pxPerNm;
+  // The *base* frame throughout: the circle is the window the content is zoomed
+  // inside, so it keeps its fitted size and position at every zoom.
+  const radiusPx = scenario.airspace.radiusNm * p.base.pxPerNm;
   ctx.beginPath();
-  ctx.arc(p.cx, p.cy, radiusPx, 0, Math.PI * 2);
+  ctx.arc(p.base.cx, p.base.cy, radiusPx, 0, Math.PI * 2);
   ctx.clip();
-  const halfHeightPx = scenario.airspace.halfHeightNm * p.pxPerNm;
+  const halfHeightPx = scenario.airspace.halfHeightNm * p.base.pxPerNm;
   ctx.beginPath();
-  ctx.rect(p.cx - radiusPx, p.cy - halfHeightPx, radiusPx * 2, halfHeightPx * 2);
+  ctx.rect(p.base.cx - radiusPx, p.base.cy - halfHeightPx, radiusPx * 2, halfHeightPx * 2);
   ctx.clip();
 }
 
@@ -401,7 +436,6 @@ const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 function drawTerrain(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
   if (scenario.terrain.length === 0) return;
   ctx.save();
-  clipToAirspace(ctx, scenario, p);
 
   scenario.terrain.forEach((band, index) => {
     // The ramp is shorter than the number of bands a field might state, so the
@@ -420,10 +454,6 @@ function drawTerrain(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Proje
   });
 
   ctx.restore();
-
-  // The labels are outside the airspace, so they are drawn after the clip is
-  // released rather than inside it.
-  drawTerrainCallouts(ctx, scenario, p);
 }
 
 /**
@@ -688,12 +718,22 @@ function drawRings(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Project
     ctx.fillStyle = THEME.ringLabel;
     haloText(ctx, String(ring), p.cx + 12, screenY(p, -ring) + 10);
   }
+}
 
-  drawBoundary(ctx, scenario, p);
+/**
+ * The same projection with the zoom taken back out, for drawing the scope's own
+ * fixed furniture. Cheaper to read than threading `.base` through every `p.cx`,
+ * and it means a furniture routine can go on using `screenX`/`screenY`.
+ */
+function atBaseFrame(p: Projection): Projection {
+  return { ...p, ...p.base };
 }
 
 /** The 50 NM circle with its northern and southern caps cut off (§3.1). */
-function drawBoundary(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
+function drawBoundary(ctx: CanvasRenderingContext2D, scenario: Scenario, zoomed: Projection): void {
+  // The boundary is the scope's own shape rather than content inside it, so the
+  // whole of it is drawn in the unzoomed frame — arcs, chords and all.
+  const p = atBaseFrame(zoomed);
   const radiusPx = scenario.airspace.radiusNm * p.pxPerNm;
   const half = scenario.airspace.arcHalfAngleRad;
 

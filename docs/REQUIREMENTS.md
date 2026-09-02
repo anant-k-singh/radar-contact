@@ -1349,6 +1349,10 @@ altitude, levels, and picks the path up further in. Only one that never manages 
 | `1` … `5` | Time acceleration: key *i* selects 2^(i−1), so 1× / 2× / 4× / 8× / 16× |
 | `Esc` | Deselect |
 
+Two gestures, both on the scope: **pinch** to zoom (§7.4) and **double-click** to go back to the
+fitted view. The wheel scrolls the message log (§7.1) — a pinch is a wheel with `ctrlKey` set, which
+is how the two share one event.
+
 **Commit semantics: each keypress transmits immediately** — no OK/confirm step. What it does *not*
 do is take effect immediately.
 
@@ -1421,6 +1425,7 @@ Mirroring the reference screenshots:
   has to mean "read this".
 - **Static map layer** (range rings, centerline + 2 NM ticks, gate markers, runway) is drawn once
   to an offscreen canvas and blitted each frame.
+- **Zoom (§7.4):** pinch to magnify the content inside a fixed boundary, up to 2×.
 - **Message log**, bottom of the scope: pilot readbacks and system messages, 5 lines visible and
   15 of scrollback on the wheel (§7.1),
   styled like the screenshot's green text. Filtered to the selected aircraft (§7.1). Each line
@@ -1433,6 +1438,44 @@ Mirroring the reference screenshots:
   the blip, so its lower line covered whatever was a mile abeam. On a downwind that is the next
   aircraft in the sequence, which is the one thing the controller is comparing it with, and it shows
   up at VABB rather than ZZZZ because five routes merge into two downwinds there.
+
+### 7.4 Zoom
+
+Traffic converges. Two aircraft a mile apart on the same downwind are two blips the width of a
+finger apart on a 50 NM scope, and at that size the thing the controller most needs to judge — which
+one is ahead, and by how much — is the thing the display has stopped resolving. So the scope zooms:
+**pinch on the trackpad to magnify, up to 2×, double-click to go back.**
+
+**The circle does not move.** The boundary keeps its fitted size and position at every zoom and the
+content is magnified *inside* it, clipped at the edge — a window onto the airspace rather than a
+bigger airspace. A scope whose outline grew would leave the range rings, the compass rose and the
+stats gutter all meaning something different at each zoom, and the boundary is the one piece of
+furniture every other judgement is measured against.
+
+**Positions scale; nothing drawn does.** Blip glyphs, every label, the route and centerline
+strokes and the history dots keep their pixel sizes, so magnifying spreads the traffic out without
+also inflating it — which is the whole point, since a pair that has merged into one smear is
+separated by the *gap* growing, not by the blips growing with it. This falls out of the projection:
+`pxPerNm` carries the zoom, and glyph and font sizes are pixel constants that never consult it.
+
+**The zoom is anchored on the pinch**, holding whatever is under the fingers still, the way a
+touchscreen does. That is what makes it a way to look *at* something rather than a way to make
+everything bigger, and it is why there is no separate pan gesture: pinching where you are looking
+walks the view there. The floor is 1× — the fitted view is the resting state, not a midpoint —
+and the ceiling is 2×, enough to break up a merged pair and little enough that the boundary still
+frames most of the airspace.
+
+**Zoom is a property of the display, not of the session.** It lives in `Scope` beside the log
+offset and for the same reason (§17.3): a replay frame is rebuilt every redraw, so anything written
+onto the world is lost. It is deliberately **not recorded** — where the controller was looking is
+not what the aircraft did — and it therefore works in replay exactly as it does live, which is when
+a controller most wants to zoom in on what happened.
+
+**Clipping is a rendering bound and nothing more.** An aircraft magnified out of the visible circle
+is still flying, still logging, still recorded, and still counted by every statistic; the
+airspace-exit check in `step` is against its position in NM, and `src/sim/` cannot see the
+projection. It is withheld from *picking* for the same reason it is withheld from drawing — a blip
+the controller cannot see must not be selectable — and it comes back untouched on the way out.
 
 ---
 
@@ -1731,7 +1774,7 @@ src/
       zzzz/            # the default field: airport.ts, stars.ts, sids.ts, index.ts
       vabb/            # Mumbai RWY 27: fixes.ts (published coordinates) + airlines.ts
   render/
-    project.ts         # NM ↔ pixels, fitted to a scenario's airspace
+    project.ts         # NM ↔ pixels, fitted to a scenario's airspace, plus the zoom (§7.4)
     mapLayer.ts        # static layer, cached per field × canvas size
     trafficLayer.ts    # blips, leader lines, trails, data blocks, de-clutter
     scope.ts           # canvas sizing, DPR, layer order, hit testing
