@@ -1788,7 +1788,7 @@ where the arrivals are" — it is gone rather than recorded.
 | A11 | One STAR per gate, never rejoined once vectored off; no route changes. Holding is the one way back onto a route, and only because the aircraft never leaves it (§4.6) |
 | A12 | Departures always fly their SID exactly and are never re-routed, delayed airborne or given a level change by Departure Control. What the player sees is the published route, every time (§4.7) |
 | A13 | A departure's climb rate depends only on type and on whether the flaps are up. No weight, temperature, thrust derate or runway-length effect (§4.7) |
-| A14 | **One active field per session.** Chosen by `?airport=` at load; changing it is a reload. The map cache, the recording and every in-flight route object are bound to the scenario, and nothing needs two at once |
+| A14 | **One active field per session.** Chosen by `?airport=` at load; changing it — the sidebar dropdown included — is a reload. The map cache, the recording and every in-flight route object are bound to the scenario, and nothing needs two at once |
 | A15 | The reference point is the origin of the local frame, always. Not settable |
 | A16 | The airspace chords are horizontal in the local frame — they cut the north and south caps whatever way the runway points, because they exist to reclaim canvas height |
 | A17 | A 3° glideslope everywhere. It is a published per-approach figure in life, but no field the simulator flies differs, so it stays a constant rather than a runway field |
@@ -2007,9 +2007,10 @@ npm run build    # typecheck + static bundle into dist/
 ```
 
 **URL parameters.** `?airport=ZZZZ` or `?airport=VABB` picks the field; an unknown id falls back to the
-default and says so in the message log. `?seed=1234` makes a session reproducible — **for the same `?airport=`**. The
-gate list an arrival is drawn from is scenario data, so one seed at two fields is two different
-sessions.
+default and says so in the message log. The airport dropdown in the sidebar header sets the same
+parameter and reloads, dropping `?seed=` — switching field is a new session. `?seed=1234` makes a
+session reproducible — **for the same `?airport=`**. The gate list an arrival is drawn from is scenario
+data, so one seed at two fields is two different sessions.
 
 In a dev build, `window.atc` exposes the live world for console poking, `window.atcRecording` the
 rolling recording behind it (§17), and `window.atcScenarios` the registry. `validateScenario` also

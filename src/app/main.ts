@@ -129,7 +129,16 @@ const sidebar = createSidebar(sidebarRoot, {
     );
   },
   restart: newSession,
-});
+  selectAirport: (id) => {
+    // A field is fixed at createWorld — the map cache, the recording and every
+    // route object are bound to it — so switching is a reload (A14). The seed
+    // goes too: it only ever reproduced a session at the field it was drawn for.
+    const url = new URL(window.location.href);
+    url.searchParams.set('airport', id);
+    url.searchParams.delete('seed');
+    window.location.assign(url);
+  },
+}, SCENARIOS);
 
 const replayBar = createReplayBar(replayRoot, {
   startReplay: () => {

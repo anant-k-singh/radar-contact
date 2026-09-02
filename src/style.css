@@ -72,10 +72,26 @@ body {
 .field-line {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   color: var(--dim);
   font-size: 11px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--panel-line);
+}
+
+.field-line select {
+  padding: 3px 6px;
+  border: 1px solid var(--panel-line);
+  border-radius: 3px;
+  background: #0e1a13;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.field-line select:hover {
+  border-color: var(--green);
 }
 
 #sidebar h2 {

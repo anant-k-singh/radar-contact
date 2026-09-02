@@ -26,6 +26,7 @@ import { activeFix, starTargetSpeedKts } from '../sim/star.js';
 import { displayHeading, distance, quantize } from '../sim/units.js';
 import type { World } from '../sim/world.js';
 import { selectedAircraft } from '../sim/world.js';
+import type { Scenario } from '../scenario/types.js';
 import { clockText } from './messageLog.js';
 
 export interface SidebarHandlers {
@@ -34,6 +35,8 @@ export interface SidebarHandlers {
   adjustFlow(delta: number): void;
   adjustDepartureFlow(delta: number): void;
   restart(): void;
+  /** Fly a different field. A field is bound at `createWorld`, so this is a reload (A14). */
+  selectAirport(id: string): void;
 }
 
 export interface Sidebar {
@@ -46,9 +49,17 @@ export interface Sidebar {
   update(world: World, mode?: 'live' | 'replay'): void;
 }
 
-const TEMPLATE = `
+const fieldLabel = (scenario: Scenario): string => `${scenario.icao} · RWY ${scenario.runway.id}`;
+
+/** The field list is handed in: nothing under `src/render/` may name one (§11.4). */
+const template = (scenarios: readonly Scenario[]): string => `
   <div class="brand">APPROACH<span>RADAR</span></div>
-  <div class="field-line"><span data-field="airport"></span><span data-field="clock"></span></div>
+  <div class="field-line">
+    <select data-field="airport" aria-label="Airport">
+      ${scenarios.map((s) => `<option value="${s.id}">${fieldLabel(s)}</option>`).join('\n      ')}
+    </select>
+    <span data-field="clock"></span>
+  </div>
 
   <h2>Selected</h2>
   <div class="panel">
@@ -111,13 +122,20 @@ function verticalRateText(vsFpm: number): string {
   return `(${rounded > 0 ? '+' : '−'}${Math.abs(rounded)})`;
 }
 
-export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sidebar {
-  root.innerHTML = TEMPLATE;
+export function createSidebar(
+  root: HTMLElement,
+  handlers: SidebarHandlers,
+  scenarios: readonly Scenario[],
+): Sidebar {
+  root.innerHTML = template(scenarios);
 
   const fields = new Map<string, HTMLElement>();
   root.querySelectorAll<HTMLElement>('[data-field]').forEach((element) => {
     fields.set(element.dataset.field!, element);
   });
+
+  const airport = fields.get('airport') as HTMLSelectElement;
+  airport.addEventListener('change', () => handlers.selectAirport(airport.value));
 
   const set = (name: string, text: string, className?: string): void => {
     const element = fields.get(name);
@@ -167,7 +185,7 @@ export function createSidebar(root: HTMLElement, handlers: SidebarHandlers): Sid
     update(world: World, mode: 'live' | 'replay' = 'live'): void {
       if (root.dataset.mode !== mode) root.dataset.mode = mode;
       const replay = mode === 'replay';
-      set('airport', `${world.scenario.icao} · RWY ${world.scenario.runway.id}`);
+      if (airport.value !== world.scenario.id) airport.value = world.scenario.id;
       set('clock', clockText(world.timeS));
       set('flow', `${world.flowPerHour}/h`);
       set('depflow', world.departureFlowPerHour === 0 ? 'off' : `${world.departureFlowPerHour}/h`);
