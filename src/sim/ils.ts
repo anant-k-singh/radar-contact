@@ -319,13 +319,24 @@ export function localizerHeading(runway: Runway, ac: Aircraft, geo: FinalGeometr
 }
 
 /**
- * Speed once cleared. It becomes the aircraft's own business, unless the
- * player reissued one — the "maintain X kt until Y mile final" technique,
- * which is honoured until 5 NM.
+ * Speed once cleared. It becomes the aircraft's own business, and a speed the
+ * player reissues after the clearance — the "maintain X kt until Y mile final"
+ * technique — can only slow it further.
+ *
+ * **The schedule is a ceiling, not a default.** An assignment used to replace it
+ * outright, and that put the aircraft at the 5 NM stability gate still doing the
+ * assigned speed with nowhere to lose it: a medium assigned 190 (which is
+ * `minCleanKts`, the slowest a clean assignment is *allowed* to be) needs 0.27 NM
+ * to get under the gate's Vapp+45 at best deceleration, and one assigned 200 needs
+ * 0.86 NM. Both were flown correctly and both went around for excessive speed —
+ * the technique the override existed to support was the thing it broke (§6.2).
+ *
+ * Taking the lower of the two keeps the technique and removes the trap. It also
+ * reads the flag correctly: `speedAssignedAfterClearance` is set by *any*
+ * post-clearance assignment, 160 as much as 210, so it never meant "stay fast".
  */
 export function approachSpeedTargetKts(ac: Aircraft, alongNm: Nm): number {
   if (alongNm <= FINAL_SPEED_NM) return ac.type.vappKts;
-  if (ac.speedAssignedAfterClearance) return ac.targetIasKts;
   for (const gateSpeed of APPROACH_SPEED_GATES) {
     if (alongNm > gateSpeed.beyondNm) return Math.min(ac.targetIasKts, gateSpeed.kts);
   }
