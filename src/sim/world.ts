@@ -164,6 +164,7 @@ export function createWorld(
     traffic,
     separation: {
       pairs: [],
+      terrain: [],
       alerts: new Map(),
       inTrail: new Map(),
       inTrailLeader: new Map(),
@@ -517,6 +518,28 @@ function accountViolations(world: World, dt: Sec): void {
     }
     world.stats.violationSeconds += dt;
   }
+  // Terrain busts, keyed by aircraft and MSA rather than by a pair. Including the
+  // level means descending from one band into a higher one is a second violation:
+  // it is a second mistake, and the aircraft has to climb further to fix it.
+  for (const conflict of world.separation.terrain) {
+    const ac = world.aircraft.find((candidate) => candidate.id === conflict.aircraftId);
+    if (!ac) continue;
+    const key = `terrain-${conflict.aircraftId}-${conflict.msaFt}`;
+    seen.add(key);
+    if (!world.activeViolations.has(key)) {
+      world.activeViolations.set(key, world.timeS);
+      world.stats.violations += 1;
+      log(
+        world,
+        `TERRAIN: ${ac.callsign} — ${Math.round(ac.altitudeFt)} ft, ` +
+          `MSA ${conflict.msaFt} ft.`,
+        'alert',
+        [ac.id],
+      );
+    }
+    world.stats.violationSeconds += dt;
+  }
+
   for (const key of [...world.activeViolations.keys()]) {
     if (!seen.has(key)) world.activeViolations.delete(key);
   }
@@ -617,7 +640,11 @@ export function step(world: World, dt: Sec): void {
   // Analysed before flying, so in-trail spacing and the handoff closure check
   // see this tick's picture rather than the previous one's — which on the very
   // first tick of a session would be empty.
-  world.separation = analyzeSeparation(world.scenario.runway, world.aircraft);
+  world.separation = analyzeSeparation(
+    world.scenario.runway,
+    world.aircraft,
+    world.scenario.terrain,
+  );
   accountViolations(world, dt);
 
   // ── Fly ──────────────────────────────────────────────────────────────────

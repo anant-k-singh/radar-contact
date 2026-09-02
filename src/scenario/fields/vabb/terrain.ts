@@ -63,7 +63,8 @@
  * curving through everything, and DP at 0.25 NM to drop the vertices it no longer
  * needs. A second Chaikin pass reads as too soft — the escarpment stops having
  * corners at all — so the brush does the generalising and the corner treatment
- * stays light. 2147 published rings become 26, and 2824 points become 649, with
+ * stays light. Outside the approach corridor 2147 published rings become 26, and
+ * 2824 points become 649, with
  * the area preserved to about 2 %: open and close are near-inverses at the scale
  * of the brush, so the shape moves rather than shrinks.
  *
@@ -77,6 +78,37 @@
  * Rings are ordered largest first within a level, and every ring winds the same
  * way unless it is a genuine hole, which matters: `mapLayer` fills with nonzero
  * winding, where a reversed ring subtracts.
+ *
+ * ## The final approach corridor is exempt from the brush
+ *
+ * Generalising by area is the wrong test on the approach path. The brush deleted
+ * real summits under the RWY 27 final at about 0.3 sq NM each, narrower than the
+ * brush for their band. Total area was preserved to 2 % throughout, which is
+ * exactly why the loss was invisible: 0.3 sq NM out of a 3000 sq NM band is nothing
+ * to the metric and everything to an aircraft.
+ *
+ * So from **10 to 25 NM off the threshold, 1 NM either side of the course**, no peak
+ * is dropped at any size. Those rings are traced from the source at full resolution
+ * and smoothed with a DP tolerance scaled to **their own** radius (a fifth of it)
+ * rather than the band's, since a tolerance wider than the feature collapses it to a
+ * degenerate sliver. Where one summit is split across the source's grid the lobes
+ * are kept as separate rings rather than merged: merging needs a brush wider than
+ * the gap, which is the operation that deleted them in the first place, and both
+ * lobes are near enough to matter to the same aircraft anyway.
+ *
+ * **Inside 10 NM the corridor is deliberately bare.** There was one 0.34 sq NM cell
+ * straddling the centreline at 9 NM, and at +2000 ft it read as MSA 3000 while a 3°
+ * glideslope is at 2906 there — so shading it made every correctly flown ILS a
+ * terrain violation, from 8.7 to 9.2 NM, 190 ft low at worst. A certified approach
+ * does not descend into high ground: the 3000 is an artefact of applying a blanket
+ * obstacle clearance to a single grid sample, which a surveyed MSA sector absorbs
+ * (the AAI chart gives 2600/2800 ft in the sector holding the final). The inner
+ * final is where a published procedure already guarantees clearance, so terrain is
+ * not asserted there.
+ *
+ * The asymmetry is deliberate, in both directions: beyond 10 NM the controller is
+ * vectoring and a small peak is the whole point, and inside it the approach owns the
+ * vertical.
  *
  * ## These figures exceed the field's MVA
  *
@@ -124,6 +156,18 @@ export const VABB_TERRAIN: TerrainSpec = [
       [49.72, -31.94], [50.09, -32.44], [52.47, -32.44], [54.53, -34.25], [54.53, -34.88],
       [56.09, -36.44], [59.97, -36.19], [60.59, -36.94], [61.22, -36.94], [62.84, -38.69]
     ],
+    // ── Peaks in the RWY 27 final approach corridor (10–25 NM, 1 NM either side) ──
+    // ridge 16–22 NM out, north of the course.
+    [
+      [19.08, 3.36], [18.34, 2.63], [18.13, 1.80], [20.05, 0.05], [20.04, -0.47], [20.40, -0.34],
+      [20.70, -1.78], [22.03, -2.03], [22.22, -1.74], [21.01, -0.90], [19.63, 1.14], [19.22, 2.22],
+      [19.43, 3.17], [19.08, 3.36]
+    ],
+    // knoll 15–17 NM out.
+    [
+      [17.24, 2.00], [17.38, 1.30], [17.05, 1.17], [16.68, 1.47], [16.57, 1.12], [17.09, 1.10],
+      [17.56, 0.57], [17.72, 0.80], [18.00, 0.77], [18.00, 1.60], [17.24, 2.00]
+    ],
   ]],
   [4000, [
     [
@@ -168,6 +212,16 @@ export const VABB_TERRAIN: TerrainSpec = [
       [36.55, 58.81], [35.92, 58.81], [34.86, 57.75], [34.86, 56.62], [34.11, 55.75], [34.11, 53.87],
       [33.61, 53.5], [33.61, 50.87], [32.61, 50], [32.61, 48.87], [34.67, 46.31], [37.55, 46.31],
       [38.92, 45.06]
+    ],
+    // ── Peaks in the RWY 27 final approach corridor (10–25 NM, 1 NM either side) ──
+    // summit 18.5 NM out, just north of the course.
+    [
+      [19.68, 0.43], [19.73, 0.44], [19.73, 0.69], [19.67, 0.71], [19.66, 0.82], [19.56, 0.82],
+      [19.55, 0.74], [19.61, 0.72], [19.61, 0.53], [19.67, 0.52], [19.68, 0.43]
+    ],
+    // its northern lobe.
+    [
+      [19.50, 0.82], [19.55, 0.83], [19.54, 0.88], [19.49, 0.88], [19.49, 0.83], [19.50, 0.82]
     ],
   ]],
   [5000, [

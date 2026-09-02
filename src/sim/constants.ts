@@ -131,6 +131,16 @@ export const SEP_HORIZ_NM = 3.0;
 export const SEP_VERT_FT = 1000;
 export const ALERT_RED_HORIZ_NM = 1.5;
 export const ALERT_RED_VERT_FT = 500;
+
+/**
+ * How close to shaded terrain counts as being over it (§9.5).
+ *
+ * A margin around the hazard rather than the test itself: inside a band is
+ * distance zero, so this only widens the footprint by half a mile of navigational
+ * slop. Wider starts flagging aircraft with a mile of clear ground beside them,
+ * which teaches the player to ignore it.
+ */
+export const TERRAIN_BUFFER_NM = 0.5;
 export const CONFLICT_PREDICT_S = 90;
 /** Step the prediction window is sampled at. */
 export const CONFLICT_PREDICT_STEP_S = 5;

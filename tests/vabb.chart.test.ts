@@ -17,6 +17,9 @@
 import { describe, expect, it } from 'vitest';
 import { VABB_FIXES } from '../src/scenario/fields/vabb/fixes.js';
 import { scenarioById } from '../src/scenario/registry.js';
+import { createRng } from '../src/sim/rng.js';
+import { createArrival } from '../src/sim/traffic.js';
+import { createWorld, step } from '../src/sim/world.js';
 import { bearing, distance, magnitude } from '../src/sim/units.js';
 import { labelSpot } from '../src/render/mapLayer.js';
 import { isInsideAirspace } from '../src/scenario/airspace.js';
@@ -71,6 +74,20 @@ function ringArea(ring: readonly { x: number; y: number }[]): number {
 
 const VABB = scenarioById('VABB')!;
 const CTX = { runway: VABB.runway, arp: VABB.arp };
+
+/**
+ * The final approach corridor, where terrain is kept at any size (10–25 NM off
+ * the threshold, 1 NM either side of the course). RWY 27 lands westbound, so
+ * along-track from the threshold runs +x and `threshold.x - point.x` is negative
+ * out along the approach — hence the sign.
+ */
+const APPROACH_CORRIDOR_XTK_NM = 1;
+function inApproachCorridor(ring: readonly { x: number; y: number }[]): boolean {
+  return ring.some((point) => {
+    const alongNm = point.x - VABB.runway.threshold.x;
+    return alongNm >= 0 && alongNm <= 25 && Math.abs(point.y) <= APPROACH_CORRIDOR_XTK_NM;
+  });
+}
 const nm = (v: number) => Number(v.toFixed(6)) + 0;
 const at = (p: { x: number; y: number }) => [nm(p.x), nm(p.y)];
 const published = (name: keyof typeof VABB_FIXES) => VABB_FIXES[name](CTX);
@@ -291,21 +308,46 @@ describe('the VABB chart', () => {
       expect(band.levelFt % 1000).toBe(0);
       expect(band.rings.length).toBeGreaterThan(0);
 
-      // Largest ring first, so a small high ring is never buried by a big one.
-      const areas = band.rings.map(ringArea);
-      for (let i = 1; i < areas.length; i++)
-        expect(areas[i]!).toBeLessThanOrEqual(areas[i - 1]!);
-
       for (const ring of band.rings) {
-        // Closed, and big enough to be worth drawing.
+        // Closed, and enough points to bound an area.
         expect(ring.length).toBeGreaterThanOrEqual(4);
         expect(ring[0]).toEqual(ring[ring.length - 1]);
-        // The floor is the brush the band was generalised with, which is per
-        // band — so the 4000 ft summits are legitimately under a square mile.
-        expect(ringArea(ring)).toBeGreaterThan(0.3);
         // Kept only if it reaches inside the boundary; the overhang past it is
         // trimmed by `mapLayer`'s clip rather than here.
         expect(ring.some((point) => magnitude(point) < 61)).toBe(true);
+
+        // Two area floors, because the field is generalised two ways. Away from
+        // the approach the brush sets the floor: nothing survives it under about
+        // a third of a square mile. In the final approach corridor no peak is
+        // dropped at any size, so a ring there is allowed to be tiny — that
+        // exemption is the whole point, and a single floor for the field is what
+        // deleted the peaks this corridor exists to keep.
+        expect(ringArea(ring)).toBeGreaterThan(inApproachCorridor(ring) ? 0.002 : 0.3);
+      }
+    }
+
+    // Largest ring first *among the brush-generalised rings*, so a small high ring
+    // is never buried by a big one. The corridor peaks are appended after them and
+    // are deliberately out of that order: they are kept for their position, not
+    // their size, and `mapLayer` draws every ring of a band with one fill.
+    for (const band of bands) {
+      const areas = band.rings.filter((ring) => !inApproachCorridor(ring)).map(ringArea);
+      for (let i = 1; i < areas.length; i++)
+        expect(areas[i]!).toBeLessThanOrEqual(areas[i - 1]!);
+    }
+
+    // The inner final is bare on purpose. A 0.34 sq NM cell at 9 NM read as MSA
+    // 3000 once the blanket obstacle clearance was added, and a 3° glideslope is
+    // at 2906 ft there — so shading it made every correctly flown ILS a terrain
+    // violation. Inside 10 NM the published approach owns the vertical.
+    for (const band of bands) {
+      for (const ring of band.rings) {
+        for (const point of ring) {
+          const alongNm = point.x - VABB.runway.threshold.x;
+          if (Math.abs(point.y) > APPROACH_CORRIDOR_XTK_NM) continue;
+          if (alongNm < 0) continue;
+          expect(alongNm).toBeGreaterThanOrEqual(10);
+        }
       }
     }
 
@@ -488,5 +530,86 @@ describe('the VABB chart', () => {
     expect(new Set(VABB.sids.filter((s) => s.chart === 'VEVAK2A').map((s) => s.turn))).toEqual(
       new Set(['left']),
     );
+  });
+});
+
+describe('terrain violations at VABB', () => {
+  // The accounting lives in `world.ts`, and only a field with terrain exercises
+  // it — ZZZZ has none, so `tests/separation.test.ts` can only test the geometry.
+  const overTheGhats = (): { x: number; y: number; levelFt: number } => {
+    // Take a point genuinely inside the highest band rather than guessing one, so
+    // this cannot rot if the outlines are regenerated.
+    const band = [...VABB.terrain].sort((a, b) => b.levelFt - a.levelFt)[0]!;
+    const ring = band.rings[0]!;
+    let x = 0;
+    let y = 0;
+    for (const point of ring) {
+      x += point.x;
+      y += point.y;
+    }
+    return { x: x / ring.length, y: y / ring.length, levelFt: band.levelFt };
+  };
+
+  it('counts an aircraft below the MSA, and logs why', () => {
+    const spot = overTheGhats();
+    const world = createWorld(VABB, 7);
+    world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+    world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
+    world.departureFlowPerHour = 0;
+    world.messages = [];
+
+    const ac = world.aircraft[0] ?? null;
+    expect(ac).toBeNull();
+
+    const intruder = createArrival(VABB, createRng(1), world.traffic, VABB.gates[0]!, [], 0);
+    intruder.star = null;
+    intruder.x = spot.x;
+    intruder.y = spot.y;
+    intruder.altitudeFt = spot.levelFt - 1000;
+    intruder.targetAltitudeFt = intruder.altitudeFt;
+    world.aircraft = [intruder];
+
+    step(world, 0.05);
+
+    expect(world.separation.terrain).toHaveLength(1);
+    expect(world.separation.terrain[0]!.msaFt).toBe(spot.levelFt);
+    expect(world.separation.alerts.get(intruder.id)).toBe('violation');
+    expect(world.stats.violations).toBe(1);
+    expect(world.stats.violationSeconds).toBeGreaterThan(0);
+    expect(world.messages.some((m) => m.text.startsWith('TERRAIN:'))).toBe(true);
+
+    // Standing in the same place is one violation, not one per tick.
+    step(world, 0.05);
+    expect(world.stats.violations).toBe(1);
+
+    // Climbing above it clears the alert and stops the clock.
+    intruder.altitudeFt = spot.levelFt + 500;
+    step(world, 0.05);
+    const seconds = world.stats.violationSeconds;
+    expect(world.separation.terrain).toHaveLength(0);
+    // `ac.alert` is a 1 Hz radar sample rather than an instantaneous truth (§5),
+    // so the report is what clears first; the target's colour follows on the next
+    // sweep.
+    expect(world.separation.alerts.get(intruder.id)).toBeUndefined();
+    step(world, 0.05);
+    expect(world.stats.violationSeconds).toBeCloseTo(seconds, 6);
+  });
+
+  it('leaves an aircraft over the sea alone', () => {
+    // West of the field is water: RWY 27 departs over it, and nothing is shaded.
+    const world = createWorld(VABB, 7);
+    world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+    world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
+    world.departureFlowPerHour = 0;
+    const ac = createArrival(VABB, createRng(1), world.traffic, VABB.gates[0]!, [], 0);
+    ac.star = null;
+    ac.x = -30;
+    ac.y = 0;
+    ac.altitudeFt = 3000;
+    world.aircraft = [ac];
+
+    step(world, 0.05);
+    expect(world.separation.terrain).toHaveLength(0);
+    expect(world.stats.violations).toBe(0);
   });
 });

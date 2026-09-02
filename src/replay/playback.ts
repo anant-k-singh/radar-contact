@@ -306,7 +306,7 @@ export function worldAtFrame(
       lastDepartureS: null,
       lastLandingS: null,
     },
-    separation: analyzeSeparation(rec.scenario.runway, aircraft),
+    separation: analyzeSeparation(rec.scenario.runway, aircraft, rec.scenario.terrain),
     selectedId: aircraft.some((ac) => ac.id === view.selectedId) ? view.selectedId : null,
     paused: view.paused,
     timeScale: view.timeScale,

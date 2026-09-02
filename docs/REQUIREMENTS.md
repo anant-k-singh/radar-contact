@@ -1567,6 +1567,46 @@ only the next departure; it now also sends an arrival around at 0.3 NM, which is
 occupancy real rather than a rule about departures. An in-trail sequence at the §9.3 minimum is
 77–103 s apart and never trips it; one flown tighter than about 2.3 NM does.
 
+### 9.5 Terrain
+
+A field may shade bands of minimum safe altitude (§3.1). Where it does, an aircraft **below the MSA of
+the ground at or near its position** is a violation of the ordinary kind: the target goes red, the
+count goes up, and the seconds accrue exactly as for a lost pair. No new alert level and no new
+statistic — from the controller's seat it is the same failure as losing 1000 ft against another
+aircraft, and a separate scoreboard would say otherwise.
+
+The rule is `altitudeFt < msaAt(position)`, where `msaAt` is the highest band whose polygon is within
+`TERRAIN_BUFFER_NM` (0.5 NM), **inside a polygon counting as zero**. That last clause is the whole
+rule rather than a detail: stated as "within half a mile of a band" it flags an aircraft beside a
+plateau and clears one over the middle of it, because the middle of a large polygon is nowhere near
+its edge. The buffer is a margin for navigational slop around the hazard, not the test for the hazard.
+
+It reads the *generalised* outlines the map draws, not a finer source, so the player is held to what
+the player can see. A violation against terrain that is not on the scope would be unreadable, and a
+scope shading ground the rules ignore would be a lie in the other direction.
+
+Two exemptions, and only two:
+
+- **An aircraft on the takeoff roll.** The roll happens at field elevation by definition; the terrain
+  layer has no business asserting a minimum over the aerodrome.
+- **A field with no terrain**, which answers 0 everywhere. ZZZZ is one.
+
+There is deliberately **no exemption for an aircraft on the approach**, which was considered and
+rejected on the evidence: at VABB the extended centreline is clear of shaded ground for the entire
+usable final, so the exemption would have been dead code at both shipped fields. Where a small peak
+did sit under the glideslope, the data was corrected instead (§3.1) — the published approach
+guarantees clearance, so terrain is not asserted inside 10 NM rather than being asserted and then
+excused.
+
+**The flat MVA and the drawn MSA disagree, and that is not resolved here.** `airspace.mvaFt` is one
+number for the field, and `adjustAltitude` clamps every assignment to it, so 3000 ft is assignable
+anywhere at VABB while 12 % of its airspace is shaded higher. A player who descends to the legal floor
+over high ground is therefore authorised by one rule and penalised by another. The shading is the
+warning, and reading it is the player's job: the terrain is drawn, so it is information the player
+has. Making the clamp refuse a descent below the *local* minimum means `mvaFt` becoming a position
+lookup and the clearance check reading position — a change to the simulation rather than to its
+scenery, and not made.
+
 ## 10. Handoff to Tower
 
 Automatic, when **all** hold (§2.3):
@@ -1865,6 +1905,10 @@ where the arrivals are" — it is gone rather than recorded.
 | --- | --- |
 | Whether to shade terrain at all | **Yes, and it stays scenery.** A1/A5 say no terrain is *modelled*, which is about what the simulation computes, not what the scope shows. RWY 27's arrivals turn over rising ground and the empty east side of the scope asserted, wrongly, that there was nothing there. Nothing under `src/sim/` reads it and the flat `mvaFt` is still the only enforced floor, so the assumption holds |
 | Whether the bands are elevation or MSA | **Minimum safe altitude — elevation plus 2000 ft, converted at author time.** The source contours are keyed by terrain elevation while a published MSA is that plus obstacle clearance, so the two differ by a fixed offset and are trivially confusable; the first version of this data printed the elevations and understated every VABB band by 2000 ft. Converting in the field file means the number stored is the number drawn, and `TerrainSpec` says so in its type. Confirmed three ways: two bands matched by colour to published MSAs of 5,000' and 6,000', and the AAI chart's published 3800 ft within 25 NM against the 4000 this yields there |
+| Whether terrain counts as a violation | **Yes, as the ordinary violation.** A separate terrain alert level would need a colour, a ring and a statistic of its own to say something the existing red already says. `alerts` is per aircraft rather than per pair, so raising `'violation'` on one aircraft needed no renderer change at all |
+| How a terrain bust is carried | **Beside `pairs`, not in it.** A `ConflictPair` is two aircraft and the renderers draw the line between them; admitting a one-aircraft entry means nullable `a`/`b` and a check at every consumer. `SeparationReport.terrain` is a separate list, and nothing downstream of `alerts` needs to know it exists |
+| Whether an aircraft on final is exempt | **No.** Considered, and the data says it would be dead code: VABB's extended centreline is clear of shaded ground for the whole usable final. Where a peak did sit under the glideslope the terrain data was corrected instead of the rule being excused |
+| Counting a bust that moves between bands | **A second violation.** The key is `terrain-<id>-<msaFt>`, so descending from a 4000 band into a 5000 one counts again — it is a second mistake, and the climb needed to fix it is larger |
 | How faithfully the contours are reproduced | **Deliberately not faithfully.** The published rings are traced at the source's grid resolution and carry its signature — a one-cell staircase and filament arms a few hundred metres wide, one 58 sq NM ring having a 251 NM perimeter. A morphological open-then-close removes the arms as *features*, which a looser Douglas–Peucker cannot do (DP thins a spike into a triangle and keeps it); one Chaikin pass and DP at 0.25 NM finish it. 2147 rings become 26, area preserved to ~2 %. The intent is a rough estimate of where the high ground is, not a copy of someone's dataset |
 | Where a band's figure is placed | **Outside the boundary, on a leader line, one per band.** Labelling from inside does not work here and the bands' size is not why: the compass rose prints its bearings 24 px inside the boundary and the gates own the edge on their radials, so the eastern third of the airspace — exactly where the terrain is — is already spoken for, and an interior `MSA 4000` lands on the `090` tick while a coastal one collides with the fix labels being read. The chart is the working layer and terrain is context, so context moves to the margin. A leader crossing the boundary once and ending on bare background cannot be mistaken for a crossing restriction, which is also why the `MSA` prefix is no longer needed. One per band, not per ring: the figure names a step in the ramp, and the fill already says which patch belongs to which band |
 | Where the leader's foot attaches | **The pole of inaccessibility of the band's most generous ring, restricted to the drawn airspace.** The average of a ring's vertices is usually not inside a long concave ring at all — for the largest VABB band it fell 23 NM outside the polygon. And a ring may overhang the boundary, where the fill is clipped away, so the search takes the airspace test as a predicate; without it the leader points at bare background. The clearance gate is 0.25 NM, low deliberately: the highest band's best patch clears only 0.41 NM, and a gate tuned to the escarpment silently dropped the band most worth pointing at |
