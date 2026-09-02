@@ -20,6 +20,32 @@ export const THEME = {
    * glance and then stops asking for attention.
    */
   coastline: '#3f7fa8',
+  /**
+   * High ground, one fill per 1000 ft band, low to high.
+   *
+   * A warm grey-brown ramp, and deliberately *dark* — this is the bottom layer of
+   * the scope and everything the player actually works with is drawn on top of it,
+   * so the brightest band has to stay below `starPath` or the chart stops reading
+   * against the ground it crosses. The published palette that comes with the
+   * contours is a hiking-map green-to-yellow, which is right for a map read on its
+   * own and far too loud under a radar display.
+   *
+   * The ramp is in brightness rather than in hue: terrain means one thing, and a
+   * band that is higher is simply more of it. The steps are even so the escarpment
+   * reads as a slope rather than as an edge.
+   */
+  terrain: ['#0e1714', '#1b2a23', '#283d33', '#375142'],
+  /**
+   * The band labels. Brighter than any of the fills, because they now sit outside
+   * the airspace on bare background rather than on the band they describe.
+   */
+  terrainLabel: '#6d8474',
+  /**
+   * The leader line from a band to its figure. Dimmer than the label: the line's
+   * job is to say which area is meant and then get out of the way, and it crosses
+   * the boundary and the outer range ring on its way out.
+   */
+  terrainCallout: '#3d5145',
   centerline: '#2f6fd0',
   centerlineTick: '#3f86e8',
   gate: '#2f7a58',

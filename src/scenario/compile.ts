@@ -279,6 +279,10 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     // The one thing compiled by being turned from pairs into points, because a
     // coastline is already in the frame — see `CoastlineSpec`.
     coastline: (spec.coastline ?? []).map((chain) => chain.map(([x, y]) => ({ x, y }))),
+    terrain: (spec.terrain ?? []).map(([levelFt, rings]) => ({
+      levelFt,
+      rings: rings.map((ring) => ring.map(([x, y]) => ({ x, y }))),
+    })),
     airspace,
     gates,
     stars,

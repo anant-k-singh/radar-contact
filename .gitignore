@@ -9,3 +9,8 @@ CLAUDE.md
 # field files cite each chart by its document number so anyone can obtain it
 # from the publisher; nothing in the build reads them.
 docs/charts/
+
+# Source terrain data for a field's high ground, kept locally for the same
+# reason as the charts. Only the generalised outlines derived from it are in the
+# repository; nothing in the build reads these.
+docs/terrain/

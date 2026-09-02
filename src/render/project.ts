@@ -11,6 +11,18 @@ const FIT = 0.98;
  */
 export const STATS_GUTTER_PX = 190;
 
+/**
+ * How far down that gutter the stats block reaches.
+ *
+ * Here rather than in `statsLayer.ts` for the same reason `STATS_GUTTER_PX` is:
+ * it is a fact about the space the scope is given, and the consumers are the
+ * layers that have to keep out of it. `mapLayer` needs it and is the *static*
+ * layer, so it has no `World` to count the panel's rows from and must not acquire
+ * one. Twelve rows against the eleven `drawStats` currently emits, so the reserve
+ * stays right if a statistic is added.
+ */
+export const STATS_BLOCK_HEIGHT_PX = 34 + 12 * 15;
+
 /** Maps the local NM frame to canvas pixels. North is up, so screen y is inverted. */
 export interface Projection {
   width: number;

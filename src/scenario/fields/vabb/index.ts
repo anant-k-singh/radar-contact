@@ -14,6 +14,7 @@ import { VABB_AIRSPACE, VABB_GATES, VABB_INACTIVE, VABB_RUNWAY } from './airport
 import { VABB_COASTLINE } from './coastline.js';
 import { VABB_SIDS } from './sids.js';
 import { VABB_STARS } from './stars.js';
+import { VABB_TERRAIN } from './terrain.js';
 
 export const VABB: ScenarioSpec = {
   id: 'VABB',
@@ -23,6 +24,7 @@ export const VABB: ScenarioSpec = {
   runway: VABB_RUNWAY,
   inactiveRunways: VABB_INACTIVE,
   coastline: VABB_COASTLINE,
+  terrain: VABB_TERRAIN,
   airspace: VABB_AIRSPACE,
   gates: VABB_GATES,
   stars: VABB_STARS,
