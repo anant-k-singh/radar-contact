@@ -11,6 +11,8 @@ import { assignedAltitudeFt, assignedHeadingDeg, isPending } from '../sim/pilot.
 import { activeFix } from '../sim/star.js';
 import { displayHeading, headingDiff, headingVector } from '../sim/units.js';
 import type { World } from '../sim/world.js';
+import { clipped, unclipped } from './clip.js';
+import { clipToAirspace } from './mapLayer.js';
 import { screenX, screenY, type Projection } from './project.js';
 import type { RenderOptions } from './scope.js';
 import { THEME } from './theme.js';
@@ -305,159 +307,172 @@ export function drawTraffic(
   const blocks = new Map<number, Rect>();
   ctx.lineCap = 'round';
 
-  // Nearest the runway first, so the busiest part of the scope gets first
-  // choice of label position.
-  const ordered = [...world.aircraft].sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y));
+  // Everything positioned in the world — trail, leader, hint, blip — is content
+  // and is clipped to the fixed circle, so magnifying cannot spill it across the
+  // scope. Labels lift the clip for themselves via `unclipped`; see `clip.ts`.
+  clipped(ctx, (c) => clipToAirspace(c, world.scenario, p), () => {
+    // Nearest the runway first, so the busiest part of the scope gets first
+    // choice of label position.
+    const ordered = [...world.aircraft].sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y));
 
-  for (const ac of ordered) {
-    const selected = world.selectedId === ac.id;
-    const color = primaryColor(ac, selected);
-    const sx = screenX(p, ac.x);
-    const sy = screenY(p, ac.y);
+    for (const ac of ordered) {
+      const selected = world.selectedId === ac.id;
+      const color = primaryColor(ac, selected);
+      const sx = screenX(p, ac.x);
+      const sy = screenY(p, ac.y);
 
-    // History trail — one dot every HISTORY_PERIOD_S, oldest faintest. The
-    // newest is drawn too and simply disappears under the glyph for the moment
-    // after it is laid down, which keeps the gap behind the blip even instead
-    // of doubling.
-    //
-    // The selected aircraft shows the whole retained trail; everything else
-    // shows the newest TRAIL_DOTS_UNSELECTED of it. Twice the history is worth
-    // reading on the one aircraft being worked — where it came from, and
-    // whether the turn it is in started before or after the last instruction —
-    // and would be clutter drawn on all twenty-five at once.
-    //
-    // Only for traffic that is ours. The trail exists to be read — where an
-    // aircraft has come from and how fast — and reading it is a step towards an
-    // instruction. On a departure or an aircraft already with Tower there is no
-    // instruction to make, so the dots are clutter over the part of the scope
-    // that is busiest with it (§11.1).
-    if (!isDimmed(ac)) {
-      // Sliced from the end, so the dots that drop off an unselected aircraft
-      // are the oldest ones and the trail stays anchored to the blip.
-      const trail = selected ? ac.trail : ac.trail.slice(-TRAIL_DOTS_UNSELECTED);
-      for (let i = 0; i < trail.length; i += 1) {
-        const point = trail[i]!;
-        ctx.globalAlpha = 0.2 + (i / trail.length) * 0.45;
-        ctx.fillStyle = THEME.trafficDim;
-        ctx.beginPath();
-        ctx.arc(screenX(p, point.x), screenY(p, point.y), 1.7, 0, Math.PI * 2);
-        ctx.fill();
+      // History trail — one dot every HISTORY_PERIOD_S, oldest faintest. The
+      // newest is drawn too and simply disappears under the glyph for the moment
+      // after it is laid down, which keeps the gap behind the blip even instead
+      // of doubling.
+      //
+      // The selected aircraft shows the whole retained trail; everything else
+      // shows the newest TRAIL_DOTS_UNSELECTED of it. Twice the history is worth
+      // reading on the one aircraft being worked — where it came from, and
+      // whether the turn it is in started before or after the last instruction —
+      // and would be clutter drawn on all twenty-five at once.
+      //
+      // Only for traffic that is ours. The trail exists to be read — where an
+      // aircraft has come from and how fast — and reading it is a step towards an
+      // instruction. On a departure or an aircraft already with Tower there is no
+      // instruction to make, so the dots are clutter over the part of the scope
+      // that is busiest with it (§11.1).
+      if (!isDimmed(ac)) {
+        // Sliced from the end, so the dots that drop off an unselected aircraft
+        // are the oldest ones and the trail stays anchored to the blip.
+        const trail = selected ? ac.trail : ac.trail.slice(-TRAIL_DOTS_UNSELECTED);
+        for (let i = 0; i < trail.length; i += 1) {
+          const point = trail[i]!;
+          ctx.globalAlpha = 0.2 + (i / trail.length) * 0.45;
+          ctx.fillStyle = THEME.trafficDim;
+          ctx.beginPath();
+          ctx.arc(screenX(p, point.x), screenY(p, point.y), 1.7, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
       }
-      ctx.globalAlpha = 1;
+
+      // Violation ring. A warning is already carrying a colour of its own; the
+      // ring is held back for the violation so the escalation reads across the
+      // scope from the blip alone, without the block having to change with it.
+      if (ac.alert === 'violation') {
+        ctx.strokeStyle = THEME.violation;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 13, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // One minute of flight at the current ground speed — the length of the
+      // leader line, and the scale the heading hint is sized against.
+      const minuteNm = ac.radar.groundSpeedKts / 60;
+      const leaderPx = minuteNm * p.pxPerNm;
+
+      // Assigned-heading vector, for a few seconds after the instruction: where
+      // the nose is going, alongside the green leader line showing where it is.
+      const assignedDeg = assignedHeadingDeg(ac);
+      const hintLeftS = ac.headingHintUntilS - world.timeS;
+      if (options.headingHints && hintLeftS > 0 && !isDimmed(ac)) {
+        const want = headingVector(assignedDeg);
+        // Half again the leader line, and never so short that it hides under the
+        // selection ring — this has to read at a glance from across the scope.
+        const hintPx = Math.max(leaderPx * 1.5, 60);
+        const ex = sx + want.x * hintPx;
+        const ey = sy - want.y * hintPx;
+        ctx.strokeStyle = THEME.hint;
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.85 * Math.min(1, hintLeftS); // fades out over the last second
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(ex, ey);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Cap tick across the end, so the target is readable even at a small angle.
+        const cross = headingVector(assignedDeg + 90);
+        ctx.beginPath();
+        ctx.moveTo(ex + cross.x * 4, ey - cross.y * 4);
+        ctx.lineTo(ex - cross.x * 4, ey + cross.y * 4);
+        ctx.stroke();
+
+        ctx.font = THEME.fontLabel;
+        ctx.fillStyle = THEME.hint;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        unclipped(ctx, () =>
+          ctx.fillText(displayHeading(assignedDeg), ex + want.x * 12, ey - want.y * 12),
+        );
+        ctx.globalAlpha = 1;
+      }
+
+      // The leader line answers "where will this be in a minute" — a question
+      // only a controller with the authority to change the answer needs, so a
+      // replay leaves it off (§17.3).
+      if (options.leaderLines) {
+        const dir = headingVector(ac.headingDeg);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.55;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + dir.x * leaderPx, sy - dir.y * leaderPx);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+
+      // Blip.
+      ctx.fillStyle = glyphColor(ac, selected);
+      drawGlyph(ctx, sx, sy, ac.headingDeg, GLYPH_WAKE_SCALE[ac.type.wake]);
+
+      if (selected) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.8;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 16, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+
+      // Data block. A label, not content: pixel-sized furniture pinned to the blip
+      // and offset far enough that an aircraft near the edge has its block hanging
+      // over the boundary. Clipped, it is sliced down the middle of the callsign,
+      // and for exactly the traffic closest to handover. The blip stays clipped,
+      // so a block that is drawn always has its aircraft on the scope.
+      ctx.font = THEME.fontBlock;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      const lines = blockLines(ac);
+      const rect = placeBlock(ctx, sx, sy, lines, placed, p);
+      placed.push(rect);
+      blocks.set(ac.id, rect);
+
+      // Connector, for the selected block only. Which blip a block belongs to is
+      // proximity alone, and proximity is exactly what stops answering the
+      // question once two blocks crowd each other — so the one block the player
+      // is reading says which aircraft it is about rather than implying it.
+      if (selected) {
+        drawConnector(ctx, sx, sy, rect, color);
+      }
+
+      unclipped(ctx, () => {
+        ctx.fillStyle = color;
+        lines.forEach((line, index) => {
+          ctx.fillText(line, rect.x, rect.y + index * LINE_HEIGHT);
+        });
+
+        // Assigned heading, shown only while a turn the player asked for is
+        // outstanding — an aircraft turning to follow its STAR was not vectored.
+        const vectored = !ac.star || isPending(ac, 'heading');
+        const turning = headingDiff(ac.headingDeg, assignedDeg) > 1.5;
+        if (turning && vectored && !isDimmed(ac)) {
+          ctx.fillStyle = THEME.assigned;
+          ctx.fillText(displayHeading(assignedDeg), rect.x + rect.w + 6, rect.y);
+        }
+      });
     }
-
-    // Violation ring. A warning is already carrying a colour of its own; the
-    // ring is held back for the violation so the escalation reads across the
-    // scope from the blip alone, without the block having to change with it.
-    if (ac.alert === 'violation') {
-      ctx.strokeStyle = THEME.violation;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(sx, sy, 13, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    // One minute of flight at the current ground speed — the length of the
-    // leader line, and the scale the heading hint is sized against.
-    const minuteNm = ac.radar.groundSpeedKts / 60;
-    const leaderPx = minuteNm * p.pxPerNm;
-
-    // Assigned-heading vector, for a few seconds after the instruction: where
-    // the nose is going, alongside the green leader line showing where it is.
-    const assignedDeg = assignedHeadingDeg(ac);
-    const hintLeftS = ac.headingHintUntilS - world.timeS;
-    if (options.headingHints && hintLeftS > 0 && !isDimmed(ac)) {
-      const want = headingVector(assignedDeg);
-      // Half again the leader line, and never so short that it hides under the
-      // selection ring — this has to read at a glance from across the scope.
-      const hintPx = Math.max(leaderPx * 1.5, 60);
-      const ex = sx + want.x * hintPx;
-      const ey = sy - want.y * hintPx;
-      ctx.strokeStyle = THEME.hint;
-      ctx.lineWidth = 1.5;
-      ctx.globalAlpha = 0.85 * Math.min(1, hintLeftS); // fades out over the last second
-      ctx.setLineDash([5, 4]);
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(ex, ey);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Cap tick across the end, so the target is readable even at a small angle.
-      const cross = headingVector(assignedDeg + 90);
-      ctx.beginPath();
-      ctx.moveTo(ex + cross.x * 4, ey - cross.y * 4);
-      ctx.lineTo(ex - cross.x * 4, ey + cross.y * 4);
-      ctx.stroke();
-
-      ctx.font = THEME.fontLabel;
-      ctx.fillStyle = THEME.hint;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(displayHeading(assignedDeg), ex + want.x * 12, ey - want.y * 12);
-      ctx.globalAlpha = 1;
-    }
-
-    // The leader line answers "where will this be in a minute" — a question
-    // only a controller with the authority to change the answer needs, so a
-    // replay leaves it off (§17.3).
-    if (options.leaderLines) {
-      const dir = headingVector(ac.headingDeg);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
-      ctx.globalAlpha = 0.55;
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(sx + dir.x * leaderPx, sy - dir.y * leaderPx);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-
-    // Blip.
-    ctx.fillStyle = glyphColor(ac, selected);
-    drawGlyph(ctx, sx, sy, ac.headingDeg, GLYPH_WAKE_SCALE[ac.type.wake]);
-
-    if (selected) {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
-      ctx.globalAlpha = 0.8;
-      ctx.beginPath();
-      ctx.arc(sx, sy, 16, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-
-    // Data block.
-    ctx.font = THEME.fontBlock;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    const lines = blockLines(ac);
-    const rect = placeBlock(ctx, sx, sy, lines, placed, p);
-    placed.push(rect);
-    blocks.set(ac.id, rect);
-
-    // Connector, for the selected block only. Which blip a block belongs to is
-    // proximity alone, and proximity is exactly what stops answering the
-    // question once two blocks crowd each other — so the one block the player
-    // is reading says which aircraft it is about rather than implying it.
-    if (selected) {
-      drawConnector(ctx, sx, sy, rect, color);
-    }
-
-    ctx.fillStyle = color;
-    lines.forEach((line, index) => {
-      ctx.fillText(line, rect.x, rect.y + index * LINE_HEIGHT);
-    });
-
-    // Assigned heading, shown only while a turn the player asked for is
-    // outstanding — an aircraft turning to follow its STAR was not vectored.
-    const vectored = !ac.star || isPending(ac, 'heading');
-    const turning = headingDiff(ac.headingDeg, assignedDeg) > 1.5;
-    if (turning && vectored && !isDimmed(ac)) {
-      ctx.fillStyle = THEME.assigned;
-      ctx.fillText(displayHeading(assignedDeg), rect.x + rect.w + 6, rect.y);
-    }
-  }
+  });
 
   return blocks;
 }

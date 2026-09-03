@@ -9,6 +9,7 @@ import { boundaryRangeAtBearing, isInsideAirspace } from '../scenario/airspace.j
 import type { Scenario, Sid } from '../scenario/types.js';
 import { centerlinePoint } from '../sim/ils.js';
 import { bearing, headingDiff, headingVector, magnitude, type Ft, type Nm, type Point } from '../sim/units.js';
+import { clipped, nested, unclipped } from './clip.js';
 import {
   screenX,
   screenY,
@@ -38,14 +39,25 @@ const LABEL_LINE_PX = 11;
  * label having cut a hole in whatever it crosses rather than as a border.
  */
 function haloText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number): void {
-  ctx.save();
-  ctx.strokeStyle = THEME.background;
-  ctx.lineWidth = 3;
-  ctx.lineJoin = 'round';
-  ctx.strokeText(text, x, y);
-  ctx.restore();
-  ctx.fillText(text, x, y);
+  // Unclipped, always: this is the chokepoint every label on the layer goes
+  // through, so routing it here is what makes "the clip never cuts a label" a
+  // property of the code rather than of remembering (see `clip.ts`).
+  unclipped(ctx, () => {
+    ctx.save();
+    ctx.strokeStyle = THEME.background;
+    ctx.lineWidth = 3;
+    ctx.lineJoin = 'round';
+    ctx.strokeText(text, x, y);
+    ctx.restore();
+    ctx.fillText(text, x, y);
+  });
 }
+
+/**
+ * Whether the scope is at its fitted size. Pan cannot happen without zoom — the
+ * pinch is the only gesture — so the scale is the whole test.
+ */
+const atRest = (p: Projection): boolean => p.pxPerNm === p.base.pxPerNm;
 
 /**
  * Two entries, and the reason is the zoom.
@@ -72,8 +84,8 @@ export function mapLayer(
   const key =
     `${scenario.id}|${projection.width}x${projection.height}@${dpr}` +
     `|${projection.pxPerNm}|${projection.cx},${projection.cy}`;
-  const atRest = projection.pxPerNm === projection.base.pxPerNm;
-  const cache = atRest ? restCache : zoomCache;
+  const rest = atRest(projection);
+  const cache = rest ? restCache : zoomCache;
   if (cache && cache.key === key) return cache.canvas;
 
   const canvas = document.createElement('canvas');
@@ -84,38 +96,41 @@ export function mapLayer(
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     draw(ctx, scenario, projection);
   }
-  if (atRest) restCache = { key, canvas };
+  if (rest) restCache = { key, canvas };
   else zoomCache = { key, canvas };
   return canvas;
 }
 
-function draw(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
+export function draw(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
   ctx.fillStyle = THEME.background;
   ctx.fillRect(0, 0, p.width, p.height);
 
   // Everything that lives *in* the airspace is drawn zoomed and clipped to the
   // fixed circle, so magnifying the content cannot spill it across the scope.
-  ctx.save();
-  clipToAirspace(ctx, scenario, p);
-  // Under everything, in the order the ground itself is layered: high ground
-  // shaded, then the coast drawn on top of it.
-  drawTerrain(ctx, scenario, p);
-  drawCoastline(ctx, scenario, p);
-  drawRings(ctx, scenario, p);
-  drawCompassTicks(ctx, scenario, p);
-  drawStars(ctx, scenario, p);
-  // After the STARs, so where a SID passes under one the departure track is the
-  // line drawn on top — which is the one carrying the restriction that matters.
-  drawSids(ctx, scenario, p);
-  drawCenterline(ctx, scenario, p);
-  drawRunway(ctx, scenario, p);
-  drawGates(ctx, scenario, p);
-  ctx.restore();
+  clipped(ctx, (c) => clipToAirspace(c, scenario, p), () => {
+    // Under everything, in the order the ground itself is layered: high ground
+    // shaded, then the coast drawn on top of it.
+    drawTerrain(ctx, scenario, p);
+    drawCoastline(ctx, scenario, p);
+    drawRings(ctx, scenario, p);
+    drawCompassTicks(ctx, scenario, p);
+    drawStars(ctx, scenario, p);
+    // After the STARs, so where a SID passes under one the departure track is
+    // the line drawn on top — which carries the restriction that matters.
+    drawSids(ctx, scenario, p);
+    drawCenterline(ctx, scenario, p);
+    drawRunway(ctx, scenario, p);
+  });
 
   // The boundary itself is the frame, not content: it is drawn from the base
   // frame at its fitted size and does not move. Drawn last so the clipped
   // content inside meets a clean edge.
   drawBoundary(ctx, scenario, p);
+  // A gate sits *on* the boundary and its label is offset outward from the
+  // marker, so it lands outside the circle the content is clipped to. Drawn with
+  // the boundary, after the clip is released, or the diamond appears with its
+  // name and handover level shaved off. At rest only — see `drawGates`.
+  drawGates(ctx, scenario, p);
   // The terrain legend lives out in the right-hand margin, *outside* the circle
   // (see `drawTerrainCallouts`), so it is neither clipped nor zoomed — only its
   // leader's foot, which points at a patch of ground, follows the zoom.
@@ -470,9 +485,9 @@ function drawTerrain(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Proje
  */
 function drawCoastline(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
   if (scenario.coastline.length === 0) return;
+  // No clip of its own: `draw` already clips the whole content group to exactly
+  // this region.
   ctx.save();
-  clipToAirspace(ctx, scenario, p);
-
   ctx.strokeStyle = THEME.coastline;
   ctx.lineWidth = 1;
   ctx.lineJoin = 'round';
@@ -511,7 +526,12 @@ function drawCoastline(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Pro
  * is kept, and seven names crowding the STAR chart bought neither.
  */
 function drawSids(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
-  ctx.save();
+  // `nested` rather than a bare `save`, so a label lifting the clip knows how far
+  // to unwind — see `clip.ts`. A raw pair here is what kept the SID tops clipped.
+  nested(ctx, () => drawSidChart(ctx, scenario, p));
+}
+
+function drawSidChart(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
   ctx.globalAlpha = SID_ALPHA;
   ctx.font = THEME.fontLabel;
   ctx.textBaseline = 'middle';
@@ -578,7 +598,6 @@ function drawSids(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projecti
       }
     }
   }
-  ctx.restore();
 }
 
 /**
@@ -876,7 +895,20 @@ function drawRunway(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projec
   haloText(ctx, scenario.runway.id, threshold.x + 8, threshold.y + 2);
 }
 
+/**
+ * The entry gates — drawn at rest only, and that is the whole of the rule.
+ *
+ * A gate marks where a route crosses the boundary, so it has to sit on both: on
+ * the circle, and on the end of the STAR it belongs to. Zoom separates the two,
+ * because the boundary is fixed furniture while the route magnifies inside it, and
+ * there is no frame in which the marker is still telling the truth. Drawn in the
+ * base frame it drifts off its own route; drawn zoomed it leaves the circle and
+ * lands over the stats gutter at 2x. So it is withheld, the way the leader line is
+ * in replay — the label offset that puts it outside the clip is exactly why it
+ * cannot simply be clipped away instead.
+ */
 function drawGates(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
+  if (!atRest(p)) return;
   ctx.font = THEME.fontLabel;
   ctx.textBaseline = 'middle';
 

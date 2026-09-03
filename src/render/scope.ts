@@ -1,6 +1,7 @@
 /** Canvas plumbing: sizing, DPR, layer order, and hit testing. */
 import type { Aircraft } from '../sim/aircraft.js';
 import { messagesFor, type World } from '../sim/world.js';
+import { clipped } from './clip.js';
 import { clipToAirspace, mapLayer } from './mapLayer.js';
 import { createLogScroll, drawMessages, drawStatusLine, scrollLog } from './messageLog.js';
 import { drawTrackPath, type TrackPathView } from './pathLayer.js';
@@ -125,15 +126,17 @@ export function createScope(canvas: HTMLCanvasElement): Scope {
       const p = resize(world.scenario.airspace);
       const dpr = window.devicePixelRatio || 1;
       ctx.drawImage(mapLayer(world.scenario, p, dpr), 0, 0, p.width, p.height);
-      // Traffic is content, so it is clipped to the same fixed circle the map
-      // layer clips to. An aircraft magnified outside the boundary stops being
-      // drawn; it is still flying, still logging and still recorded — clipping
-      // is a rendering bound, and `src/sim/` cannot see it.
-      ctx.save();
-      clipToAirspace(ctx, world.scenario, p);
-      if (options.path) drawTrackPath(ctx, options.path, p);
+      // The track path is content, so it is clipped to the same fixed circle the
+      // map layer clips to. An aircraft magnified outside the boundary stops
+      // being drawn; it is still flying, still logging and still recorded —
+      // clipping is a rendering bound, and `src/sim/` cannot see it.
+      if (options.path) {
+        clipped(ctx, (c) => clipToAirspace(c, world.scenario, p), () =>
+          drawTrackPath(ctx, options.path!, p),
+        );
+      }
+      // Clips itself, because its labels have to lift that clip (`clip.ts`).
       blocks = drawTraffic(ctx, world, p, options);
-      ctx.restore();
       drawStatusLine(ctx, world, options.mode);
       drawStats(ctx, world, p);
       // The log is filtered by the selection (§7.1), so changing selection
