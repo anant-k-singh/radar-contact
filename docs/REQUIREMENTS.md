@@ -1493,6 +1493,29 @@ bigger airspace. A scope whose outline grew would leave the range rings, the com
 stats gutter all meaning something different at each zoom, and the boundary is the one piece of
 furniture every other judgement is measured against.
 
+**The clip bounds geometry, never a label.** Zoom split the scope's drawing in two. *Content* is
+positioned in the world and magnifies inside a boundary that stays put, so it must be clipped or it
+spills across the scope: the trail, the leader line, the blip, the track path, the route lines. A
+*label* is pixel-sized furniture pinned near something and offset in pixels that never consult the
+zoom, so clipping it slices it mid-glyph at the edge — and the edge is where labels matter most: the
+traffic closest to handover, the fixes on the boundary.
+
+This is enforced structurally rather than by convention, because convention is exactly what failed.
+The clip was introduced wrapped around draw calls containing both kinds; at 1× nothing was cut, so
+the labels it ate at 2× — **61 across the two fields**: every compass bearing, the range-ring
+figures, STAR fix names and crossing altitudes, SID tops — were invisible unless someone zoomed and
+looked closely. Three were found by eye and fixed by hand, one `restore()` per symptom, which is no
+protection for the next label anyone adds. So the clip is *self-suspending for text*
+([clip.ts](../src/render/clip.ts)): `clipped()` scopes a region, `unclipped()` lifts it for one
+draw, and every label goes through it — `haloText` for the map layer, the block and hint in the
+traffic layer. A routine needing its own `save` uses `nested()` so the lift knows how far to unwind;
+a bare pair is what kept the SID tops clipped after the first pass. Two tests hold it: a sweep over
+every field at both zooms asserting nothing is cut, and a layering rule counting the raw text calls
+so a new one is a decision rather than an accident.
+
+The blip stays clipped while its block does not, which is what keeps `pick` honest: a block that is
+drawn always has its aircraft on the scope.
+
 **Positions scale; nothing drawn does.** Blip glyphs, every label, the route and centerline
 strokes and the history dots keep their pixel sizes, so magnifying spreads the traffic out without
 also inflating it — which is the whole point, since a pair that has merged into one smear is
@@ -1816,6 +1839,7 @@ src/
       vabb/            # Mumbai RWY 27: fixes.ts (published coordinates) + airlines.ts
   render/
     project.ts         # NM ↔ pixels, fitted to a scenario's airspace, plus the zoom (§7.4)
+    clip.ts            # the clip bounds geometry, never a label (§7.4)
     mapLayer.ts        # static layer, cached per field × canvas size
     trafficLayer.ts    # blips, leader lines, trails, data blocks, de-clutter
     scope.ts           # canvas sizing, DPR, layer order, hit testing

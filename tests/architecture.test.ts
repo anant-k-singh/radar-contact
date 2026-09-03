@@ -90,6 +90,35 @@ describe('layering', () => {
     }
   });
 
+  it('never draws text through a raw canvas call in a clipping layer', () => {
+    // The clip bounds geometry, never a label (§7.4). Enforced by routing every
+    // label through `unclipped`, so the raw text calls exist in exactly two
+    // places: `haloText`, which every map label goes through, and the `unclipped`
+    // bodies in the traffic layer. A label written with a bare `ctx.fillText`
+    // inside a clipped routine is the regression that ate 61 labels at 2x while
+    // every test passed.
+    //
+    // Counted rather than parsed: a count that has to be updated deliberately is
+    // what makes a new raw call a decision instead of an accident. The stats panel
+    // and message log are exempt — they sit outside the scope and never clip.
+    const expected: Record<string, number> = {
+      // strokeText + fillText, both inside `haloText`'s `unclipped` body.
+      'src/render/mapLayer.ts': 2,
+      // The hint, the block lines and the assigned heading — each `unclipped`.
+      'src/render/trafficLayer.ts': 3,
+    };
+    for (const [path, count] of Object.entries(expected)) {
+      const source = SOURCES[`../${path}`] ?? '';
+      expect(source.length, path).toBeGreaterThan(0);
+      const raw = source.match(/ctx\.(fill|stroke)Text\(/g) ?? [];
+      expect(
+        raw.length,
+        `${path}: a raw text call was added or removed — route it through ` +
+          '`unclipped` (see src/render/clip.ts) and update this count',
+      ).toBe(count);
+    }
+  });
+
   it('keeps pilot.ts free of a runtime dependency on the world', () => {
     // A runtime import here is an import cycle: world.ts calls into pilot.ts.
     // The trap is real — pilot.ts needs the runway id for its readback, and the
