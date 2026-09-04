@@ -21,20 +21,26 @@ export const THEME = {
    */
   coastline: '#3f7fa8',
   /**
-   * High ground, one fill per 1000 ft band, low to high.
+   * The ends of the high-ground ramp: the lowest band's fill and the highest.
    *
-   * A warm grey-brown ramp, and deliberately *dark* — this is the bottom layer of
-   * the scope and everything the player actually works with is drawn on top of it,
-   * so the brightest band has to stay below `starPath` or the chart stops reading
-   * against the ground it crosses. The published palette that comes with the
-   * contours is a hiking-map green-to-yellow, which is right for a map read on its
-   * own and far too loud under a radar display.
+   * Two colours rather than a list, because the number of steps is the *field's*
+   * and not the theme's — see `terrainRamp`. Stated as the ends of a range so a
+   * field with four bands and one with fourteen are the same design decision.
+   *
+   * A warm grey-brown, and deliberately *dark* — this is the bottom layer of the
+   * scope and everything the player actually works with is drawn on top of it, so
+   * the brightest band has to stay below `starPath` (luminance 70.6) or the chart
+   * stops reading against the ground it crosses. That ceiling is what caps the
+   * range, and therefore how many steps are distinguishable within it. The
+   * published palette that comes with the contours is a hiking-map
+   * green-to-yellow, right for a map read on its own and far too loud under a
+   * radar display.
    *
    * The ramp is in brightness rather than in hue: terrain means one thing, and a
-   * band that is higher is simply more of it. The steps are even so the escarpment
-   * reads as a slope rather than as an edge.
+   * band that is higher is simply more of it.
    */
-  terrain: ['#0e1714', '#1b2a23', '#283d33', '#375142'],
+  terrainLow: '#0e1714',
+  terrainHigh: '#375142',
   centerline: '#2f6fd0',
   centerlineTick: '#3f86e8',
   gate: '#2f7a58',
@@ -114,3 +120,43 @@ export const THEME = {
   fontLabel: '10px "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace',
   fontLog: '12px "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace',
 } as const;
+
+/**
+ * The terrain ramp for a field with `bands` bands, darkest first.
+ *
+ * Stretched to fit rather than fixed, so every field uses the whole usable
+ * contrast range whatever its band count. The alternative — one shade meaning one
+ * altitude everywhere — was considered and rejected: it would have left VABB's
+ * four bands crowded into the bottom of a scale built for Geneva's fourteen, and
+ * a field's terrain has to read against *itself* first. The cost is that a shade
+ * cannot be read as an altitude on its own, which is what `MSA @ pointer` is for.
+ *
+ * Interpolated in sRGB. Not perceptually uniform — a Lab ramp would space the
+ * steps more evenly — but these are small dark patches over a narrow range, where
+ * the difference is not visible and the extra machinery would be.
+ *
+ * The step shrinks as bands are added, and at some count it stops being legible:
+ * fourteen bands over this range give about 4 units of luminance each, which is
+ * near the limit for irregular patches on a dark ground. That is a bound on how
+ * finely a field may usefully band its terrain, not something this can fix — the
+ * ceiling is `starPath`, and lifting it costs the STAR lines their contrast.
+ */
+export function terrainRamp(bands: number): string[] {
+  if (bands <= 0) return [];
+  if (bands === 1) return [THEME.terrainLow];
+  const lo = rgb(THEME.terrainLow);
+  const hi = rgb(THEME.terrainHigh);
+  return Array.from({ length: bands }, (_, i) => {
+    const t = i / (bands - 1);
+    return hex(lo.map((c, k) => c + (hi[k]! - c) * t));
+  });
+}
+
+const rgb = (color: string): number[] => [
+  parseInt(color.slice(1, 3), 16),
+  parseInt(color.slice(3, 5), 16),
+  parseInt(color.slice(5, 7), 16),
+];
+
+const hex = (channels: number[]): string =>
+  `#${channels.map((c) => Math.round(c).toString(16).padStart(2, '0')).join('')}`;

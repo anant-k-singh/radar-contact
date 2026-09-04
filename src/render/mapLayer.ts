@@ -12,7 +12,7 @@ import { centerlinePoint } from '../sim/ils.js';
 import { bearing, headingDiff, headingVector, magnitude, type Point } from '../sim/units.js';
 import { clipped, nested, unclipped } from './clip.js';
 import { screenX, screenY, toScreen, type Projection } from './project.js';
-import { THEME } from './theme.js';
+import { terrainRamp, THEME } from './theme.js';
 
 /**
  * How far the SID chart sits behind the STAR chart. Low enough that a departure
@@ -184,10 +184,14 @@ function drawTerrain(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Proje
   if (scenario.terrain.length === 0) return;
   ctx.save();
 
+  // Built for this field's band count, so the whole contrast range is used
+  // whatever that count is. A fixed four-colour ramp painted eleven of LSGG's
+  // fourteen bands the same shade — everything from 7000 up was one flat mass,
+  // because the array ran out and the top colour repeated.
+  const ramp = terrainRamp(scenario.terrain.length);
+
   scenario.terrain.forEach((band, index) => {
-    // The ramp is shorter than the number of bands a field might state, so the
-    // top colour repeats rather than running off the end of the array.
-    ctx.fillStyle = THEME.terrain[Math.min(index, THEME.terrain.length - 1)] ?? THEME.background;
+    ctx.fillStyle = ramp[index] ?? THEME.background;
     ctx.beginPath();
     for (const ring of band.rings) {
       ring.forEach((point, i) => {
