@@ -39,7 +39,7 @@ export const THEME = {
    * The ramp is in brightness rather than in hue: terrain means one thing, and a
    * band that is higher is simply more of it.
    */
-  terrainLow: '#0b1311',
+  terrainLow: '#0e1714',
   terrainHigh: '#375142',
   centerline: '#2f6fd0',
   centerlineTick: '#3f86e8',
@@ -138,12 +138,16 @@ export const THEME = {
  * front-loads the range, taking the first three steps to 5.5/5.4/4.7 and costing
  * the crowded upper bands about a tenth of a unit each.
  *
- * The other half of the fix was widening the range downward rather than upward.
- * The top is fixed by `starPath`, and it is a live constraint: VABB's two
- * brightest bands have arrival routes drawn *directly over* them, 0.0 and 0.1 NM
- * away. The bottom had unused headroom instead — the lowest band sat at 2.2× the
- * background where 1.9× is still clearly distinct — so `terrainLow` came down and
- * every step got wider at no cost to the top.
+ * The range itself is as wide as it can usefully be, and both ends are pinned by
+ * something real. The top is `starPath`: VABB draws arrival routes *directly
+ * over* its two brightest bands, 0.0 and 0.1 NM away, so a brighter top costs
+ * those lines their contrast. The bottom is the background — the lowest band has
+ * only the background to read against, since it has no darker neighbour, and at
+ * 1.9× it stopped being visible at all. 2.2× is where it reads, and taking it
+ * lower to buy wider steps was a trade in the wrong direction.
+ *
+ * So the range is fixed and the shaping is the only free variable, which is what
+ * `TERRAIN_RAMP_GAMMA` is for.
  *
  * The step shrinks as bands are added, and at some count it stops being legible:
  * fourteen bands over this range give about 4 units of luminance each, which is
@@ -156,11 +160,12 @@ export const THEME = {
  *
  * Below 1 because a fixed sRGB step is worth less near black — the bands that
  * needed help were 4000/5000/6000, the darkest three. Far below 1 and the top
- * bands crowd instead, which at fourteen bands they cannot afford: 0.90 is where
- * the bottom three read and the minimum step is still above the floor asserted in
- * `tests/terrain.test.ts`.
+ * bands crowd instead, which at fourteen bands they cannot afford: past 0.85 the
+ * minimum step falls under 3 units and the bright end goes flat, which is the
+ * same complaint at the other end of the ramp. 0.85 is the last value where both
+ * ends hold, and `tests/terrain.test.ts` asserts each of them.
  */
-const TERRAIN_RAMP_GAMMA = 0.9;
+const TERRAIN_RAMP_GAMMA = 0.85;
 
 export function terrainRamp(bands: number): string[] {
   if (bands <= 0) return [];

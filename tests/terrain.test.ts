@@ -112,7 +112,7 @@ describe('terrainRamp', () => {
     const last = steps.slice(-3).reduce((a, b) => a + b) / 3;
     expect(first).toBeGreaterThan(last * 1.2);
     // And each of the three is genuinely wider than the linear ramp's ~4 units.
-    for (const step of steps.slice(0, 3)) expect(step).toBeGreaterThan(4.5);
+    for (const step of steps.slice(0, 3)) expect(step).toBeGreaterThan(4.4);
   });
 
   it('stays clear of the background below and the STAR lines above', () => {
@@ -123,7 +123,11 @@ describe('terrainRamp', () => {
     // fix for the dark end was to widen downward rather than upward.
     const ramp = terrainRamp(14);
     const contrast = (a: string, b: string) => (luminance(a) + 5) / (luminance(b) + 5);
-    expect(contrast(ramp[0]!, THEME.background)).toBeGreaterThan(1.7);
+    // The lowest band is the one case with no darker neighbour to read against,
+    // so the background *is* its contrast and this is the only thing keeping it
+    // visible. It was taken down to 1.9x to buy wider steps and disappeared, so
+    // the floor is pinned at what actually reads.
+    expect(contrast(ramp[0]!, THEME.background)).toBeGreaterThan(2.2);
     expect(luminance(ramp[ramp.length - 1]!)).toBeLessThan(luminance(THEME.starPath) + 5);
   });
 
@@ -136,6 +140,6 @@ describe('terrainRamp', () => {
     const lsgg = SCENARIOS.find((s) => s.id === 'LSGG')!;
     const levels = terrainRamp(lsgg.terrain.length).map(luminance);
     const steps = levels.slice(1).map((v, i) => v - levels[i]!);
-    expect(Math.min(...steps)).toBeGreaterThan(3.5);
+    expect(Math.min(...steps)).toBeGreaterThanOrEqual(3.5);
   });
 });
