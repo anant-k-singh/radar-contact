@@ -1509,9 +1509,18 @@ protection for the next label anyone adds. So the clip is *self-suspending for t
 ([clip.ts](../src/render/clip.ts)): `clipped()` scopes a region, `unclipped()` lifts it for one
 draw, and every label goes through it — `haloText` for the map layer, the block and hint in the
 traffic layer. A routine needing its own `save` uses `nested()` so the lift knows how far to unwind;
-a bare pair is what kept the SID tops clipped after the first pass. Two tests hold it: a sweep over
-every field at both zooms asserting nothing is cut, and a layering rule counting the raw text calls
-so a new one is a decision rather than an accident.
+a bare pair is what kept the SID tops clipped after the first pass. Three tests hold it: a sweep over
+every field at both zooms asserting nothing is cut, a layering rule counting the raw text calls
+so a new one is a decision rather than an accident, and one asserting no line is stroked in the
+canvas default.
+
+**The lift restores what the caller set, in both directions.** Going in, a label is drawn in the
+styles in force at the call site; coming back out, the caller is usually mid-sequence and its own
+state has to still be there. Only the first half was implemented, and the centreline ticks are what
+found it: the loop sets the tick colour once and then strokes a tick every 2 NM, printing a figure at
+each major one, so the first `10` reset `strokeStyle` and every tick beyond it was stroked in black
+on a black scope. 40 strokes on ZZZZ and 45 on VABB — the ILS ticks past the first label and most of
+the compass rose — and none of it zoom-dependent, since the lift happens at 1× too.
 
 The blip stays clipped while its block does not, which is what keeps `pick` honest: a block that is
 drawn always has its aircraft on the scope.

@@ -206,3 +206,71 @@ describe('the data block', () => {
     }
   });
 });
+
+/**
+ * A label lifts the clip to draw itself, and everything the caller had set has to
+ * survive the round trip.
+ *
+ * The centreline tick loop is what proves it: it sets the tick colour once and then
+ * strokes a tick every 2 NM, printing a figure at each major one. `unclipped`
+ * carried the fill and text state across but not the stroke, so the first `10`
+ * printed reset `strokeStyle` and every tick beyond it was stroked in the canvas
+ * default — the ILS ticks simply vanished from the scope past the first label, at
+ * every zoom including 1x.
+ */
+describe('drawing state across a clip lift', () => {
+  /** Every `stroke()` the layer issues, with the state in force at the time. */
+  function strokes(scenario: Scenario) {
+    const recorded: { strokeStyle: string; lineWidth: number }[] = [];
+    const stack: Record<string, unknown>[] = [];
+    let state: Record<string, unknown> = {
+      strokeStyle: '#000000',
+      lineWidth: 1,
+      fillStyle: '#000000',
+      globalAlpha: 1,
+      font: '',
+      lineCap: 'butt',
+      lineJoin: 'miter',
+      textAlign: 'start',
+      textBaseline: 'alphabetic',
+    };
+    const ctx = new Proxy({} as Record<string, unknown>, {
+      get(_target, key: string) {
+        if (key === 'canvas') return { width: W, height: H };
+        if (key === 'measureText') return () => ({ width: 20 });
+        if (key === 'save') return () => void stack.push({ ...state });
+        if (key === 'restore')
+          return () => {
+            const popped = stack.pop();
+            if (popped) state = popped;
+          };
+        if (key === 'stroke')
+          return () =>
+            void recorded.push({
+              strokeStyle: String(state.strokeStyle),
+              lineWidth: Number(state.lineWidth),
+            });
+        if (key in state) return state[key];
+        return () => {};
+      },
+      set(_target, key: string, value: unknown) {
+        state[key] = value;
+        return true;
+      },
+    }) as unknown as CanvasRenderingContext2D;
+
+    draw(ctx, scenario, createProjection(scenario.airspace, W, H, DEFAULT_VIEWPORT));
+    return recorded;
+  }
+
+  for (const scenario of SCENARIOS) {
+    it(`${scenario.id} strokes nothing in the default colour`, () => {
+      // Every line this layer draws is themed, so a stroke left in the canvas
+      // default is one whose colour was dropped — invisible on a dark scope.
+      const drawn = strokes(scenario);
+      expect(drawn.length).toBeGreaterThan(0);
+      const lost = drawn.filter((s) => s.strokeStyle === '#000000');
+      expect(lost.length, `${lost.length} strokes lost their colour across a clip lift`).toBe(0);
+    });
+  }
+});

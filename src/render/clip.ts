@@ -94,30 +94,72 @@ export function clipped(ctx: CanvasRenderingContext2D, region: Region, body: () 
  * intervening frames carry, since a label that lost the SID alpha would be drawn at
  * full strength.
  */
+/**
+ * The drawing state a lift has to carry across the `restore`/`save` pair.
+ *
+ * Every field the layers actually set, stroke included. Listing them is what makes
+ * the set reviewable — the alternative is a `restore` that silently resets whatever
+ * nobody thought to name.
+ */
+interface DrawState {
+  globalAlpha: number;
+  font: string;
+  fillStyle: string | CanvasGradient | CanvasPattern;
+  strokeStyle: string | CanvasGradient | CanvasPattern;
+  lineWidth: number;
+  lineCap: CanvasLineCap;
+  lineJoin: CanvasLineJoin;
+  textAlign: CanvasTextAlign;
+  textBaseline: CanvasTextBaseline;
+}
+
+const snapshot = (ctx: CanvasRenderingContext2D): DrawState => ({
+  globalAlpha: ctx.globalAlpha,
+  font: ctx.font,
+  fillStyle: ctx.fillStyle,
+  strokeStyle: ctx.strokeStyle,
+  lineWidth: ctx.lineWidth,
+  lineCap: ctx.lineCap,
+  lineJoin: ctx.lineJoin,
+  textAlign: ctx.textAlign,
+  textBaseline: ctx.textBaseline,
+});
+
+function apply(ctx: CanvasRenderingContext2D, state: DrawState): void {
+  ctx.globalAlpha = state.globalAlpha;
+  ctx.font = state.font;
+  ctx.fillStyle = state.fillStyle;
+  ctx.strokeStyle = state.strokeStyle;
+  ctx.lineWidth = state.lineWidth;
+  ctx.lineCap = state.lineCap;
+  ctx.lineJoin = state.lineJoin;
+  ctx.textAlign = state.textAlign;
+  ctx.textBaseline = state.textBaseline;
+}
+
 export function unclipped(ctx: CanvasRenderingContext2D, body: () => void): void {
   const state = active.get(ctx);
   if (state === undefined) {
     body();
     return;
   }
-  // Styles set since `clipped` are re-applied by hand: `restore` would drop them
-  // along with the clip, and they are what the label is meant to be drawn in.
+  // Styles set since `clipped` are carried across by hand, because `restore` drops
+  // them along with the clip. Both directions matter, and for different reasons:
+  // going *in*, these are what the label is meant to be drawn in; coming back
+  // *out*, the caller is often mid-sequence and expects the state it set to still
+  // be there. The centreline tick loop is the case that proves it — it sets the
+  // tick colour once and then strokes a tick per 2 NM, printing a figure at every
+  // major one, so a lift that restored the stroke state to whatever `clipped` had
+  // saved left every tick past the first label drawn in the default black.
   const { region, depth } = state;
-  const alpha = ctx.globalAlpha;
-  const font = ctx.font;
-  const fill = ctx.fillStyle;
-  const align = ctx.textAlign;
-  const baseline = ctx.textBaseline;
+  const saved = snapshot(ctx);
   for (let i = 0; i < depth; i += 1) ctx.restore();
-  ctx.globalAlpha = alpha;
-  ctx.font = font;
-  ctx.fillStyle = fill;
-  ctx.textAlign = align;
-  ctx.textBaseline = baseline;
+  apply(ctx, saved);
   try {
     body();
   } finally {
     for (let i = 0; i < depth; i += 1) ctx.save();
     region(ctx);
+    apply(ctx, saved);
   }
 }
