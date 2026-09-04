@@ -113,23 +113,27 @@ export const LSGG_AIRSPACE: AirspaceSpec = {
    */
   halfHeightNm: 53,
   /**
-   * 6000: one step below the 7000 the charts deliver every arrival to.
+   * 5000: two steps below the 7000 the charts deliver every arrival to.
    *
    * The published MSA within 10 NM *is* 7000, and so are BIVLO, PITOM, INDIS and
-   * the SAPRE and GEVEA holding bases — but an MVA equal to the platform leaves
-   * the controller nothing to descend into. Vectoring off a STAR at 7000 with a
-   * floor of 7000 means every aircraft taken off its route is stuck at the level
-   * it left, which is not what the real sector does over the basin south-west of
-   * the field.
+   * the SAPRE and GEVEA holding bases — but an MVA at the platform leaves the
+   * controller nothing to descend into, and one step below it leaves barely
+   * enough: an aircraft that misses the localizer intercept has to be taken down
+   * again to re-establish, and 6000 gave that one 1000 ft try.
    *
-   * It is still higher than either shipped field's because the ground is: 53% of
-   * this airspace needs an MSA of 4000 or more against a field elevation of 1411.
-   * The terrain shading is **not** derived from this and does not move with it —
-   * `terrain.ts` states its own bands. Where the two disagree the shading is the
-   * honest one: this is a floor on what may be assigned, not a claim about the
-   * ground, the same contradiction VABB documents.
+   * The ground allows it where it matters. The extended centreline is clear of
+   * shaded terrain from the threshold to 26 NM at ±3 NM either side — the nearest
+   * 4000 band is the Salève, 5 NM left of course — so the corridor an arrival is
+   * actually vectored in is the one part of this airspace that is flat.
+   *
+   * It is still higher than either shipped field's because the ground elsewhere
+   * is: 53% of this airspace needs an MSA of 4000 or more against a field
+   * elevation of 1411. The terrain shading is **not** derived from this and does
+   * not move with it — `terrain.ts` states its own bands. Where the two disagree
+   * the shading is the honest one: this is a floor on what may be assigned, not a
+   * claim about the ground, the same contradiction VABB documents.
    */
-  mvaFt: 6000,
+  mvaFt: 5000,
   ceilingFt: CEILING_FT,
   rangeRingsNm: [10, 20, 30, 40, 50],
 };

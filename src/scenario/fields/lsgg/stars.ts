@@ -61,7 +61,10 @@
  * 16,000 to BIVLO 11,000 is 321 ft/NM** over 15.6 NM, a continuous 3° descent, and
  * it happens to clear VALBU's 14,000 floor by 800 ft and SUVEL's 11,000 by 1500.
  * Two independently observed levels landing on a textbook gradient that threads two
- * published floors is not what a guess does.
+ * published floors is not what a guess does. That gradient is also why **VALBU
+ * itself is no longer on the routes**: it sits 0.01 NM off the direct GOLEB–SUVEL
+ * line and turns the track by 0.2°, so it was a level on a straight leg the
+ * gradient already covers, and dropping it changes the flown path by nothing.
  *
  * ## The entry levels, and the ceiling
  *
@@ -97,7 +100,16 @@ import { LSGG_DERIVED as D, LSGG_FIXES as F } from './fixes.js';
  */
 const SAPRE = final(18.7, 0);
 
-/** The published base turn is 220 kt, and the platform is flown at 210. */
+/**
+ * The platform speed, and now the whole downwind's.
+ *
+ * The charts publish 220 at the base turn, which is what GG514 and GG512 carried.
+ * Both streams are slowed to 210 from GG507/GG525 instead — one deceleration on
+ * the downwind rather than one there and another on the base — so the speed is
+ * monotonic from the gate to the platform. A route that slows to 210 and then
+ * asks for 220 back is not a profile any chart codes, and it is what the earlier
+ * pair of numbers produced once GG507 and GG525 came down.
+ */
 const SAPRE_SPEED = 210;
 
 export const LSGG_STARS: readonly StarSpec[] = [
@@ -152,8 +164,8 @@ export const LSGG_STARS: readonly StarSpec[] = [
       { name: 'LIRKO', at: F.LIRKO, altitudeFt: 13_000, speedKts: 250 },
       { name: 'DINIG', at: F.DINIG, altitudeFt: 11_500, speedKts: 250 },
       { name: 'SOVAD', at: F.SOVAD, altitudeFt: 10_000, speedKts: 250 },
-      { name: 'GG507', at: F.GG507, altitudeFt: 8500, speedKts: 240 },
-      { name: 'GG514', at: F.GG514, altitudeFt: 7000, speedKts: 220 },
+      { name: 'GG507', at: F.GG507, altitudeFt: 8500, speedKts: 210 },
+      { name: 'GG514', at: F.GG514, altitudeFt: 7000, speedKts: 210 },
       { name: 'SAPRE', at: SAPRE, altitudeFt: 7000, speedKts: SAPRE_SPEED },
     ],
   },
@@ -167,8 +179,8 @@ export const LSGG_STARS: readonly StarSpec[] = [
       { name: 'LIRKO', at: F.LIRKO, altitudeFt: 13_000, speedKts: 250 },
       { name: 'DINIG', at: F.DINIG, altitudeFt: 11_500, speedKts: 250 },
       { name: 'SOVAD', at: F.SOVAD, altitudeFt: 10_000, speedKts: 250 },
-      { name: 'GG507', at: F.GG507, altitudeFt: 8500, speedKts: 240 },
-      { name: 'GG514', at: F.GG514, altitudeFt: 7000, speedKts: 220 },
+      { name: 'GG507', at: F.GG507, altitudeFt: 8500, speedKts: 210 },
+      { name: 'GG514', at: F.GG514, altitudeFt: 7000, speedKts: 210 },
       { name: 'SAPRE', at: SAPRE, altitudeFt: 7000, speedKts: SAPRE_SPEED },
     ],
   },
@@ -192,8 +204,8 @@ export const LSGG_STARS: readonly StarSpec[] = [
       { name: 'LIRKO', at: F.LIRKO, altitudeFt: 13_000, speedKts: 250 },
       { name: 'DINIG', at: F.DINIG, altitudeFt: 11_500, speedKts: 250 },
       { name: 'SOVAD', at: F.SOVAD, altitudeFt: 10_000, speedKts: 250 },
-      { name: 'GG507', at: F.GG507, altitudeFt: 8500, speedKts: 240 },
-      { name: 'GG514', at: F.GG514, altitudeFt: 7000, speedKts: 220 },
+      { name: 'GG507', at: F.GG507, altitudeFt: 8500, speedKts: 210 },
+      { name: 'GG514', at: F.GG514, altitudeFt: 7000, speedKts: 210 },
       { name: 'SAPRE', at: SAPRE, altitudeFt: 7000, speedKts: SAPRE_SPEED },
     ],
   },
@@ -209,11 +221,10 @@ export const LSGG_STARS: readonly StarSpec[] = [
       { name: 'BANKO', at: F.BANKO, altitudeFt: 19_000, speedKts: 280 },
       { name: 'GG520', at: F.GG520, altitudeFt: 18_000, speedKts: 280 },
       { name: 'GOLEB', at: F.GOLEB, altitudeFt: 16_000, speedKts: 270 },
-      { name: 'VALBU', at: F.VALBU, altitudeFt: 15_000, speedKts: 250 },
       { name: 'SUVEL', at: F.SUVEL, altitudeFt: 12_500, speedKts: 250 },
       { name: 'BIVLO', at: F.BIVLO, altitudeFt: 11_000, speedKts: 250 },
-      { name: 'GG525', at: F.GG525, altitudeFt: 9500, speedKts: 240 },
-      { name: 'GG512', at: F.GG512, altitudeFt: 8000, speedKts: 220 },
+      { name: 'GG525', at: F.GG525, altitudeFt: 9500, speedKts: 210 },
+      { name: 'GG512', at: F.GG512, altitudeFt: 8000, speedKts: 210 },
       { name: 'SAPRE', at: SAPRE, altitudeFt: 7000, speedKts: SAPRE_SPEED },
     ],
   },
@@ -228,11 +239,10 @@ export const LSGG_STARS: readonly StarSpec[] = [
       { name: 'GG519', at: F.GG519, altitudeFt: 19_000, speedKts: 280 },
       { name: 'ROCCA', at: F.ROCCA, altitudeFt: 17_500, speedKts: 270 },
       { name: 'GOLEB', at: F.GOLEB, altitudeFt: 16_000, speedKts: 270 },
-      { name: 'VALBU', at: F.VALBU, altitudeFt: 15_000, speedKts: 250 },
       { name: 'SUVEL', at: F.SUVEL, altitudeFt: 12_500, speedKts: 250 },
       { name: 'BIVLO', at: F.BIVLO, altitudeFt: 11_000, speedKts: 250 },
-      { name: 'GG525', at: F.GG525, altitudeFt: 9500, speedKts: 240 },
-      { name: 'GG512', at: F.GG512, altitudeFt: 8000, speedKts: 220 },
+      { name: 'GG525', at: F.GG525, altitudeFt: 9500, speedKts: 210 },
+      { name: 'GG512', at: F.GG512, altitudeFt: 8000, speedKts: 210 },
       { name: 'SAPRE', at: SAPRE, altitudeFt: 7000, speedKts: SAPRE_SPEED },
     ],
   },
@@ -252,8 +262,8 @@ export const LSGG_STARS: readonly StarSpec[] = [
       { name: 'GG502', at: F.GG502, altitudeFt: 14_000, speedKts: 250 },
       { name: 'PITOM', at: F.PITOM, altitudeFt: 12_000, speedKts: 250 },
       { name: 'BIVLO', at: F.BIVLO, altitudeFt: 11_000, speedKts: 250 },
-      { name: 'GG525', at: F.GG525, altitudeFt: 9500, speedKts: 240 },
-      { name: 'GG512', at: F.GG512, altitudeFt: 8000, speedKts: 220 },
+      { name: 'GG525', at: F.GG525, altitudeFt: 9500, speedKts: 210 },
+      { name: 'GG512', at: F.GG512, altitudeFt: 8000, speedKts: 210 },
       { name: 'SAPRE', at: SAPRE, altitudeFt: 7000, speedKts: SAPRE_SPEED },
     ],
   },
