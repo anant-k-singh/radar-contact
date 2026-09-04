@@ -217,6 +217,17 @@ export interface SidSpec {
   name: string;
   /** Top of the departure climb. Defaults to `airspace.ceilingFt + 1000`. */
   topFt?: Ft;
+  /**
+   * Share of the departures released down this SID, relative to the field's
+   * others. Defaults to 1, i.e. an even split.
+   *
+   * The mirror of `EntryGateSpec.weight`, and a property of the field for the
+   * same reason: which way an airport's traffic *leaves* is a fact about the
+   * route network around it. At LSGG the busiest way out carries four times the
+   * quietest. A branching SID declares it once and every exit inherits it — the
+   * fan is one clearance as far as the flow is concerned.
+   */
+  weight?: number;
   /** The common trunk: the fixes every way out of this SID flies first. */
   fixes: readonly SidFixSpec[];
   /**
@@ -282,6 +293,21 @@ export interface Scenario {
   airspace: Airspace;
   gates: readonly EntryGate[];
   stars: readonly Star[];
+  /**
+   * Sets of STARs that become one stream before the end, keyed by the fix they
+   * become it at — derived by `compileScenario`, never authored.
+   *
+   * A field whose routes only touch at a fix needs none of this: VABB's cross at
+   * different levels, which is what keeps them apart. LSGG's do something else —
+   * three routes are coincident for 40 NM, same fixes and same levels, one behind
+   * the other. There is no vertical split to be had because there is no lateral
+   * separation to deconflict.
+   *
+   * What separates them there is the *delivery interval*: `traffic.ts` cools down
+   * a whole group rather than a single gate, so a merge is offered traffic at the
+   * rate one route would be. Empty for a field with no shared trunks.
+   */
+  mergeGroups: readonly MergeGroup[];
   sids: readonly Sid[];
   fleet: readonly AircraftType[];
   airlines: readonly Airline[];
@@ -340,6 +366,21 @@ export type CoastlineSpec = readonly (readonly (readonly [Nm, Nm])[])[];
  * conversion produces, and what lets the scope label a band.
  */
 export type TerrainSpec = readonly (readonly [Ft, readonly (readonly (readonly [Nm, Nm])[])[]])[];
+
+/**
+ * A set of STARs that run together from `fixName` to the end of their routes.
+ *
+ * Membership is by coincidence of geometry rather than by declaration: two routes
+ * are in a group when they share a fix and everything after it. That makes it a
+ * fact about the field's own coordinates, which is where it belongs — a field
+ * cannot claim a merge it does not fly, or forget one it does.
+ */
+export interface MergeGroup {
+  /** Where the routes become one stream. */
+  fixName: string;
+  /** The STAR names sharing it, in the order the field declares them. */
+  starNames: readonly string[];
+}
 
 /** A compiled terrain band: one minimum safe altitude and the rings needing it. */
 export interface TerrainBand {
@@ -430,6 +471,8 @@ export interface Sid {
   turn: 'left' | 'right' | 'straight';
   /** Top of the climb once every restriction is behind it. */
   topFt: Ft;
+  /** Share of the departures released down this route, relative to the others. */
+  weight: number;
   waypoints: readonly SidWaypoint[];
   lengthNm: Nm;
 }

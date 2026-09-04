@@ -29,7 +29,7 @@
  * `controlVertical: false` seam is not one of this module's problems.
  */
 import type { AircraftType } from '../scenario/aircraftTypes.js';
-import { ceilingAtFt } from '../scenario/routes.js';
+import { ceilingAtFt, isPastFix } from '../scenario/routes.js';
 import type { Sid, SidWaypoint } from '../scenario/types.js';
 import type { Aircraft } from './aircraft.js';
 import {
@@ -39,7 +39,7 @@ import {
   SID_MAX_ANTICIPATION_NM,
   TAKEOFF_ACCEL_KTS_S,
 } from './constants.js';
-import { fixPassed, routeAnticipationNm } from './dynamics.js';
+import { routeAnticipationNm } from './dynamics.js';
 import {
   bearing,
   distance,
@@ -190,8 +190,19 @@ export function stepDeparture(ac: Aircraft, dt: Sec): DepartureEvent[] {
   const courseDeg = bearing(position, fix.position);
   ac.targetHeadingDeg = courseDeg;
 
-  // Sequencing, exactly as on a STAR.
-  const passed = fixPassed(rangeNm, ac.headingDeg, courseDeg, SID_FIX_CAPTURE_NM);
+  // Sequencing. The capture radius is `fixPassed`'s, but the abeam backstop is
+  // not: that half asks whether the fix is behind the *nose*, which is the wrong
+  // question on the tick a turn begins. Anticipation advances the index early to
+  // fly the corner, and a SID that reverses at the departure end then has its next
+  // fix more than 90° off before the aircraft has turned an inch — which reads as
+  // already past it, and unwinds the whole route in one tick. LSGG's KONIL 1R did
+  // exactly that 4.5 NM before it reached PAS.
+  //
+  // `isPastFix` asks whether the fix is behind the *leg*, which is what being past
+  // it means, and is the line the crossing restrictions are already released on.
+  // The index still advances early on anticipation, so the fly-by is unchanged —
+  // only the backstop is, and only where it was firing for the wrong reason.
+  const passed = rangeNm < SID_FIX_CAPTURE_NM || isPastFix(nav.route, nav.index, position);
   const last = nav.index === nav.route.waypoints.length - 1;
 
   if (last) {

@@ -140,7 +140,7 @@ export function raisedToLevel(star: Star, levelFt: Ft): readonly StarConstraint[
  * so what this tests is a line rather than a point. That line is where the crossing
  * is made good.
  */
-function isPastFix(sid: Sid, index: number, position: Point): boolean {
+export function isPastFix(sid: Sid, index: number, position: Point): boolean {
   const waypoints = sid.waypoints;
   const fix = waypoints[index]!;
   const previous = waypoints[index - 1];
@@ -198,4 +198,28 @@ export function floorAtFt(sid: Sid, position: Point): Ft {
     if (isPastFix(sid, i, position)) floorFt = Math.max(floorFt, minAltitudeFt);
   }
   return floorFt;
+}
+
+/**
+ * How many trailing fixes two STARs share **at the same level** — the test for
+ * whether they are one stream or two that happen to touch.
+ *
+ * Both halves matter. Same names alone is not a merge: VABB's IGBAN 2A and POKON
+ * 2A reach EMROS and OLGUS together and cross them 2000 ft apart, which is two
+ * streams deconflicted by the profile, and the vertical check on them has to keep
+ * running. Same names *and* same levels is a field saying these aircraft are in
+ * trail on one track, where no published split could separate them and the
+ * delivery interval is what does.
+ *
+ * Returns 0 when the routes do not even end together.
+ */
+export function identicalTailLength(a: Star, b: Star): number {
+  let shared = 0;
+  while (shared < a.waypoints.length && shared < b.waypoints.length) {
+    const wa = a.waypoints[a.waypoints.length - 1 - shared]!;
+    const wb = b.waypoints[b.waypoints.length - 1 - shared]!;
+    if (wa.name !== wb.name || wa.altitudeFt !== wb.altitudeFt) break;
+    shared += 1;
+  }
+  return shared;
 }
