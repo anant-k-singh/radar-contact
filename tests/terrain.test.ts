@@ -101,32 +101,41 @@ describe('terrainRamp', () => {
     expect(ramp[ramp.length - 1]).toBe(THEME.terrainHigh);
   });
 
-  it('reproduces the four colours VABB already shipped', () => {
-    // The ramp is stretched per field so a field's terrain reads against itself,
-    // which means a four-band field has to land back on the palette that was
-    // designed for it. Within a rounding unit per channel: the old values were
-    // authored by hand, and these are interpolated.
-    const ramp = terrainRamp(4);
-    const shipped = ['#0e1714', '#1b2a23', '#283d33', '#375142'];
-    ramp.forEach((color, i) => {
-      for (const channel of [1, 3, 5]) {
-        const got = parseInt(color.slice(channel, channel + 2), 16);
-        const want = parseInt(shipped[i]!.slice(channel, channel + 2), 16);
-        expect(Math.abs(got - want)).toBeLessThanOrEqual(1);
-      }
-    });
+  it('gives the darkest bands the widest steps', () => {
+    // A fixed step in sRGB is worth less near black, so a linear ramp left
+    // LSGG's 4000/5000/6000 illegible while the bright end had steps to spare.
+    // The shaping is what fixes that, and this is the assertion that says so:
+    // the first steps are wider than the last ones, not merely present.
+    const levels = terrainRamp(14).map(luminance);
+    const steps = levels.slice(1).map((v, i) => v - levels[i]!);
+    const first = steps.slice(0, 3).reduce((a, b) => a + b) / 3;
+    const last = steps.slice(-3).reduce((a, b) => a + b) / 3;
+    expect(first).toBeGreaterThan(last * 1.2);
+    // And each of the three is genuinely wider than the linear ramp's ~4 units.
+    for (const step of steps.slice(0, 3)) expect(step).toBeGreaterThan(4.5);
+  });
+
+  it('stays clear of the background below and the STAR lines above', () => {
+    // Both ends are constrained and neither is decorative. Below: the lowest
+    // band has to read against bare scope. Above: VABB draws arrival routes
+    // *directly over* its two brightest bands — 0.0 and 0.1 NM — so a ramp top
+    // much past `starPath` costs those lines their contrast, which is why the
+    // fix for the dark end was to widen downward rather than upward.
+    const ramp = terrainRamp(14);
+    const contrast = (a: string, b: string) => (luminance(a) + 5) / (luminance(b) + 5);
+    expect(contrast(ramp[0]!, THEME.background)).toBeGreaterThan(1.7);
+    expect(luminance(ramp[ramp.length - 1]!)).toBeLessThan(luminance(THEME.starPath) + 5);
   });
 
   it('keeps LSGG\'s steps above the threshold where a step stops being a step', () => {
-    // Fourteen bands over this range give about 3.8 luminance each. That is
-    // near the floor for irregular patches on a dark ground, and it is the real
-    // bound on how finely a field may band its terrain — the ceiling is
-    // `starPath`, and lifting it costs the STAR lines their contrast against the
-    // ground they cross. Pinned so a wider ramp or a fifteenth band is a
+    // Fourteen bands divide the usable range into steps of ~3.7 luminance at the
+    // crowded end. That is near the floor for irregular patches on a dark ground,
+    // and it is the real bound on how finely a field may band its terrain — the
+    // ceiling is `starPath` and cannot be lifted. Pinned so a fifteenth band is a
     // deliberate decision rather than a silent slide into one flat mass.
     const lsgg = SCENARIOS.find((s) => s.id === 'LSGG')!;
     const levels = terrainRamp(lsgg.terrain.length).map(luminance);
     const steps = levels.slice(1).map((v, i) => v - levels[i]!);
-    expect(Math.min(...steps)).toBeGreaterThan(3);
+    expect(Math.min(...steps)).toBeGreaterThan(3.5);
   });
 });

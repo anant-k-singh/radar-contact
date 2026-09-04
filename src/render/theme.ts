@@ -39,7 +39,7 @@ export const THEME = {
    * The ramp is in brightness rather than in hue: terrain means one thing, and a
    * band that is higher is simply more of it.
    */
-  terrainLow: '#0e1714',
+  terrainLow: '#0b1311',
   terrainHigh: '#375142',
   centerline: '#2f6fd0',
   centerlineTick: '#3f86e8',
@@ -131,9 +131,19 @@ export const THEME = {
  * a field's terrain has to read against *itself* first. The cost is that a shade
  * cannot be read as an altitude on its own, which is what `MSA @ pointer` is for.
  *
- * Interpolated in sRGB. Not perceptually uniform — a Lab ramp would space the
- * steps more evenly — but these are small dark patches over a narrow range, where
- * the difference is not visible and the extra machinery would be.
+ * Interpolated in sRGB and **shaped**, not linear. A constant step in sRGB is not
+ * a constant *apparent* step near black: the linear ramp gave the bottom three
+ * bands 3.8–4.4 units of luminance each, which at those levels was not readable,
+ * while the top of the ramp had steps to spare. `TERRAIN_RAMP_GAMMA` under 1
+ * front-loads the range, taking the first three steps to 5.5/5.4/4.7 and costing
+ * the crowded upper bands about a tenth of a unit each.
+ *
+ * The other half of the fix was widening the range downward rather than upward.
+ * The top is fixed by `starPath`, and it is a live constraint: VABB's two
+ * brightest bands have arrival routes drawn *directly over* them, 0.0 and 0.1 NM
+ * away. The bottom had unused headroom instead — the lowest band sat at 2.2× the
+ * background where 1.9× is still clearly distinct — so `terrainLow` came down and
+ * every step got wider at no cost to the top.
  *
  * The step shrinks as bands are added, and at some count it stops being legible:
  * fourteen bands over this range give about 4 units of luminance each, which is
@@ -141,13 +151,24 @@ export const THEME = {
  * finely a field may usefully band its terrain, not something this can fix — the
  * ceiling is `starPath`, and lifting it costs the STAR lines their contrast.
  */
+/**
+ * Shapes the ramp so the dark end gets wider steps than the bright end.
+ *
+ * Below 1 because a fixed sRGB step is worth less near black — the bands that
+ * needed help were 4000/5000/6000, the darkest three. Far below 1 and the top
+ * bands crowd instead, which at fourteen bands they cannot afford: 0.90 is where
+ * the bottom three read and the minimum step is still above the floor asserted in
+ * `tests/terrain.test.ts`.
+ */
+const TERRAIN_RAMP_GAMMA = 0.9;
+
 export function terrainRamp(bands: number): string[] {
   if (bands <= 0) return [];
   if (bands === 1) return [THEME.terrainLow];
   const lo = rgb(THEME.terrainLow);
   const hi = rgb(THEME.terrainHigh);
   return Array.from({ length: bands }, (_, i) => {
-    const t = i / (bands - 1);
+    const t = Math.pow(i / (bands - 1), TERRAIN_RAMP_GAMMA);
     return hex(lo.map((c, k) => c + (hi[k]! - c) * t));
   });
 }
