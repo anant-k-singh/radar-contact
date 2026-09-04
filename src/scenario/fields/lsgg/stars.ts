@@ -177,10 +177,13 @@ export const LSGG_STARS: readonly StarSpec[] = [
     // 46 NM out and so inside the boundary. LUSAR to SAUNI at 313 ft/NM is a 3°
     // descent, so on that stretch the published floors *are* the profile.
     name: 'LUSAR2R',
-    gate: 'LUSAR',
+    gate: 'RCLU',
     entryAltitudeFt: 20_000,
     entrySpeedKts: 280,
     fixes: [
+      // The published LUSAR, 46.4 NM out: the gate is on the boundary 8.6 NM
+      // further up this leg (`extendToRange`), so the fix stays on the route.
+      { name: 'LUSAR', at: F.LUSAR, altitudeFt: 20_000, speedKts: 280 },
       // 17,000, not the published floor of FL160. Every other level on this field
       // sits above its floor, and SAUNI on its own was the anomaly; 17,000 is also
       // what the descent from FL200 to LIRKO wants — 234 ft/NM in and 284 out,
@@ -198,10 +201,12 @@ export const LSGG_STARS: readonly StarSpec[] = [
   // ── South and east: merge at GOLEB and BIVLO, left downwind ───────────────
   {
     name: 'BANKO3R',
-    gate: 'BANKO',
+    gate: 'RCBA',
     entryAltitudeFt: 19_000,
     entrySpeedKts: 280,
     fixes: [
+      // The published BANKO, 46.6 NM out; the gate is 8.4 NM further up this leg.
+      { name: 'BANKO', at: F.BANKO, altitudeFt: 19_000, speedKts: 280 },
       { name: 'GG520', at: F.GG520, altitudeFt: 18_000, speedKts: 280 },
       { name: 'GOLEB', at: F.GOLEB, altitudeFt: 16_000, speedKts: 270 },
       { name: 'VALBU', at: F.VALBU, altitudeFt: 15_000, speedKts: 250 },
@@ -235,10 +240,13 @@ export const LSGG_STARS: readonly StarSpec[] = [
     // BELUS 3R runs up the Rhône through Chambéry and joins the other two at
     // BIVLO. PITOM is the field's only published window, FL150 over 7000.
     name: 'BELUS3R',
-    gate: 'BELUS',
+    gate: 'RCBE',
     entryAltitudeFt: 19_000,
     entrySpeedKts: 280,
     fixes: [
+      // The published BELUS, 40.0 NM out; the gate is 15 NM further up this leg,
+      // which is the longest of the three extensions.
+      { name: 'BELUS', at: F.BELUS, altitudeFt: 19_000, speedKts: 280 },
       { name: 'RILTI', at: D.RILTI, altitudeFt: 18_000, speedKts: 280 },
       { name: 'CBY', at: F.CBY, altitudeFt: 16_000, speedKts: 270 },
       { name: 'GG502', at: F.GG502, altitudeFt: 14_000, speedKts: 250 },

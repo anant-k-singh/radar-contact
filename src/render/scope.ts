@@ -3,6 +3,7 @@ import type { Aircraft } from '../sim/aircraft.js';
 import { messagesFor, type World } from '../sim/world.js';
 import { clipped } from './clip.js';
 import { clipToAirspace, mapLayer } from './mapLayer.js';
+import { msaAt } from '../scenario/terrain.js';
 import { createLogScroll, drawMessages, drawStatusLine, scrollLog } from './messageLog.js';
 import { drawTrackPath, type TrackPathView } from './pathLayer.js';
 import type { Airspace } from '../scenario/types.js';
@@ -13,6 +14,7 @@ import {
   focusHolding,
   screenX,
   screenY,
+  toWorld,
   type Projection,
   type Viewport,
 } from './project.js';
@@ -70,6 +72,13 @@ export interface Scope {
   /** Whether a point is over the message log, so a wheel can be aimed at it. */
   overMessages(clientX: number, clientY: number): boolean;
   /**
+   * Where the pointer is, so the MSA readout can follow it. Cleared when it
+   * leaves the canvas, so the readout goes blank rather than freezing on a point
+   * the controller is no longer looking at.
+   */
+  setPointer(clientX: number, clientY: number): void;
+  clearPointer(): void;
+  /**
    * Magnify about a screen point, holding whatever is under it in place — a pinch
    * on a trackpad, which is how the controller pulls apart a pair that has become
    * one smear. The circle does not move; only the content inside it.
@@ -102,6 +111,13 @@ export function createScope(canvas: HTMLCanvasElement): Scope {
    */
   let viewport: Viewport = DEFAULT_VIEWPORT;
   let blocks = new Map<number, Rect>();
+  /**
+   * The pointer, in client coordinates so it can be handed straight back to
+   * `pick`. View state like the viewport and for the same reason (§17.3), and
+   * deliberately not recorded — where the controller's mouse was is not
+   * something an aircraft did.
+   */
+  let pointer: { clientX: number; clientY: number } | null = null;
   const logScroll = createLogScroll();
   /** Selection the log offset was taken against — a new one is a new log. */
   let logScrollSelection: number | null = null;
@@ -121,6 +137,68 @@ export function createScope(canvas: HTMLCanvasElement): Scope {
     return projection;
   };
 
+  // Named rather than inline on the returned object, so `msaUnderPointer` below
+  // can call it directly instead of through `this`.
+  const pick = (world: World, clientX: number, clientY: number): Aircraft | null => {
+    // Hit testing projects forward, so it needs the same frame the last render
+    // used. Nothing can be picked before something has been drawn.
+    const p = projection ?? resize(world.scenario.airspace);
+    const rect = canvas.getBoundingClientRect();
+    const px = clientX - rect.left;
+    const py = clientY - rect.top;
+
+    // Only what is drawn can be clicked. The bound is the *drawn* circle at the
+    // current zoom, not the airspace: those coincide at 1x and come apart the
+    // moment the content is magnified inside a fixed frame.
+    const visible = (ac: Aircraft): boolean =>
+      isOnScope(world.scenario.airspace, p, screenX(p, ac.x), screenY(p, ac.y));
+
+    let best: Aircraft | null = null;
+    let bestDistance = HIT_RADIUS_PX;
+    for (const ac of world.aircraft) {
+      if (!visible(ac)) continue;
+      const distance = Math.hypot(screenX(p, ac.x) - px, screenY(p, ac.y) - py);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = ac;
+      }
+    }
+    if (best) return best;
+
+    for (const ac of world.aircraft) {
+      if (!visible(ac)) continue;
+      const block = blocks.get(ac.id);
+      if (!block) continue;
+      if (px >= block.x && px <= block.x + block.w && py >= block.y && py <= block.y + block.h) {
+        return ac;
+      }
+    }
+    return null;
+  };
+
+  /**
+   * The MSA under the pointer, or null when there is nothing to say.
+   *
+   * Null in four cases, and they are different questions with the same answer:
+   * the pointer is off the canvas, it is outside the drawn boundary, it is over
+   * an aircraft or its data block, or the ground there is below the field's
+   * lowest band. The first three are "not asking"; the last is "nothing rises
+   * here", and neither wants a figure printed.
+   *
+   * The aircraft case matters most. A readout that changes as the pointer crosses
+   * a target competes with the data block the controller is reading, which is the
+   * one place on the scope where a number already means something specific.
+   */
+  const msaUnderPointer = (world: World): number | null => {
+    if (!pointer || !projection) return null;
+    const rect = canvas.getBoundingClientRect();
+    const sx = pointer.clientX - rect.left;
+    const sy = pointer.clientY - rect.top;
+    if (!isOnScope(world.scenario.airspace, projection, sx, sy)) return null;
+    if (pick(world, pointer.clientX, pointer.clientY) !== null) return null;
+    return msaAt(world.scenario.terrain, toWorld(projection, sx, sy));
+  };
+
   return {
     render(world: World, options: RenderOptions = LIVE_RENDER): void {
       const p = resize(world.scenario.airspace);
@@ -138,7 +216,7 @@ export function createScope(canvas: HTMLCanvasElement): Scope {
       // Clips itself, because its labels have to lift that clip (`clip.ts`).
       blocks = drawTraffic(ctx, world, p, options);
       drawStatusLine(ctx, world, options.mode);
-      drawStats(ctx, world, p);
+      drawStats(ctx, world, p, msaUnderPointer(world));
       // The log is filtered by the selection (§7.1), so changing selection
       // replaces the list under the offset — holding it would leave the new
       // aircraft's exchange scrolled back for no reason the player asked for.
@@ -149,41 +227,14 @@ export function createScope(canvas: HTMLCanvasElement): Scope {
       drawMessages(ctx, world, p, logScroll);
     },
 
-    pick(world: World, clientX: number, clientY: number): Aircraft | null {
-      // Hit testing projects forward, so it needs the same frame the last render
-      // used. Nothing can be picked before something has been drawn.
-      const p = projection ?? resize(world.scenario.airspace);
-      const rect = canvas.getBoundingClientRect();
-      const px = clientX - rect.left;
-      const py = clientY - rect.top;
+    pick,
 
-      // Only what is drawn can be clicked. The bound is the *drawn* circle at the
-      // current zoom, not the airspace: those coincide at 1x and come apart the
-      // moment the content is magnified inside a fixed frame.
-      const visible = (ac: Aircraft): boolean =>
-        isOnScope(world.scenario.airspace, p, screenX(p, ac.x), screenY(p, ac.y));
+    setPointer(clientX: number, clientY: number): void {
+      pointer = { clientX, clientY };
+    },
 
-      let best: Aircraft | null = null;
-      let bestDistance = HIT_RADIUS_PX;
-      for (const ac of world.aircraft) {
-        if (!visible(ac)) continue;
-        const distance = Math.hypot(screenX(p, ac.x) - px, screenY(p, ac.y) - py);
-        if (distance < bestDistance) {
-          bestDistance = distance;
-          best = ac;
-        }
-      }
-      if (best) return best;
-
-      for (const ac of world.aircraft) {
-        if (!visible(ac)) continue;
-        const block = blocks.get(ac.id);
-        if (!block) continue;
-        if (px >= block.x && px <= block.x + block.w && py >= block.y && py <= block.y + block.h) {
-          return ac;
-        }
-      }
-      return null;
+    clearPointer(): void {
+      pointer = null;
     },
 
     zoomAt(world: World, clientX: number, clientY: number, factor: number): void {

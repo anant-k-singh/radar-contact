@@ -10,6 +10,7 @@
  * helper could be subtly wrong in a way that happens to work for a 180° course.
  */
 import { describe, expect, it } from 'vitest';
+import { boundaryRangeAtBearing } from '../src/scenario/airspace.js';
 import { compileScenario } from '../src/scenario/compile.js';
 import { identicalTailLength, starForGate, starProfileAt } from '../src/scenario/routes.js';
 import { MERGE_FUNNEL_NM } from '../src/scenario/validate.js';
@@ -77,6 +78,24 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
           expect(gate.entrySpeedKts).toBe(star.waypoints[0]!.speedKts);
           expect(star.waypoints[0]!.position).toEqual(gate.position);
         }
+      }
+    });
+
+    it('hands every arrival over on the boundary, not inside it', () => {
+      // An arrival spawns at its gate, so a gate inside the airspace puts one on
+      // the scope already in controlled airspace with no run in from the edge —
+      // the controller sees it appear rather than arrive. Published entry fixes
+      // are where an airway meets the TMA rather than where this simulator drew
+      // its circle, so at LSGG three of the nine sit 8 to 15 NM inside a 55 NM
+      // boundary and are pushed back out along their own next leg
+      // (`extendToRange`).
+      //
+      // The tolerance is a tenth of a mile, not zero: `boundaryRangeAtBearing`
+      // and the quadratic in `extendToRange` are different routes to the same
+      // point and need not agree to the last bit.
+      for (const gate of scenario.gates) {
+        const edgeNm = boundaryRangeAtBearing(scenario.airspace, gate.bearingDeg);
+        expect(magnitude(gate.position)).toBeCloseTo(edgeNm, 1);
       }
     });
 

@@ -1,5 +1,5 @@
 /**
- * LSGG's standard departures — the six RWY 22 SIDs, as published.
+ * LSGG's standard departures — five of the published RWY 22 SIDs.
  *
  * Source: the RNAV 1 SID sheets cited in `airport.ts`. Every one of them opens the
  * same way, which is the field's defining departure fact: **runway heading 223° to
@@ -8,16 +8,25 @@
  * everything leaving Geneva climbs clear of the terrain on runway track before it
  * turns back across the basin.
  *
- * Six separate `SidSpec`s rather than one trunk with six exits, because each is its
- * own published chart with its own name and number. `SidSpec.exits` exists so that
- * one chart's fan compiles to one route per branch; here there are six charts, and
- * the shared PAS leg is a coincidence of geography rather than a shared identity.
+ * One `SidSpec` per chart rather than one trunk with several exits, because each is
+ * its own published sheet with its own name and number. `SidSpec.exits` exists so
+ * that one chart's fan compiles to one route per branch; here there are five charts,
+ * and the shared PAS leg is a coincidence of geography rather than a shared
+ * identity.
  *
- * ## The turns are derived, and five of six agree with the chart's own word
+ * **KONIL 1R is published and deliberately not flown here.** It leaves north-east
+ * inside SOSAL, running parallel to the right downwind 3 NM off it before crossing
+ * the base leg — and it is the one way out this model cannot make work, because the
+ * separation it needs comes from the tactical control the real sector has and this
+ * simulator does not give a departure. SOSAL 1L leaves in the same direction and
+ * carries the traffic instead. It is also the rarest departure on the live picture,
+ * so dropping it costs the field almost nothing.
+ *
+ * ## The turns are derived, and four of five agree with the chart's own word
  *
  * `compileSid` reads the turn off the geometry rather than taking it declared, so
- * it is a check on the transcription: BEVEN left, DIPIR right, KONIL right, MEDAM
- * left and SOSAL left are exactly what their charts say. **DEPUL comes out
+ * it is a check on the transcription: BEVEN left, DIPIR right, MEDAM left and
+ * SOSAL left are exactly what their charts say. **DEPUL comes out
  * `straight`** where its chart says "turn right on track 233°" — and that is the
  * derivation working, not failing. 233° against a 223° runway is ten degrees,
  * inside `STRAIGHT_OUT_DEG`, and a ten-degree divergence is what straight out looks
@@ -35,10 +44,10 @@
  *
  * So `minAltitudeFt` carries the level the traffic is **observed** at, and each
  * fix's comment keeps the published floor beside it so the chart value is not lost.
- * Two SIDs are read directly off the live picture — DIPIR at GG617 and KELUK, KONIL
- * at GG603 and GLEND — and those four points calibrate a climb of about 600 ft/NM
- * to 15 NM and 450 beyond it, which is what places the rest. The fitted curve
- * reproduces the two outer observations to within 150 ft.
+ * Four points are read directly off the live picture — DIPIR at GG617 and KELUK,
+ * and the dropped KONIL at GG603 and GLEND — and they calibrate a climb of about
+ * 600 ft/NM to 15 NM and 450 beyond it, which is what places the rest. The fitted
+ * curve reproduces the two outer observations to within 150 ft.
  *
  * With those levels every one of the eleven places a SID passes within
  * `SEP_HORIZ_NM` of a STAR clears by **at least 2000 ft**, and nine of the eleven
@@ -48,11 +57,11 @@
  *
  * ## What the weights are for
  *
- * `rng.pick` over six SIDs would send an equal share out of each. The real split
+ * `rng.pick` over five SIDs would send an equal share out of each. The real split
  * runs from DIPIR's 29% to BEVEN's 7%, derived the same way the gate weights are —
  * every nonstop destination by monthly frequency, mapped onto the bearing it leaves
- * on. The observation that KONIL is rarely flown is independent confirmation: it
- * comes out second-lowest.
+ * on. They no longer sum to 100 — KONIL's 7 left with it — and nothing requires
+ * that they do, since `pickWeighted` normalises.
  */
 import { clipToRange } from '../../geometry.js';
 import type { SidFixSpec, SidSpec } from '../../types.js';
@@ -129,21 +138,6 @@ export const LSGG_SIDS: readonly SidSpec[] = [
       { name: 'TINAM', at: F.TINAM, minAltitudeFt: 18_500 }, // published +FL100, 33 NM into the climb
       { name: 'MOLUS', at: F.MOLUS, minAltitudeFt: 21_000 },
       { name: 'SOSAL', at: F.SOSAL, minAltitudeFt: 21_000 },
-    ],
-  },
-  {
-    // KONIL 1R, chart 22-05. North-east inside SOSAL, and the least used way out.
-    // It runs parallel to the right downwind 3 NM off it, then crosses the base
-    // leg 20 NM out at 15,900 against arrivals level at 7000.
-    name: 'KONIL1R',
-    weight: 7,
-    fixes: [
-      PAS,
-      // Nothing published on this sheet either; GG603 and GLEND are observed.
-      { name: 'GG603', at: F.GG603, minAltitudeFt: 8500 },
-      { name: 'DEREM', at: F.DEREM, minAltitudeFt: 11_000 },
-      { name: 'GLEND', at: D.GLEND, minAltitudeFt: 13_000 },
-      { name: 'KONIL', at: F.KONIL, minAltitudeFt: 17_500 },
     ],
   },
   {

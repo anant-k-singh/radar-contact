@@ -59,7 +59,7 @@
  *
  * The grass 04L/22R is closed, so there is no `inactiveRunways` here.
  */
-import { clipToRange } from '../../geometry.js';
+import { clipToRange, extendToRange } from '../../geometry.js';
 import type { AirspaceSpec, EntryGateSpec, RunwaySpec } from '../../types.js';
 import { LSGG_DERIVED as D, LSGG_FIXES as F } from './fixes.js';
 
@@ -113,18 +113,23 @@ export const LSGG_AIRSPACE: AirspaceSpec = {
    */
   halfHeightNm: 53,
   /**
-   * 7000, and unusually well founded: it is both the published MSA within 10 NM
-   * *and* the platform altitude the charts deliver every arrival to — BIVLO,
-   * PITOM, INDIS and the SAPRE and GEVEA holding bases are all 7000, and so is the
-   * transition altitude.
+   * 6000: one step below the 7000 the charts deliver every arrival to.
    *
-   * It is higher than either shipped field's because the ground is: 53% of this
-   * airspace needs an MSA of 4000 or more against a field elevation of 1411. Even
-   * so 8% of it is shaded *above* 7000, which is the same contradiction
-   * `terrain.ts` documents at VABB and is resolved the same way — it is a floor on
-   * what may be assigned, not a claim about the ground.
+   * The published MSA within 10 NM *is* 7000, and so are BIVLO, PITOM, INDIS and
+   * the SAPRE and GEVEA holding bases — but an MVA equal to the platform leaves
+   * the controller nothing to descend into. Vectoring off a STAR at 7000 with a
+   * floor of 7000 means every aircraft taken off its route is stuck at the level
+   * it left, which is not what the real sector does over the basin south-west of
+   * the field.
+   *
+   * It is still higher than either shipped field's because the ground is: 53% of
+   * this airspace needs an MSA of 4000 or more against a field elevation of 1411.
+   * The terrain shading is **not** derived from this and does not move with it —
+   * `terrain.ts` states its own bands. Where the two disagree the shading is the
+   * honest one: this is a floor on what may be assigned, not a claim about the
+   * ground, the same contradiction VABB documents.
    */
-  mvaFt: 7000,
+  mvaFt: 6000,
   ceilingFt: CEILING_FT,
   rangeRingsNm: [10, 20, 30, 40, 50],
 };
@@ -151,17 +156,21 @@ export const LSGG_AIRSPACE: AirspaceSpec = {
  * read as percentages, though nothing requires it.
  */
 export const LSGG_GATES: readonly EntryGateSpec[] = [
-  /** 212°, 40.0 NM — inside the boundary. Madrid, Porto, Lisbon, Barcelona, Palma. */
-  { name: 'BELUS', at: F.BELUS, weight: 28 },
+  /** 212°, published 40.0 NM — 15 inside the boundary, so the handover is `RCBE`
+   *  on the edge and BELUS itself is the route's first fix. Madrid, Porto,
+   *  Lisbon, Barcelona, Palma. */
+  { name: 'RCBE', at: extendToRange(GATE_RANGE_NM, F.BELUS, D.RILTI), weight: 28 },
   /** 326°, published 74.8 NM. Heathrow, Paris CDG, Amsterdam, Brussels, Gatwick. */
   { name: 'DJL', at: clipToRange(GATE_RANGE_NM, F.GG517, F.DJL), weight: 21 },
-  /** 123°, 46.6 NM — inside the boundary. Rome, Istanbul, Athens, Pristina. */
-  { name: 'BANKO', at: F.BANKO, weight: 18 },
+  /** 123°, published 46.6 NM — inside, so the handover is `RCBA` on the edge.
+   *  Rome, Istanbul, Athens, Pristina. */
+  { name: 'RCBA', at: extendToRange(GATE_RANGE_NM, F.BANKO, F.GG520), weight: 18 },
   /** 154°, published 60.7 NM. Nice, Tunis, Olbia, Catania, the Maghreb. */
   { name: 'KINES', at: clipToRange(GATE_RANGE_NM, F.GG519, F.KINES), weight: 8 },
-  /** 304°, 46.4 NM — inside the boundary, and the one gate with a published entry
-   *  level (FL200), which is what sets the ceiling. Nantes, the North Atlantic. */
-  { name: 'LUSAR', at: F.LUSAR, weight: 8 },
+  /** 304°, published 46.4 NM — inside, so the handover is `RCLU` on the edge.
+   *  LUSAR is the one fix with a published entry level (FL200), which is what
+   *  sets the ceiling. Nantes, the North Atlantic. */
+  { name: 'RCLU', at: extendToRange(GATE_RANGE_NM, F.LUSAR, F.SAUNI), weight: 8 },
   /** 021°, published 62.7 NM. Frankfurt, Copenhagen, Luxembourg, Scandinavia. */
   { name: 'AKITO', at: clipToRange(GATE_RANGE_NM, F.GG518, F.AKITO), weight: 6 },
   /** 042°, published 66.1 NM. The northern share of the Swiss plateau flow. */

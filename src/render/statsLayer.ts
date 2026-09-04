@@ -30,13 +30,19 @@ interface Row {
   tone?: 'warn' | 'bad';
 }
 
-function rows(world: World): Row[] {
+function rows(world: World, msaFt: number | null): Row[] {
   const stats = world.stats;
   const rate = landingRatePerHour(world);
   const depRate = departureRatePerHour(world);
   const arrRate = arrivalRatePerHour(world);
   const queued = departureQueueLength(world);
   return [
+    // The ground under the cursor, and the only row here that is not a statistic
+    // — it answers "how high is that" without the terrain having to carry a
+    // figure on every band, which on a field like LSGG is most of the scope.
+    // First, because it is the row the eye goes to on purpose rather than the
+    // ones it monitors, and it is blank far more often than it is not.
+    { label: 'MSA @ pointer', value: msaFt === null ? '—' : String(msaFt) },
     // What Center is delivering. Above RATE it means the stack is growing —
     // the arrival half of what DEP QUEUE says for the runway (§8.2).
     { label: 'ARR RATE', value: arrRate === null ? '—' : `${Math.round(arrRate)}/h` },
@@ -93,14 +99,19 @@ function toneColor(tone: Row['tone']): string {
   }
 }
 
-export function drawStats(ctx: CanvasRenderingContext2D, world: World, p: Projection): void {
+export function drawStats(
+  ctx: CanvasRenderingContext2D,
+  world: World,
+  p: Projection,
+  msaFt: number | null = null,
+): void {
   ctx.font = THEME.fontLabel;
   ctx.textBaseline = 'top';
 
   const right = p.width - MARGIN_PX;
   const left = p.width - STATS_GUTTER_PX + MARGIN_PX;
 
-  rows(world).forEach((row, index) => {
+  rows(world, msaFt).forEach((row, index) => {
     const y = TOP_PX + index * LINE_HEIGHT;
     // Label left, value right-aligned against the edge: a fixed column of
     // figures, so a number that changed is spotted without reading the label.

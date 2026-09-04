@@ -6,18 +6,12 @@
  * when the window is resized.
  */
 import { boundaryRangeAtBearing, isInsideAirspace } from '../scenario/airspace.js';
+import { STRAIGHT_OUT_DEG } from '../scenario/geometry.js';
 import type { Scenario, Sid } from '../scenario/types.js';
 import { centerlinePoint } from '../sim/ils.js';
-import { bearing, headingDiff, headingVector, magnitude, type Ft, type Nm, type Point } from '../sim/units.js';
+import { bearing, headingDiff, headingVector, magnitude, type Point } from '../sim/units.js';
 import { clipped, nested, unclipped } from './clip.js';
-import {
-  screenX,
-  screenY,
-  STATS_BLOCK_HEIGHT_PX,
-  STATS_GUTTER_PX,
-  toScreen,
-  type Projection,
-} from './project.js';
+import { screenX, screenY, toScreen, type Projection } from './project.js';
 import { THEME } from './theme.js';
 
 /**
@@ -131,166 +125,6 @@ export function draw(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Proje
   // the boundary, after the clip is released, or the diamond appears with its
   // name and handover level shaved off. At rest only — see `drawGates`.
   drawGates(ctx, scenario, p);
-  // The terrain legend lives out in the right-hand margin, *outside* the circle
-  // (see `drawTerrainCallouts`), so it is neither clipped nor zoomed — only its
-  // leader's foot, which points at a patch of ground, follows the zoom.
-  drawTerrainCallouts(ctx, scenario, p);
-}
-
-/**
- * One callout per terrain band, keyed off the boundary.
- *
- * Labelling a band from inside it does not work on this scope, and the reason is
- * not that the bands are small. The compass rose prints its bearings 24 px *inside*
- * the boundary and the gates own the edge on their own radials, so the eastern
- * third of the airspace — which is exactly where the terrain is — is already spoken
- * for; an `MSA 4000` placed in the band lands on the `090` tick, and one placed in
- * a coastal ring collides with the fix labels the player is actually reading. The
- * chart is the working layer and the terrain is context, so the context moves out.
- *
- * So each band gets a leader from a point inside it to a figure just outside the
- * boundary — stopping a few pixels past the arc rather than running to the edge of
- * the canvas, which would draw a full-width rule across the scope and put the
- * figures under the stats panel. A leader crossing the boundary once and ending on
- * open background is unambiguous in a way an interior label is not: it says *this*
- * area, and it cannot be mistaken for a crossing restriction on a route beneath
- * it.
- *
- * **One per band, not one per ring.** The point of the figure is the step in the
- * ramp — "the dark green is 4000, the next one up is 5000" — and once that reads,
- * repeating it on all twenty-six rings is noise: the fill itself already says which
- * band any given patch belongs to. So the anchor is the band's most generous
- * interior point, which is the patch the eye lands on anyway.
- */
-function drawTerrainCallouts(
-  ctx: CanvasRenderingContext2D,
-  scenario: Scenario,
-  p: Projection,
-): void {
-  if (scenario.terrain.length === 0) return;
-
-  ctx.save();
-  ctx.font = THEME.fontLabel;
-  ctx.textBaseline = 'middle';
-
-  // Stack the labels down the right-hand margin in band order, so the reader gets
-  // the ramp as a legend — lowest at the top — rather than three figures scattered
-  // wherever their bands happen to sit.
-  const anchors = scenario.terrain
-    .map((band) => {
-      let best: (Point & { clearanceNm: Nm }) | null = null;
-      for (const ring of band.rings) {
-        const spot = labelSpot(ring, (point) => isInsideAirspace(scenario.airspace, point));
-        if (spot !== null && (best === null || spot.clearanceNm > best.clearanceNm)) best = spot;
-      }
-      return best === null ? null : { levelFt: band.levelFt, at: best };
-    })
-    .filter((entry): entry is { levelFt: Ft; at: Point & { clearanceNm: Nm } } => entry !== null)
-    // A band with nowhere to put a leader's foot is a band whose rings are all
-    // slivers; there is nothing for the callout to point at.
-    .filter((entry) => entry.at.clearanceNm >= TERRAIN_CALLOUT_FOOT_CLEARANCE_NM);
-
-  // Each figure sits level with its own anchor, so the leader runs out almost
-  // horizontally and crosses as little of the terrain as possible. Only when two
-  // would overlap is one moved, and then by the least that separates them —
-  // pushing the later one down, or up if there is no room below. Stacking them
-  // all downward from the first (which is what this did at first) drags the whole
-  // set to the bottom of the canvas behind the lowest band's anchor, and every
-  // leader then cuts diagonally across the fill it is trying to point at.
-  const lo = TERRAIN_CALLOUT_MARGIN_PX;
-  const hi = p.height - TERRAIN_CALLOUT_MARGIN_PX;
-  const placed: number[] = [];
-  for (const entry of anchors) {
-    const wanted = clampToCanvas(toScreen(p, entry.at).y, lo, hi);
-    let y = wanted;
-    // Walk away from the wanted height in both directions and take the first
-    // slot that clears everything already placed.
-    for (let nudge = 0; nudge <= p.height; nudge += 2) {
-      const down = clampToCanvas(wanted + nudge, lo, hi);
-      if (placed.every((other) => Math.abs(other - down) >= TERRAIN_CALLOUT_LINE_PX)) {
-        y = down;
-        break;
-      }
-      const up = clampToCanvas(wanted - nudge, lo, hi);
-      if (placed.every((other) => Math.abs(other - up) >= TERRAIN_CALLOUT_LINE_PX)) {
-        y = up;
-        break;
-      }
-    }
-    placed.push(y);
-  }
-
-  anchors.forEach((entry, index) => {
-    const foot = toScreen(p, entry.at);
-    const textY = placed[index]!;
-
-    // The leader stops just clear of the boundary at its own height, not at the
-    // edge of the canvas. Running it to the canvas edge is what put these figures
-    // under the stats panel and drew a full-width rule across the scope; what the
-    // callout has to do is get out of the airspace, and a couple of pixels past
-    // the arc is out.
-    //
-    // The exit x is the boundary's own half-width at this height, so a figure
-    // level with the middle of the scope sits further right than one near the
-    // caps — the labels follow the curve of the circle, which is what makes them
-    // read as belonging to it.
-    // On a tall window the airspace is fitted by height and the circle reaches
-    // most of the way to the gutter, so a figure level with the widest part of it
-    // would sit under the stats block. That block is only the top of the gutter,
-    // so the limit is the panel's left edge for a label beside it and the canvas
-    // edge for one below.
-    const rightLimit =
-      textY < STATS_BLOCK_HEIGHT_PX
-        ? p.width - STATS_GUTTER_PX - TERRAIN_CALLOUT_MARGIN_PX
-        : p.width - TERRAIN_CALLOUT_MARGIN_PX;
-    const exitX = clampToCanvas(
-      p.cx + boundaryHalfWidthPx(scenario, p, textY) + TERRAIN_CALLOUT_STANDOFF_PX,
-      foot.x,
-      Math.max(foot.x, rightLimit - TERRAIN_CALLOUT_TEXT_PX),
-    );
-
-    ctx.strokeStyle = THEME.terrainCallout;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(foot.x, foot.y);
-    ctx.lineTo(exitX, textY);
-    ctx.stroke();
-
-    // A dot on the foot, so the leader reads as pointing *at* something rather
-    // than merely stopping there.
-    ctx.fillStyle = THEME.terrainCallout;
-    ctx.beginPath();
-    ctx.arc(foot.x, foot.y, 1.5, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Left-aligned off the end of the leader, so the figure reads outward from
-    // the circle rather than being pinned to a right-hand column.
-    ctx.fillStyle = THEME.terrainLabel;
-    ctx.textAlign = 'left';
-    haloText(ctx, String(entry.levelFt), exitX + TERRAIN_CALLOUT_GAP_PX, textY);
-  });
-
-  ctx.restore();
-}
-
-const clampToCanvas = (v: number, lo: number, hi: number): number =>
-  v < lo ? lo : v > hi ? hi : v;
-
-/**
- * Half the width of the airspace at a given screen height, in pixels.
- *
- * The boundary is a circle cut by two horizontal chords (§3.1), so at a height
- * inside the chords this is the circle's own half-chord there, and at a height
- * outside them the shape has no width at all — a leader aimed past a cap gets the
- * radius, which puts its figure clear of the widest part rather than inside the
- * corner the cap cuts off.
- */
-function boundaryHalfWidthPx(scenario: Scenario, p: Projection, screenY: number): number {
-  // The fixed frame: the legend sits outside a circle that does not move.
-  const radiusPx = scenario.airspace.radiusNm * p.base.pxPerNm;
-  const dy = Math.abs(screenY - p.base.cy);
-  if (dy > scenario.airspace.halfHeightNm * p.base.pxPerNm) return radiusPx;
-  return dy >= radiusPx ? 0 : Math.sqrt(radiusPx * radiusPx - dy * dy);
 }
 
 /**
@@ -319,110 +153,6 @@ export function clipToAirspace(
 }
 
 /**
- * How far inside its band a callout's foot has to sit.
- *
- * Only a 1.5 px dot goes here, so this is about the leader being unambiguous
- * rather than about fitting anything: a quarter-mile inside the edge is already
- * two pixels clear of it at this scale. It is deliberately low enough to keep the
- * *highest* band, whose largest patch clears only 0.41 NM — that band is the one
- * worth pointing at, and a gate tuned to the big escarpment silently dropped it.
- */
-const TERRAIN_CALLOUT_FOOT_CLEARANCE_NM = 0.25;
-
-/** Margin from the canvas edge, as the last resort when the boundary is close to it. */
-const TERRAIN_CALLOUT_MARGIN_PX = 12;
-
-/** How far past the boundary arc a leader stops. Just clear of it, and no further. */
-const TERRAIN_CALLOUT_STANDOFF_PX = 6;
-
-/** Room a four-digit figure needs to the right of a leader's end, plus its gap. */
-const TERRAIN_CALLOUT_TEXT_PX = 32;
-
-/** Gap between the end of a leader line and its figure. */
-const TERRAIN_CALLOUT_GAP_PX = 6;
-
-/** Vertical room one callout's figure needs, for keeping two off each other. */
-const TERRAIN_CALLOUT_LINE_PX = 13;
-
-/**
- * Where to print a ring's altitude: the interior point furthest from any edge,
- * with how far that is.
- *
- * The *pole of inaccessibility*, not the centroid, and not the average of the
- * vertices — which is what this replaced. A terrain ring is long and concave, and
- * for the largest one here the vertex average fell 23 NM outside the polygon
- * altogether, printing the band's altitude out on the boundary arc where it read
- * as a compass tick. An average of points on a curve is not a point in the region
- * the curve encloses, and for these shapes it usually is not.
- *
- * Found by sampling the bounding box and keeping the inside point with the
- * greatest edge distance, optionally restricted to where the fill is actually
- * drawn. Coarse, but this runs once per field into a cached offscreen layer, and
- * the answer only has to be good enough to aim a leader line at.
- *
- * Exported for the test that asserts the spot is actually inside its ring, which
- * is the property the vertex average silently failed.
- */
-export function labelSpot(
-  ring: readonly Point[],
-  isDrawn: (point: Point) => boolean = () => true,
-): (Point & { clearanceNm: Nm }) | null {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const point of ring) {
-    if (point.x < minX) minX = point.x;
-    if (point.x > maxX) maxX = point.x;
-    if (point.y < minY) minY = point.y;
-    if (point.y > maxY) maxY = point.y;
-  }
-  const step = Math.max(0.15, Math.min(maxX - minX, maxY - minY) / 40);
-
-  let best: (Point & { clearanceNm: Nm }) | null = null;
-  for (let x = minX; x <= maxX; x += step)
-    for (let y = minY; y <= maxY; y += step) {
-      if (!enclosedBy(ring, x, y)) continue;
-      // A ring may overhang the boundary, where `mapLayer`'s clip removes the
-      // fill — anchoring a callout out there points the leader at bare
-      // background. The caller passes the airspace test so this only ever lands
-      // where the band is really drawn.
-      if (!isDrawn({ x, y })) continue;
-      const clearanceNm = distanceToRing(ring, x, y);
-      if (best === null || clearanceNm > best.clearanceNm) best = { x, y, clearanceNm };
-    }
-  return best;
-}
-
-/** Whether a closed ring encloses a point — the usual crossing count. */
-function enclosedBy(ring: readonly Point[], x: Nm, y: Nm): boolean {
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const a = ring[i]!;
-    const b = ring[j]!;
-    if (a.y > y !== b.y > y && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
-  }
-  return inside;
-}
-
-/** Distance from a point to the nearest of a ring's segments. */
-function distanceToRing(ring: readonly Point[], x: Nm, y: Nm): Nm {
-  let nearest = Infinity;
-  for (let i = 1; i < ring.length; i++) {
-    const a = ring[i - 1]!;
-    const b = ring[i]!;
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const lenSq = dx * dx + dy * dy;
-    const t = lenSq === 0 ? 0 : clamp01(((x - a.x) * dx + (y - a.y) * dy) / lenSq);
-    nearest = Math.min(nearest, Math.hypot(x - a.x - t * dx, y - a.y - t * dy));
-  }
-  return nearest;
-}
-
-const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
-
-/**
  * High ground, as filled bands.
  *
  * The one thing on this layer that is a *fill* rather than a line, and the reason
@@ -432,21 +162,23 @@ const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
  * simply covered — no holes to punch, and a band whose rings are disjoint from
  * the others (the coastal hills here) comes out the same way.
  *
- * Nonzero winding, and no ring is treated as a hole: every ring in this data
- * encloses ground *above* its level and they all wind the same way, so a band is
- * the union of its rings. A basin would be a ring at a *lower* level lying inside
- * a higher one, which the low-to-high draw order already renders correctly.
+ * Nonzero winding, so a ring wound the other way is a **hole** and the band below
+ * shows through it — a basin inside a massif. Most rings are not holes: they
+ * enclose ground above their level and wind the same way, making a band the union
+ * of its rings. `msaAt` reads the same rule, and has to, or the figure under the
+ * cursor contradicts the shading beneath it.
  *
- * Each ring carries its own altitude, printed in full feet — but only where the
- * ring is big enough to hold the text clear of its own edges, which here is five
- * of the twenty-six. A 1 sq NM summit has nowhere to put four digits.
+ * **Nothing here is labelled.** A band's level is read at the pointer instead
+ * (`MSA @ pointer`), which is what fourteen bands over most of the scope made
+ * necessary: figures stacked in the margin say which levels exist without saying
+ * where any of them is, leaving the reader matching a shade against a legend.
  *
- * The figure is the *terrain's*, and it is context rather than a limit: what the
- * controller is held to is `airspace.mvaFt`, one number for the whole field, which
- * `commands.ts` clamps every assignment to. So this says how high the ground is,
- * not how low the player may go — and it is drawn in a dim grey-green rather than
- * the amber a crossing restriction owns, because an amber figure on this scope
- * means someone has to do something about it.
+ * The shading is context rather than a limit either way: what the controller is
+ * held to is `airspace.mvaFt`, one number for the whole field, which `commands.ts`
+ * clamps every assignment to. So this says how high the ground is, not how low the
+ * player may go — and it is drawn in a dim grey-green rather than the amber a
+ * crossing restriction owns, because amber on this scope means someone has to do
+ * something about it.
  */
 function drawTerrain(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Projection): void {
   if (scenario.terrain.length === 0) return;
@@ -561,6 +293,8 @@ function drawSidChart(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Proj
 
     let maxAltitudeFt: number | undefined;
     for (const [index, wpt] of sid.waypoints.entries()) {
+      const previous = sid.waypoints[index - 1];
+      const next = sid.waypoints[index + 1];
       // A ceiling republished at the next fix is the *same* restriction carried
       // on (§4.7), so it is labelled only where it changes — otherwise the level
       // segment reads as two separate constraints instead of one that runs
@@ -578,12 +312,48 @@ function drawSidChart(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Proj
       if (labelled.has(wpt.name)) continue;
       labelled.add(wpt.name);
 
+      // A *floor* on a fix the route runs straight through gets its ring but no
+      // figure.
+      //
+      // A SID's published floors step up at every fix, so labelling all of them
+      // prints a column of ascending numbers along one straight line — five of
+      // them down LSGG's MEDAM 1A, where the route does not turn once between PAS
+      // and the boundary. None of the five tells the controller anything the two
+      // at the ends do not: what a floor is *for* is knowing how high a departure
+      // will be where its track changes, or where it leaves. So it is kept at a
+      // turn, at the last fix, and at the first one after the runway — and
+      // dropped in between, where the ring alone says the route passes here.
+      //
+      // **A ceiling is never dropped.** It is the opposite kind of number: a
+      // floor describes what the departure will do anyway, but a ceiling is the
+      // restriction holding it under an arrival (§4.7), and it is usually
+      // published at a fix in the middle of a straight run precisely because that
+      // is where the crossing is. ZZZZ's MORVA and TELMU and VABB's OMGIX are all
+      // exactly that, and thinning them would delete the one SID figure the
+      // controller cannot infer from the two at the ends.
+      //
+      // The threshold is `STRAIGHT_OUT_DEG`, borrowed rather than invented,
+      // because it is already this codebase's answer to "how much divergence
+      // still reads as straight" — `turnOf` uses it to decide a SID's direction.
+      const straightThrough =
+        wpt.maxAltitudeFt === undefined &&
+        previous !== undefined &&
+        next !== undefined &&
+        index > 1 &&
+        Math.abs(
+          headingDiff(
+            bearing(wpt.position, next.position),
+            bearing(previous.position, wpt.position),
+          ),
+        ) < STRAIGHT_OUT_DEG;
+
       const point = toScreen(p, wpt.position);
       ctx.strokeStyle = THEME.sidFix;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.arc(point.x, point.y, 2.5, 0, Math.PI * 2);
       ctx.stroke();
+      if (straightThrough) continue;
 
       // The label goes *above* the fix, away from the track. Every SID fix
       // sits south of or abeam the field, and the STAR labels are placed

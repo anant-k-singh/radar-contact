@@ -17,7 +17,9 @@ import {
   STATS_GUTTER_PX,
   type Viewport,
 } from '../src/render/project.js';
+import { STRAIGHT_OUT_DEG } from '../src/scenario/geometry.js';
 import { SCENARIOS } from '../src/scenario/registry.js';
+import { bearing, headingDiff } from '../src/sim/units.js';
 import type { Scenario } from '../src/scenario/types.js';
 import { makeAircraft, quietWorld } from './helpers.js';
 
@@ -128,6 +130,52 @@ describe.each(SCENARIOS.map((s) => [s.id, s] as const))('the %s chart', (_id, sc
     const label = render(scenario).find((t) => t.text === name);
     expect(label, `no label drawn for gate ${name}`).toBeDefined();
     expect(visible(label!), `gate ${name} is labelled outside the clip`).toBe(true);
+  });
+
+  it('thins the SID floors to the turns, and never drops a ceiling', () => {
+    // A SID's published floors step up at every fix, so labelling all of them
+    // prints a column of ascending numbers along a straight run — five of them
+    // down LSGG's MEDAM 1A. What the figure is *for* is knowing how high a
+    // departure is where its track changes or where it leaves, so a floor on a
+    // fix the route runs straight through is dropped.
+    //
+    // A ceiling never is. It is the restriction holding the departure under an
+    // arrival (§4.7) and is published mid-run precisely because that is where the
+    // crossing is, so thinning it would delete the one SID figure the controller
+    // cannot read off the two at the ends. ZZZZ's MORVA and TELMU are exactly
+    // that, which is what makes this assertion bite on the trainer field.
+    const texts = new Set(render(scenario).map((t) => t.text));
+    const labelled = new Set<string>();
+    for (const sid of scenario.sids) {
+      for (const [index, wpt] of sid.waypoints.entries()) {
+        if (index === 0 || labelled.has(wpt.name)) continue;
+        labelled.add(wpt.name);
+        if (wpt.maxAltitudeFt !== undefined) {
+          expect(texts.has(`≤${wpt.maxAltitudeFt}`), `${wpt.name}'s ceiling was dropped`).toBe(
+            true,
+          );
+          continue;
+        }
+        if (wpt.minAltitudeFt === undefined) continue;
+        const previous = sid.waypoints[index - 1];
+        const next = sid.waypoints[index + 1];
+        const straight =
+          previous !== undefined &&
+          next !== undefined &&
+          index > 1 &&
+          Math.abs(
+            headingDiff(
+              bearing(wpt.position, next.position),
+              bearing(previous.position, wpt.position),
+            ),
+          ) < STRAIGHT_OUT_DEG;
+        // Only in one direction: another fix on another SID may print the same
+        // figure, so a dropped label is not provably absent from the whole scope.
+        if (!straight) {
+          expect(texts.has(`${wpt.minAltitudeFt}+`), `${wpt.name}'s floor is missing`).toBe(true);
+        }
+      }
+    }
   });
 
   it('draws the gates clear of the stats panel', () => {

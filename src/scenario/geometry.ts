@@ -174,6 +174,48 @@ export const clipToRange =
     return { x: a.x + dx * t, y: a.y + dy * t };
   };
 
+/**
+ * `from`, or the point on the boundary the leg `from` → `to` is already coming
+ * down — whichever is further out.
+ *
+ * The mirror of `clipToRange` in the other direction, and it exists for the other
+ * half of the same problem. `clipToRange` handles an entry fix *outside* the
+ * boundary by walking its leg in; this handles one *inside* it. A published entry
+ * fix is where an airway meets the TMA, not where a simulator drew its circle, so
+ * at LSGG three of the nine — BELUS at 40 NM, BANKO at 46.6, LUSAR at 46.4 — sit
+ * well within a 55 NM boundary. Spawning an arrival at one puts it on the scope
+ * already inside controlled airspace, with no run in from the edge.
+ *
+ * So the gate is pushed back **up the fix's own next leg**, reversed: the track
+ * from the boundary to the published fix is exactly the track the aircraft would
+ * have been flying to arrive there, so extending it backwards adds distance
+ * without inventing a turn. The published coordinate stays the input and is
+ * unmoved as a fix — only where the *route starts* changes, which is the same
+ * thing `clipToRange` does.
+ *
+ * `rangeNm` is the plain radius rather than the cut boundary: a gate whose extended
+ * leg would run past a chord is a gate the airspace shape cannot hold, and that is
+ * `validateScenario`'s to report rather than this function's to quietly hide.
+ */
+export const extendToRange =
+  (rangeNm: Nm, from: FixAt, to: FixAt): FixAt =>
+  (ctx) => {
+    const a = from(ctx);
+    if (magnitude(a) >= rangeNm) return a;
+    const b = to(ctx);
+    // Walk backwards from `a`, away from `b`, to where |a - t(b - a)| = rangeNm.
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    const quadratic = dx * dx + dy * dy;
+    if (quadratic < 1e-12) return a;
+    const linear = a.x * dx + a.y * dy;
+    const constant = a.x * a.x + a.y * a.y - rangeNm * rangeNm;
+    const discriminant = linear * linear - quadratic * constant;
+    if (discriminant < 0) return a;
+    const t = (-linear + Math.sqrt(discriminant)) / quadratic;
+    return t > 0 ? { x: a.x + dx * t, y: a.y + dy * t } : a;
+  };
+
 export function midpoint(a: Point, b: Point): Point {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
