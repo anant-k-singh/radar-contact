@@ -9,6 +9,9 @@ import {
   ALT_SETTLE_FT,
   DEPARTURE_ACCEL_ALT_FT,
   DEPARTURE_THRUST_BUDGET_FPM,
+  CLIMB_DECAY_CEILING_FT,
+  CLIMB_DECAY_FLOOR_FT,
+  CLIMB_DECAY_MIN_SCALE,
   INITIAL_CLIMB_REDUCTION_FPM,
   ENERGY_BUDGET_FPM,
   MAX_ACCEL_KTS_S,
@@ -32,6 +35,7 @@ import {
   trueAirspeed,
   type Deg,
   type Fpm,
+  type Ft,
   type Nm,
   type Point,
   type Sec,
@@ -200,7 +204,8 @@ export function planRates(input: RatePlanInput): RatePlan {
  * does once cleaned up, which is what the initial climb actually looks like.
  *
  * Both are then scaled by the field's own `departureClimbScale`, which is what a
- * hot-and-humid airport takes off book performance.
+ * hot-and-humid airport takes off book performance, and by `climbDecayScale`,
+ * which is what altitude takes off all of them.
  */
 export function departureClimbRateFpm(ac: Aircraft): Fpm {
   const aglFt = ac.altitudeFt - (ac.sid?.fieldElevationFt ?? 0);
@@ -212,7 +217,23 @@ export function departureClimbRateFpm(ac: Aircraft): Fpm {
   // climb rather than on the energy budget on purpose: thinner air costs an
   // aircraft climb gradient, and what it does not spend climbing is left to
   // accelerate with, which is what `planRates` then does with it.
-  return bookFpm * (ac.sid?.climbScale ?? 1);
+  return bookFpm * (ac.sid?.climbScale ?? 1) * climbDecayScale(ac.altitudeFt);
+}
+
+/**
+ * What altitude takes off the book climb rate — 1 in the thick air, falling
+ * linearly to `CLIMB_DECAY_MIN_SCALE` at the top.
+ *
+ * Measured pressure altitude, not AGL: it is the air that thins, and it does not
+ * care how far below the aircraft the ground is. That is the opposite datum from
+ * the acceleration-altitude reduction above, which is about flap drag and so is
+ * measured from the field.
+ */
+function climbDecayScale(altitudeFt: Ft): number {
+  if (altitudeFt <= CLIMB_DECAY_FLOOR_FT) return 1;
+  const span = CLIMB_DECAY_CEILING_FT - CLIMB_DECAY_FLOOR_FT;
+  const t = Math.min(1, (altitudeFt - CLIMB_DECAY_FLOOR_FT) / span);
+  return 1 - (1 - CLIMB_DECAY_MIN_SCALE) * t;
 }
 
 /**

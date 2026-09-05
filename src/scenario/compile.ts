@@ -36,8 +36,25 @@ import type {
 } from './types.js';
 import { bearing, distance, headingVector, type Deg, type Ft, type Point } from '../sim/units.js';
 
-/** How far above the assignable ceiling a departure levels off (§4.7). */
-const DEPARTURE_TOP_MARGIN_FT = 1000;
+/**
+ * Where a departure levels off once every published restriction is behind it.
+ *
+ * A cruise level rather than a margin over the field's ceiling, which is what it
+ * used to be. A departure with nothing left to cross is not being kept anywhere by
+ * anybody — it is climbing away to its cruise, and the only reason to stop it is
+ * that the model has to stop it somewhere. Levelling it 1000 ft over the highest
+ * arrival made that number look like a restriction, and it produced the one thing
+ * it was meant to prevent: LSGG's MEDAM 1A sat at 21,000 against a KINES 2R
+ * arrival entering at 20,000, exactly 1000 ft apart, nearly head-on at the
+ * boundary. At 30,000 it is 4195 ft clear and still climbing.
+ *
+ * Safe to raise for every field because `departureClimbRateFpm` decays with
+ * altitude (`CLIMB_DECAY_*`): nothing below 10,000 changes at all, so every
+ * observed level on every SID is what it was, and the extra climb costs the
+ * steepest types minutes rather than seconds. The validator still requires it to
+ * clear the assignable ceiling, which it does by a wider margin than before.
+ */
+const DEPARTURE_TOP_FT = 30_000;
 
 /**
  * A spec's own values, with the keys it left out dropped rather than spread as
@@ -187,11 +204,12 @@ function compileSid(spec: SidSpec, ctx: FixContext, defaultTopFt: Ft): Sid[] {
       })),
     ];
 
-    // The chart labels the top of climb at the last fix, so default it there.
+    // A chart labels the top of climb at the last fix, and this used to default
+    // the floor there to `topFt`. It no longer can: `topFt` is a cruise level now
+    // rather than a margin over the ceiling, and an exit fix inside the boundary
+    // is nowhere near it, so that default authored a level no departure makes.
+    // A field wanting a figure there publishes one.
     const last = waypoints[waypoints.length - 1]!;
-    if (last.minAltitudeFt === undefined && last.maxAltitudeFt === undefined) {
-      last.minAltitudeFt = topFt;
-    }
 
     for (let i = 1; i < waypoints.length; i += 1) {
       waypoints[i]!.alongNm =
@@ -345,7 +363,7 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     return compileStar(starSpec, gate, ctx);
   });
 
-  const defaultTopFt = airspace.ceilingFt + DEPARTURE_TOP_MARGIN_FT;
+  const defaultTopFt = Math.max(DEPARTURE_TOP_FT, airspace.ceilingFt + 1000);
   const sids = spec.sids.flatMap((sidSpec) => compileSid(sidSpec, ctx, defaultTopFt));
 
   return {

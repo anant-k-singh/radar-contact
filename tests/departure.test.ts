@@ -230,7 +230,12 @@ describe('SID crossing restrictions', () => {
     }
   });
 
-  it('makes the exit fix altitude, for every type', () => {
+  it('is still climbing at the exit fix, for every type', () => {
+    // `topFt` is a cruise level rather than a margin over the ceiling, so a
+    // departure leaves the airspace on its way up rather than levelled off at a
+    // top it was always going to reach. What has to be true at the exit fix is
+    // that it is above the assignable ceiling — the point of the top — and has
+    // not stopped climbing short of it.
     for (const { sid, exit } of turning) {
       const fix = fixNamed(sid, exit);
       for (const type of AIRCRAFT_TYPES) {
@@ -241,12 +246,16 @@ describe('SID crossing restrictions', () => {
         expect(
           at.altitudeFt,
           `${type.code} on ${sid.name} reached ${exit} at ${Math.round(at.altitudeFt)} ft`,
-        ).toBeGreaterThanOrEqual(fix.minAltitudeFt! - CAPTURE_TOLERANCE_FT);
+        ).toBeGreaterThan(SCENARIO.airspace.ceilingFt);
+        expect(
+          at.altitudeFt,
+          `${type.code} on ${sid.name} was already at the top at ${exit}`,
+        ).toBeLessThanOrEqual(sid.topFt);
       }
     }
   });
 
-  it('makes the exit altitude by RAMOX on the unrestricted straight departure', () => {
+  it('is above the ceiling by RAMOX on the unrestricted straight departure', () => {
     const sid = sidNamed('RAMOX1A');
     const fix = fixNamed(sid, 'RAMOX');
     for (const type of AIRCRAFT_TYPES) {
@@ -257,7 +266,7 @@ describe('SID crossing restrictions', () => {
       expect(
         at.altitudeFt,
         `${type.code} reached RAMOX at ${Math.round(at.altitudeFt)} ft`,
-      ).toBeGreaterThanOrEqual(fix.minAltitudeFt! - CAPTURE_TOLERANCE_FT);
+      ).toBeGreaterThan(SCENARIO.airspace.ceilingFt);
     }
 
     // Nothing restricts it, so once airborne it should never have levelled off

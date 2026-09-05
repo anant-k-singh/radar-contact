@@ -392,7 +392,7 @@ describe('the VABB chart', () => {
       expect(sid.waypoints[1]!.minAltitudeFt).toBe(2600);
       // A thousand above the field's own assignable ceiling, which VABB's 17,000
       // handover at POKON is what sets.
-      expect(sid.topFt).toBe(18_000);
+      expect(sid.topFt).toBe(30_000);
     }
   });
 

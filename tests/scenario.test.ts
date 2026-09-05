@@ -360,7 +360,10 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
           for (let i = 0; i < 30 * 60 * (1 / PHYSICS_DT) && world.aircraft.length > 0; i += 1) {
             step(world, PHYSICS_DT);
             if (world.aircraft.length === 0) break;
-            if (ac.altitudeFt >= sid.topFt - 100) reachedTop = true;
+            // Above the assignable ceiling, not at `topFt`: the top is a cruise
+            // level a departure leaves the airspace still climbing towards, so
+            // what matters is that it got above the arrivals before it went.
+            if (ac.altitudeFt > scenario.airspace.ceilingFt) reachedTop = true;
             for (const track of tracks) {
               if (ac.x < track.minX || ac.x > track.maxX) continue;
               if (ac.y < track.minY || ac.y > track.maxY) continue;
@@ -379,7 +382,10 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
               }
             }
           }
-          expect(reachedTop, `${type.code} on ${sid.name} never reached the top of climb`).toBe(true);
+          expect(
+            reachedTop,
+            `${type.code} on ${sid.name} never climbed above the assignable ceiling`,
+          ).toBe(true);
           expect(isDeparture(ac)).toBe(true);
         }
       }

@@ -306,6 +306,23 @@ export const DEPARTURE_CLIMB_SPEED_KTS = 250;
  */
 export const INITIAL_CLIMB_REDUCTION_FPM = 500;
 /**
+ * Where a jet's rate of climb starts falling away, and how fast (§4.7).
+ *
+ * The APD figure is a low-level rate, and a departure that held it to 30,000
+ * would climb as steeply at the top as off the runway, which no jet does: thrust
+ * falls with density while the weight does not, so the rate decays roughly
+ * linearly with altitude above the thick air.
+ *
+ * Below `CLIMB_DECAY_FLOOR_FT` nothing changes, so every field's low-level
+ * behaviour — every number observed off a chart or the live picture — is exactly
+ * what it was. Above it the rate is scaled down towards `CLIMB_DECAY_MIN_SCALE`
+ * at `CLIMB_DECAY_CEILING_FT`, which is about what the tables give: an A320 doing
+ * 2500 fpm down low is under 1000 by the high twenties.
+ */
+export const CLIMB_DECAY_FLOOR_FT = 10_000;
+export const CLIMB_DECAY_CEILING_FT = 30_000;
+export const CLIMB_DECAY_MIN_SCALE = 0.35;
+/**
  * Where a departure levels off with every restriction behind it is *not* here
  * either: it is `Sid.topFt`, a thousand feet above the field's own assignable
  * ceiling. The two are deliberately different numbers — the ceiling is the top of

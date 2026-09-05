@@ -134,7 +134,13 @@ export const LSGG_SIDS: readonly SidSpec[] = [
     weight: 18,
     fixes: [
       PAS,
-      { name: 'GG619', at: D.GG619, minAltitudeFt: 10_000 }, // published +FL100
+      // A ceiling, not the published floor. This is the one place a Geneva SID has
+      // to be held *under* an arrival: MEDAM 1A passes 2.7 NM from BELUS 3R's
+      // descent into PITOM, and flown at the published floor a B738 met it at
+      // 11,966 ft with **nothing between them**. The chart publishes no "at or
+      // below" here — Geneva publishes none anywhere — so 10,000 is ours, read off
+      // what clears the arrival rather than off the sheet.
+      { name: 'GG619', at: D.GG619, maxAltitudeFt: 10_000 }, // chart: +FL100
       { name: 'GG616', at: D.GG616, minAltitudeFt: 13_000 }, // published +FL120
       { name: 'ESAPI', at: F.ESAPI, minAltitudeFt: 15_000 }, // published +FL140
       { name: 'ALPOZ', at: D.ALPOZ, minAltitudeFt: 18_000 }, // published +FL180
@@ -187,7 +193,10 @@ export const LSGG_SIDS: readonly SidSpec[] = [
     fixes: [
       PAS,
       { name: 'GG611', at: D.GG611, minAltitudeFt: 11_500 }, // published +FL100
-      { name: 'RUMIL', at: F.RUMIL, minAltitudeFt: 14_000 }, // published +FL120
+      // A ceiling for the same reason GG619 carries one: BEVEN 1A passes 3.0 NM
+      // from BELUS 3R and flown at the published floor a B738 met it at 13,117 ft
+      // with nothing between them. Ours, not the chart's.
+      { name: 'RUMIL', at: F.RUMIL, maxAltitudeFt: 11_000 }, // chart: +FL120
       { name: 'GG622', at: D.GG622, minAltitudeFt: 16_000 }, // published +FL150
       { name: 'BEVEN', at: F.BEVEN, minAltitudeFt: 19_000 },
     ],
