@@ -11,11 +11,12 @@ import { createRng } from '../src/sim/rng.js';
 import { activeFix } from '../src/sim/star.js';
 import { createArrival, createTrafficState, trySpawn } from '../src/sim/traffic.js';
 import { distance } from '../src/sim/units.js';
+import { SCENARIOS } from '../src/scenario/registry.js';
 import { type World } from '../src/sim/world.js';
 import { worldAtFrame } from '../src/replay/playback.js';
 import { createRecording, sample } from '../src/replay/recorder.js';
 import { stateTag } from '../src/render/trafficLayer.js';
-import { step } from '../src/sim/world.js';
+import { createWorld, step } from '../src/sim/world.js';
 import { AIRPORT, makeAircraft, pilotActs, quietWorld, run, SCENARIO } from './helpers.js';
 
 /** A fresh arrival at `gateName`, on its STAR, in an otherwise empty world. */
@@ -49,6 +50,33 @@ describe('entering a holding pattern', () => {
 
     expect(ac.pending).toHaveLength(0);
     expect(world.messages.at(-1)!.text).toContain('not on an arrival');
+  });
+
+  it('is refused at a fix that publishes no altitude', () => {
+    // A STAR fix may omit its level where it merely sits on a descent — LSGG's
+    // BIVLO and LIRKO do. There is nothing to hold *at* there: the pattern would
+    // take whatever height the aircraft happened to be passing, which is a
+    // different level every time and not one the controller chose.
+    const lsgg = SCENARIOS.find((scenario) => scenario.id === 'LSGG')!;
+    const star = lsgg.stars.find((candidate) => candidate.name === 'BANKO3R')!;
+    const bare = star.waypoints.findIndex((wpt) => wpt.altitudeFt === undefined);
+    expect(bare, 'BANKO3R should still have a fix with no published level').toBeGreaterThan(0);
+
+    const gate = lsgg.gates.find((candidate) => candidate.name === star.gate)!;
+    const ac = createArrival(lsgg, createRng(5), createTrafficState(), gate, [], 0);
+    const world = createWorld(lsgg, 42);
+    world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+    world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
+    world.departureFlowPerHour = 0;
+    world.aircraft = [ac];
+    world.messages = [];
+    // Track to the bare fix, which is what the hold would be anchored on.
+    ac.star!.index = bare;
+
+    toggleHold(world, ac);
+
+    expect(ac.pending).toHaveLength(0);
+    expect(world.messages.at(-1)!.text).toContain('is not a holding fix');
   });
 
   it('holds at the fix the aircraft is already tracking to', () => {

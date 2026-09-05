@@ -68,12 +68,13 @@ import { LSGG_DERIVED as D, LSGG_FIXES as F } from './fixes.js';
 /**
  * The top of what the controller may assign.
  *
- * Set by the handovers rather than chosen, as at VABB: LUSAR publishes FL200 and
- * sits *inside* the boundary at 46 NM, so the controller has to be able to hold an
- * arrival at 20,000. It lifts the default `Sid.topFt` to 21,000, which the MEDAM
- * and SOSAL departures both reach.
+ * Set by the handovers rather than chosen, as at VABB. **21,000, because that is
+ * what BANKO 3R and BELUS 3R are handed over at** — the controller has to be able
+ * to hold an arrival at the level it arrives on. LUSAR's published FL200 sets the
+ * floor under this number rather than the number itself: it is the highest
+ * handover that decides, and the two southern gates are now a step above it.
  */
-export const CEILING_FT = 20_000;
+export const CEILING_FT = 21_000;
 
 /**
  * The boundary, and therefore where Center hands over.

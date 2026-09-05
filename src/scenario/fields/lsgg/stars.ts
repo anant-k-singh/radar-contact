@@ -68,14 +68,21 @@
  * that dive.
  *
  * The levels below are therefore the ones the traffic is observed at, as at VABB.
- * Six are read off the live picture — LIRKO 13,000, SOVAD 10,000, GOLEB 16,000,
- * BIVLO 11,000, ESEVA 12,000, VADAR 10,000 — and the rest are interpolated between
- * them on distance to go and rounded to 500 ft. Every one clears its published
- * floor, and nothing descends steeper than 357 ft/NM.
+ * Four are read off the live picture — SOVAD 10,000, GOLEB 16,000, ESEVA 12,000,
+ * VADAR 10,000 — and the rest are interpolated between them on distance to go and
+ * rounded to 500 ft. Every one clears its published floor, and nothing descends
+ * steeper than 331 ft/NM.
+ *
+ * **LIRKO and BIVLO publish no level at all.** Both are merge points sitting on a
+ * gradient their neighbours already fix — LIRKO between SAUNI/BOLGI and DINIG,
+ * BIVLO between SUVEL and GG525 — so a number there restated the descent rather
+ * than shaping it. Dropping it has one consequence beyond the label: a fix with no
+ * published level is **not a holding fix** (`toggleHold`), because the pattern
+ * would take whatever height the aircraft happened to be passing.
  *
  * The observations are self-checking in a way that is worth recording: **GOLEB
- * 16,000 to BIVLO 11,000 is 321 ft/NM** over 15.6 NM, a continuous 3° descent, and
- * it happens to clear VALBU's 14,000 floor by 800 ft and SUVEL's 11,000 by 1500.
+ * 16,000 to GG525 9500 is 330 ft/NM** over 19.7 NM, a continuous 3° descent, and
+ * it happens to clear SUVEL's published floor on the way through.
  * Two independently observed levels landing on a textbook gradient that threads two
  * published floors is not what a guess does. That gradient is also why **VALBU
  * itself is no longer on the routes**: it sits 0.01 NM off the direct GOLEB–SUVEL
@@ -178,7 +185,7 @@ export const LSGG_STARS: readonly StarSpec[] = [
     fixes: [
       { name: 'GG518', at: F.GG518, altitudeFt: 17_000, speedKts: 280 },
       { name: 'BOLGI', at: F.BOLGI, altitudeFt: 14_000, speedKts: 270 },
-      { name: 'LIRKO', at: F.LIRKO, altitudeFt: 13_000, speedKts: 250 },
+      { name: 'LIRKO', at: F.LIRKO, speedKts: 250 },
       { name: 'DINIG', at: F.DINIG, altitudeFt: 11_500, speedKts: 250 },
       { name: 'SOVAD', at: F.SOVAD, altitudeFt: 10_000, speedKts: 250 },
       { name: 'GG507', at: F.GG507, altitudeFt: 8500, speedKts: 210 },
@@ -192,7 +199,7 @@ export const LSGG_STARS: readonly StarSpec[] = [
     entrySpeedKts: 280,
     fixes: [
       { name: 'GG517', at: F.GG517, altitudeFt: 19_000, speedKts: 280 },
-      { name: 'LIRKO', at: F.LIRKO, altitudeFt: 13_000, speedKts: 250 },
+      { name: 'LIRKO', at: F.LIRKO, speedKts: 250 },
       { name: 'DINIG', at: F.DINIG, altitudeFt: 11_500, speedKts: 250 },
       { name: 'SOVAD', at: F.SOVAD, altitudeFt: 10_000, speedKts: 250 },
       { name: 'GG507', at: F.GG507, altitudeFt: 8500, speedKts: 210 },
@@ -216,7 +223,7 @@ export const LSGG_STARS: readonly StarSpec[] = [
       // what the descent from FL200 to LIRKO wants — 234 ft/NM in and 284 out,
       // against 313 and 213 for the floor.
       { name: 'SAUNI', at: F.SAUNI, altitudeFt: 17_000, speedKts: 270 },
-      { name: 'LIRKO', at: F.LIRKO, altitudeFt: 13_000, speedKts: 250 },
+      { name: 'LIRKO', at: F.LIRKO, speedKts: 250 },
       { name: 'DINIG', at: F.DINIG, altitudeFt: 11_500, speedKts: 250 },
       { name: 'SOVAD', at: F.SOVAD, altitudeFt: 10_000, speedKts: 250 },
       { name: 'GG507', at: F.GG507, altitudeFt: 8500, speedKts: 210 },
@@ -228,7 +235,7 @@ export const LSGG_STARS: readonly StarSpec[] = [
   {
     name: 'BANKO3R',
     gate: 'RCBA',
-    entryAltitudeFt: 19_000,
+    entryAltitudeFt: 21_000,
     entrySpeedKts: 280,
     fixes: [
       // The published BANKO, 46.6 NM out; the gate is 8.4 NM further up this leg.
@@ -236,7 +243,7 @@ export const LSGG_STARS: readonly StarSpec[] = [
       { name: 'GG520', at: F.GG520, altitudeFt: 18_000, speedKts: 280 },
       { name: 'GOLEB', at: F.GOLEB, altitudeFt: 16_000, speedKts: 270 },
       { name: 'SUVEL', at: F.SUVEL, altitudeFt: 12_500, speedKts: 250 },
-      { name: 'BIVLO', at: F.BIVLO, altitudeFt: 11_000, speedKts: 250 },
+      { name: 'BIVLO', at: F.BIVLO, speedKts: 250 },
       { name: 'GG525', at: F.GG525, altitudeFt: 9500, speedKts: 210 },
       { name: 'GG512', at: F.GG512, altitudeFt: 7000, speedKts: 210 },
     ],
@@ -249,11 +256,11 @@ export const LSGG_STARS: readonly StarSpec[] = [
     entryAltitudeFt: 20_000,
     entrySpeedKts: 280,
     fixes: [
-      { name: 'GG519', at: F.GG519, altitudeFt: 19_000, speedKts: 280 },
-      { name: 'ROCCA', at: F.ROCCA, altitudeFt: 17_500, speedKts: 270 },
+      { name: 'GG519', at: F.GG519, altitudeFt: 20_000, speedKts: 280 },
+      { name: 'ROCCA', at: F.ROCCA, altitudeFt: 18_500, speedKts: 270 },
       { name: 'GOLEB', at: F.GOLEB, altitudeFt: 16_000, speedKts: 270 },
       { name: 'SUVEL', at: F.SUVEL, altitudeFt: 12_500, speedKts: 250 },
-      { name: 'BIVLO', at: F.BIVLO, altitudeFt: 11_000, speedKts: 250 },
+      { name: 'BIVLO', at: F.BIVLO, speedKts: 250 },
       { name: 'GG525', at: F.GG525, altitudeFt: 9500, speedKts: 210 },
       { name: 'GG512', at: F.GG512, altitudeFt: 7000, speedKts: 210 },
     ],
@@ -263,7 +270,7 @@ export const LSGG_STARS: readonly StarSpec[] = [
     // BIVLO. PITOM is the field's only published window, FL150 over 7000.
     name: 'BELUS3R',
     gate: 'RCBE',
-    entryAltitudeFt: 19_000,
+    entryAltitudeFt: 21_000,
     entrySpeedKts: 280,
     fixes: [
       // The published BELUS, 40.0 NM out; the gate is 15 NM further up this leg,
@@ -276,7 +283,7 @@ export const LSGG_STARS: readonly StarSpec[] = [
       // already says. The speed is kept, which is the reduction it does carry.
       { name: 'GG502', at: F.GG502, speedKts: 250 },
       { name: 'PITOM', at: F.PITOM, altitudeFt: 12_000, speedKts: 250 },
-      { name: 'BIVLO', at: F.BIVLO, altitudeFt: 11_000, speedKts: 250 },
+      { name: 'BIVLO', at: F.BIVLO, speedKts: 250 },
       { name: 'GG525', at: F.GG525, altitudeFt: 9500, speedKts: 210 },
       { name: 'GG512', at: F.GG512, altitudeFt: 7000, speedKts: 210 },
     ],

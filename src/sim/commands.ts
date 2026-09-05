@@ -123,6 +123,17 @@ export function toggleHold(world: World, ac: Aircraft): void {
     return;
   }
 
+  // A fix with no published level is not a holding fix. Since a STAR fix may now
+  // omit its altitude where it merely sits on a descent — LSGG's GG502 is on
+  // CBY's gradient into PITOM — those fixes have no level to hold *at*: the hold
+  // would take whatever the aircraft happened to be passing, which is a different
+  // height every time and not a level the controller chose or can predict.
+  const fix = activeFix(ac.star);
+  if (ac.star.hold === null && fix.altitudeFt === undefined) {
+    log(world, `${ac.callsign} unable — ${fix.name} is not a holding fix.`, 'system', [ac.id]);
+    return;
+  }
+
   // `H` toggles one thing: whether the aircraft is to stay in the pattern. That
   // makes three cases rather than two, because an aircraft that has been told
   // to leave is still in the pattern until it next crosses the fix — and
@@ -130,9 +141,7 @@ export function toggleHold(world: World, ac: Aircraft): void {
   const hold = ac.star.hold;
   const stay = hold === null || hold.exitRequested;
   if (hold === null) {
-    log(world, `${ac.callsign}, hold at ${activeFix(ac.star).name} as published.`, 'system', [
-      ac.id,
-    ]);
+    log(world, `${ac.callsign}, hold at ${fix.name} as published.`, 'system', [ac.id]);
   } else if (hold.exitRequested) {
     log(world, `${ac.callsign}, disregard, continue holding at ${hold.fix}.`, 'system', [ac.id]);
   } else {
