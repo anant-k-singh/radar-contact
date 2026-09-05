@@ -334,7 +334,7 @@ describe('the rolling window', () => {
     }
   }
 
-  it('keeps the last hour of sim time and drops what is older', () => {
+  it('keeps the window of sim time and drops what is older', () => {
     const ac = makeAircraft({ ...onFinal(30), altitudeFt: 8000 });
     const world = quietWorld(ac);
     const rec = createRecording(SCENARIO);

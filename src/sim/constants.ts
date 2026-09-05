@@ -445,11 +445,11 @@ export function energyFtPerKnot(tasKts: number): number {
 export const REPLAY_SAMPLE_HZ = 5;
 export const REPLAY_SAMPLE_PERIOD_S = 1 / REPLAY_SAMPLE_HZ;
 /**
- * Rolling window held in memory: the last 60 minutes of sim time, so a session
- * flown at 8× still keeps its last hour of *flying* rather than of watching.
- * Nothing is persisted — a refresh loses the recording.
+ * Rolling window held in memory: the last 90 minutes of sim time, so a session
+ * flown at 8× keeps that much *flying* rather than watching. Nothing is
+ * persisted — a refresh loses the recording.
  */
-export const REPLAY_WINDOW_S = 3600;
+export const REPLAY_WINDOW_S = 5400;
 /**
  * How far past the window the recording is allowed to grow before old frames
  * are dropped. Pruning splices every channel of every track, so it is done in

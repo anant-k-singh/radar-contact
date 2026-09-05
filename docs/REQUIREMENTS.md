@@ -2001,7 +2001,7 @@ where the arrivals are" — it is gone rather than recorded.
 | Question | Decision (2026-08-20, replay) |
 | --- | --- |
 | When recording starts | **Always on, rolling.** A start button gets pressed after the interesting thing has happened; one button that stops the session and plays it back is the whole interface (§17.1) |
-| How long is kept | **The last 60 minutes of sim time**, in memory only, lost on refresh. Game time rather than wall-clock, so time acceleration records more session rather than the same hour of watching |
+| How long is kept | **The last 90 minutes of sim time** (60 until 2026-09-06), in memory only, lost on refresh. Game time rather than wall-clock, so time acceleration records more session rather than the same hour of watching |
 | Sample rate | **5 Hz, replayed as sampled.** Fine enough that 20 fps motion reads as smooth without an interpolation layer, and coarse enough that an hour is a few MB. Replaying samples rather than interpolating means playback cannot show a state that was never flown |
 | Snapshots or inputs | **State samples, not a deterministic re-simulation.** Re-running the seed plus the player's keystrokes would be smaller and exact, but it makes rewind a re-simulation and couples playback to the sim staying bit-identical for ever. Samples are inert |
 | Snapshots or tracks | **Per-aircraft tracks** (the transpose of a frame list). An aircraft's whole path is then contiguous, which is what §17.3's path drawing and the rebuilt history dots both need |
@@ -2187,15 +2187,15 @@ there rather than eight minutes into a session (§3.0).
 ## 17. Session replay
 
 A controller learns most from the sequence they have just flown, and the one thing a live scope
-cannot show is what a decision led to. Replay is that: the last hour of the session, playable back
+cannot show is what a decision led to. Replay is that: the last 90 minutes of the session, playable back
 at the scope, with the controls taken away.
 
 ### 17.1 What is recorded, and how much
 
 **Recording is always on.** There is no start button, because a start button only ever gets pressed
-*after* the interesting thing has happened. The recorder holds a rolling **60 minutes of sim time**
-— game time, not wall-clock, so a session flown at 8× keeps its last hour of *flying* rather than
-its last hour of watching — and it lives in memory only. A refresh loses it, which is the intended
+*after* the interesting thing has happened. The recorder holds a rolling **90 minutes of sim time**
+— game time, not wall-clock, so a session flown at 8× keeps that much *flying* rather than
+that much watching — and it lives in memory only. A refresh loses it, which is the intended
 trade: nothing to manage, nothing to clean up, no storage permission.
 
 | Decision | Value | Why |
