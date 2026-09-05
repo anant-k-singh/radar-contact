@@ -76,8 +76,9 @@ export function drawSidHover(
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'center';
 
-  // The track again, at full strength over the receded one.
-  ctx.strokeStyle = THEME.sidHover;
+  // The track again over the receded one — lifted, but well below the labels.
+  // It only has to say which route these belong to; it is not what is being read.
+  ctx.strokeStyle = THEME.sidHoverPath;
   ctx.lineWidth = 2;
   ctx.beginPath();
   sid.waypoints.forEach((wpt, index) => {
@@ -92,7 +93,7 @@ export function drawSidHover(
     if (index === 0) continue;
     const point = toScreen(p, wpt.position);
 
-    ctx.strokeStyle = THEME.sidHover;
+    ctx.strokeStyle = THEME.sidHoverPath;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);

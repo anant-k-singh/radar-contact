@@ -60,11 +60,21 @@ export const THEME = {
   sidFix: '#7d6b45',
   sidConstraint: '#b08a3c',
   /**
-   * The hovered SID: its track, its fix rings and the figures the default chart
-   * thins away. Brighter than `sidConstraint` because the whole point is that the
-   * hovered route lifts off a layer drawn at `SID_ALPHA` to recede.
+   * The hovered SID's *labels* — its fix names and the figures the default chart
+   * thins away. Brighter than `sidConstraint` because the point of hovering is to
+   * read them off a layer drawn at `SID_ALPHA` to recede.
    */
   sidHover: '#e8c069',
+  /**
+   * The hovered SID's *track*, which is deliberately much darker than its labels.
+   *
+   * At label brightness the line was 55.9 against `starPath`'s 6.5 — eight times
+   * the arrival routes it crosses — and a departure track is not what the
+   * controller is reading. It only has to say *which* route the labels belong to,
+   * so it sits just above `sidConstraint`: clearly lifted off `sidPath`'s 7.3, and
+   * still the dimmest thing in the hovered group.
+   */
+  sidHoverPath: '#8a6f3e',
 
   /** Data block and leader line: the cool near-white of a radar block. */
   traffic: '#cfdae6',
