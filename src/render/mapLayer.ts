@@ -6,7 +6,6 @@
  * when the window is resized.
  */
 import { boundaryRangeAtBearing, isInsideAirspace } from '../scenario/airspace.js';
-import { STRAIGHT_OUT_DEG } from '../scenario/geometry.js';
 import type { Scenario, Sid, SidWaypoint } from '../scenario/types.js';
 import { centerlinePoint } from '../sim/ils.js';
 import { bearing, headingDiff, headingVector, magnitude, type Point } from '../sim/units.js';
@@ -300,87 +299,54 @@ function drawSidChart(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Proj
     ctx.stroke();
     drawArrowHead(ctx, toScreen(p, last.position), exitPoint);
 
-    for (const { index, wpt, crossing, printed } of sidFixLabels(sid)) {
+    // Rings only — no figures, and no names. A SID's levels are read by hovering
+    // it (`sidHover.ts`), which prints all of them; the chart draws the shape.
+    //
+    // There used to be a rule here about which figures survived: floors at a turn
+    // and at the ends, ceilings always. It was a good rule and it is gone, because
+    // hovering answers the question it was rationing. What it bought was a scope
+    // where a departure's levels were partly readable and partly not, with the
+    // split invisible — LSGG prints ten floors and two ceilings under it, over
+    // ground already carrying nine STARs and fourteen terrain bands.
+    for (const { index, wpt } of sidFixLabels(sid)) {
       // Index 0 is the runway itself, which is already drawn and labelled.
       if (index === 0) continue;
       if (labelled.has(wpt.name)) continue;
       labelled.add(wpt.name);
 
-      // A *floor* on a fix the route runs straight through gets its ring but no
-      // figure.
-      //
-      // A SID's published floors step up at every fix, so labelling all of them
-      // prints a column of ascending numbers along one straight line — five of
-      // them down LSGG's MEDAM 1A, where the route does not turn once between PAS
-      // and the boundary. None of the five tells the controller anything the two
-      // at the ends do not: what a floor is *for* is knowing how high a departure
-      // will be where its track changes, or where it leaves. So it is kept at a
-      // turn, at the last fix, and at the first one after the runway — and
-      // dropped in between, where the ring alone says the route passes here.
-      //
-      // **A ceiling is never dropped.** It is the opposite kind of number: a
-      // floor describes what the departure will do anyway, but a ceiling is the
-      // restriction holding it under an arrival (§4.7), and it is usually
-      // published at a fix in the middle of a straight run precisely because that
-      // is where the crossing is. ZZZZ's MORVA and TELMU and VABB's OMGIX are all
-      // exactly that, and thinning them would delete the one SID figure the
-      // controller cannot infer from the two at the ends.
-      //
-      // The threshold is `STRAIGHT_OUT_DEG`, borrowed rather than invented,
-      // because it is already this codebase's answer to "how much divergence
-      // still reads as straight" — `turnOf` uses it to decide a SID's direction.
       const point = toScreen(p, wpt.position);
       ctx.strokeStyle = THEME.sidFix;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.arc(point.x, point.y, 2.5, 0, Math.PI * 2);
       ctx.stroke();
-      if (!printed) continue;
-
-      // The label goes *above* the fix, away from the track. Every SID fix
-      // sits south of or abeam the field, and the STAR labels are placed
-      // outward from the airport — which for the two downwind fixes the SIDs
-      // pass under is downward, right where a SID label would land. Pushing
-      // these the other way keeps the two chart layers apart at the one place
-      // they come close, which is also the only place either label matters.
-      ctx.textAlign = 'center';
-      if (crossing !== undefined) {
-        ctx.fillStyle = THEME.sidConstraint;
-        haloText(ctx, crossing, point.x, point.y - 10);
-      }
     }
   }
 }
 
 /**
- * What each fix on a SID would print, and whether the default chart prints it.
+ * What each fix on a SID publishes, as the string a label would show.
  *
- * The single place that decision is made, because it is made twice: the cached
- * map layer prints the thinned set, and the hover overlay
- * (`drawSidHover`) prints the rest. Two copies of the rule would drift, and the
- * failure is a doubled label rather than a missing one.
+ * `crossing` is a ceiling where it *changes*, since a ceiling republished at the
+ * next fix is the same restriction carried on (§4.7) and repeating the number
+ * reads as two constraints instead of one; otherwise the floor, if there is one.
  *
- * `crossing` is the figure — a ceiling where it *changes*, since a ceiling
- * republished at the next fix is the same restriction carried on (§4.7) and a
- * repeated number reads as two constraints instead of one. `printed` is whether
- * the default chart shows it: a floor on a fix the route runs straight through is
- * dropped (see `drawSidChart`), a ceiling never is.
+ * The chart layer draws none of these — a SID is rings and a track, and its
+ * levels are read by hovering it. So this exists for `sidHover.ts`, and lives
+ * here because `drawSidChart` walks the same fixes to place the rings and the two
+ * must agree about which fix is which.
  */
 export interface SidFixLabel {
   index: number;
   wpt: SidWaypoint;
   /** The figure to print, or undefined where the fix publishes nothing. */
   crossing: string | undefined;
-  /** Whether `drawSidChart` prints it without being asked. */
-  printed: boolean;
 }
 
 export function sidFixLabels(sid: Sid): SidFixLabel[] {
   const out: SidFixLabel[] = [];
   let maxAltitudeFt: number | undefined;
   for (const [index, wpt] of sid.waypoints.entries()) {
-    const previous = sid.waypoints[index - 1];
-    const next = sid.waypoints[index + 1];
     const crossing =
       wpt.maxAltitudeFt !== undefined && wpt.maxAltitudeFt !== maxAltitudeFt
         ? `≤${wpt.maxAltitudeFt}`
@@ -388,20 +354,7 @@ export function sidFixLabels(sid: Sid): SidFixLabel[] {
           ? `${wpt.minAltitudeFt}+`
           : undefined;
     maxAltitudeFt = wpt.maxAltitudeFt;
-
-    const straightThrough =
-      wpt.maxAltitudeFt === undefined &&
-      previous !== undefined &&
-      next !== undefined &&
-      index > 1 &&
-      Math.abs(
-        headingDiff(
-          bearing(wpt.position, next.position),
-          bearing(previous.position, wpt.position),
-        ),
-      ) < STRAIGHT_OUT_DEG;
-
-    out.push({ index, wpt, crossing, printed: !straightThrough });
+    out.push({ index, wpt, crossing });
   }
   return out;
 }

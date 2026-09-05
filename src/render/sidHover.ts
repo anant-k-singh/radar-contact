@@ -88,7 +88,7 @@ export function drawSidHover(
   });
   ctx.stroke();
 
-  for (const { index, wpt, crossing, printed } of sidFixLabels(sid)) {
+  for (const { index, wpt, crossing } of sidFixLabels(sid)) {
     // Index 0 is the runway threshold, which the runway drawing already owns.
     if (index === 0) continue;
     const point = toScreen(p, wpt.position);
@@ -103,12 +103,10 @@ export function drawSidHover(
     ctx.fillStyle = THEME.sidHover;
     haloText(ctx, wpt.name, point.x, point.y - 10);
 
-    // The figure sits under the name. Drawn whether or not the chart already
-    // printed it: overprinting an identical string at an identical point is
-    // invisible, where skipping it would make the hovered route show *fewer*
-    // levels at a turn than the layer beneath it.
+    // The figure sits under the name. Every one of them is new: the chart layer
+    // draws no SID figures at all, which is what hovering is for.
     if (crossing !== undefined) {
-      ctx.fillStyle = printed ? THEME.sidConstraint : THEME.sidHover;
+      ctx.fillStyle = THEME.sidHover;
       haloText(ctx, crossing, point.x, point.y + 10);
     }
   }

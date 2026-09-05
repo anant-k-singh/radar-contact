@@ -19,9 +19,7 @@ import {
   STATS_GUTTER_PX,
   type Viewport,
 } from '../src/render/project.js';
-import { STRAIGHT_OUT_DEG } from '../src/scenario/geometry.js';
 import { SCENARIOS } from '../src/scenario/registry.js';
-import { bearing, headingDiff } from '../src/sim/units.js';
 import type { Scenario } from '../src/scenario/types.js';
 import { makeAircraft, quietWorld } from './helpers.js';
 
@@ -134,51 +132,6 @@ describe.each(SCENARIOS.map((s) => [s.id, s] as const))('the %s chart', (_id, sc
     expect(visible(label!), `gate ${name} is labelled outside the clip`).toBe(true);
   });
 
-  it('thins the SID floors to the turns, and never drops a ceiling', () => {
-    // A SID's published floors step up at every fix, so labelling all of them
-    // prints a column of ascending numbers along a straight run — five of them
-    // down LSGG's MEDAM 1A. What the figure is *for* is knowing how high a
-    // departure is where its track changes or where it leaves, so a floor on a
-    // fix the route runs straight through is dropped.
-    //
-    // A ceiling never is. It is the restriction holding the departure under an
-    // arrival (§4.7) and is published mid-run precisely because that is where the
-    // crossing is, so thinning it would delete the one SID figure the controller
-    // cannot read off the two at the ends. ZZZZ's MORVA and TELMU are exactly
-    // that, which is what makes this assertion bite on the trainer field.
-    const texts = new Set(render(scenario).map((t) => t.text));
-    const labelled = new Set<string>();
-    for (const sid of scenario.sids) {
-      for (const [index, wpt] of sid.waypoints.entries()) {
-        if (index === 0 || labelled.has(wpt.name)) continue;
-        labelled.add(wpt.name);
-        if (wpt.maxAltitudeFt !== undefined) {
-          expect(texts.has(`≤${wpt.maxAltitudeFt}`), `${wpt.name}'s ceiling was dropped`).toBe(
-            true,
-          );
-          continue;
-        }
-        if (wpt.minAltitudeFt === undefined) continue;
-        const previous = sid.waypoints[index - 1];
-        const next = sid.waypoints[index + 1];
-        const straight =
-          previous !== undefined &&
-          next !== undefined &&
-          index > 1 &&
-          Math.abs(
-            headingDiff(
-              bearing(wpt.position, next.position),
-              bearing(previous.position, wpt.position),
-            ),
-          ) < STRAIGHT_OUT_DEG;
-        // Only in one direction: another fix on another SID may print the same
-        // figure, so a dropped label is not provably absent from the whole scope.
-        if (!straight) {
-          expect(texts.has(`${wpt.minAltitudeFt}+`), `${wpt.name}'s floor is missing`).toBe(true);
-        }
-      }
-    }
-  });
 
   it('draws the gates clear of the stats panel', () => {
     // Unclipped means nothing else is keeping them off the panel the projection
@@ -392,25 +345,40 @@ describe('hovering a SID', () => {
       expect(chartTexts, `${wpt.name} should not be named by the chart`).not.toContain(wpt.name);
     }
 
-    // And every published level is printed, including the ones the chart drops.
-    // GG616 and ESAPI are mid-route floors on a straight run: thinned by the
-    // chart, and the whole reason to hover.
-    const thinned = sidFixLabels(sid).filter((l) => l.index > 0 && !l.printed && l.crossing);
-    expect(thinned.length, 'MEDAM1A should have levels worth revealing').toBeGreaterThan(0);
-    for (const { wpt, crossing } of thinned) {
+    // And every published level, all of which are new — the chart draws none.
+    const levels = sidFixLabels(sid).filter((l) => l.index > 0 && l.crossing !== undefined);
+    expect(levels.length, 'MEDAM1A should have levels worth revealing').toBeGreaterThan(0);
+    for (const { wpt, crossing } of levels) {
       expect(hoverTexts, `${wpt.name}'s ${crossing} was not revealed`).toContain(crossing!);
     }
   });
 
-  it('agrees with the chart about what the chart already prints', () => {
-    // The two layers ask `sidFixLabels` the same question, so a fix the chart
-    // prints must never be re-printed by the hover at a different offset — that
-    // is what a doubled label looks like on screen.
-    for (const sid of LSGG.sids) {
-      for (const { index, crossing, printed } of sidFixLabels(sid)) {
-        if (index === 0 || crossing === undefined) continue;
-        // A ceiling is never thinned; a floor mid-straight always is.
-        if (crossing.startsWith('≤')) expect(printed).toBe(true);
+  it('prints no SID figure on the chart itself, at any field', () => {
+    // A SID is rings and a track; its levels are read by hovering it. This is the
+    // invariant that replaced the thinning rule — floors at a turn and the ends,
+    // ceilings always — and it is stated over every field rather than one, since
+    // the old rule was per-fix and this one is not a rule at all.
+    for (const scenario of SCENARIOS) {
+      const chart = recordingContext();
+      draw(chart.ctx, scenario, project(scenario));
+      const printed = new Set(chart.texts.map((t) => t.text));
+
+      for (const sid of scenario.sids) {
+        for (const { index, wpt, crossing } of sidFixLabels(sid)) {
+          if (index === 0) continue;
+          expect(printed, `${scenario.id} ${sid.name}: ${wpt.name} was named`).not.toContain(
+            wpt.name,
+          );
+          // The figure may legitimately collide with a STAR's — VABB crosses 9000
+          // both ways — so this asks whether the SID's *own* fix printed one, by
+          // checking the position rather than the string.
+          if (crossing === undefined) continue;
+          const at = toScreen(project(scenario), wpt.position);
+          const near = chart.texts.filter(
+            (t) => t.text === crossing && Math.hypot(t.x - at.x, t.y - at.y) < 20,
+          );
+          expect(near, `${scenario.id} ${sid.name}: ${wpt.name} printed ${crossing}`).toEqual([]);
+        }
       }
     }
   });
