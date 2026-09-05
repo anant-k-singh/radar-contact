@@ -76,6 +76,15 @@ import { LSGG_DERIVED as D, LSGG_FIXES as F } from './fixes.js';
 const PAS: SidFixSpec = { name: 'PAS', at: F.PAS, minAltitudeFt: 7000, turnAtOrAboveFt: 7000 };
 
 /**
+ * The same fix for the two routes turning *south*, where the ground allows the
+ * turn 1000 ft lower. The 7000 above is set by the Jura north-west of the field;
+ * south of PAS the turn sector tops out at MSA 6000, and turning sooner takes the
+ * aircraft away from the high ground earlier — the margin improves rather than
+ * narrows.
+ */
+const PAS_SOUTH: SidFixSpec = { ...PAS, turnAtOrAboveFt: 6000 };
+
+/**
  * How far out a route is allowed to end, so there is a leg left to leave on.
  *
  * Five of the six exits are 25 to 38 NM out and need no help. MEDAM 1A is the
@@ -126,7 +135,7 @@ export const LSGG_SIDS: readonly SidSpec[] = [
     name: 'MEDAM1A',
     weight: 18,
     fixes: [
-      PAS,
+      PAS_SOUTH,
       // A ceiling, not the published floor: MEDAM 1A passes 2.7 NM from BELUS 3R
       // and at the floor a B738 met it at 11,966 with nothing between them.
       // Geneva publishes no "at or below" anywhere, so this level is ours.
@@ -167,7 +176,7 @@ export const LSGG_SIDS: readonly SidSpec[] = [
     name: 'BEVEN1A',
     weight: 7,
     fixes: [
-      PAS,
+      PAS_SOUTH,
       { name: 'GG611', at: D.GG611, minAltitudeFt: 11_500 }, // published +FL100
       // Same as GG619: at the published floor a B738 met BELUS 3R at 13,117 with
       // nothing between them. Ours, not the chart's.

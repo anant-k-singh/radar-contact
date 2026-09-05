@@ -401,6 +401,23 @@ describe('the validator', () => {
     expect(VALIDATION_GS_FT_PER_NM).toBeCloseTo(GS_FT_PER_NM, 1);
   });
 
+  it('gates a southern turn lower than a northern one at LSGG', () => {
+    // The 7000 gate is set by the Jura north-west of the field. South of PAS the
+    // turn sector tops out at MSA 6000, so the two routes turning that way are
+    // gated 1000 ft lower — a per-fix number, not a field-wide one.
+    const lsgg = SCENARIOS.find((scenario) => scenario.id === 'LSGG')!;
+    const gateOf = (name: string): number | undefined =>
+      lsgg.sids
+        .find((sid) => sid.name === name)!
+        .waypoints.find((wpt) => wpt.name === 'PAS')!.turnAtOrAboveFt;
+
+    expect(gateOf('MEDAM1A')).toBe(6000);
+    expect(gateOf('BEVEN1A')).toBe(6000);
+    // DIPIR turns north-west over the Jura and DEPUL barely turns at all.
+    expect(gateOf('DIPIR1A')).toBe(7000);
+    expect(gateOf('DEPUL1A')).toBe(7000);
+  });
+
   it('lets a STAR fix omit its altitude, but not the one the route ends at', () => {
     // A fix on a continuous descent need not restate the gradient — LSGG's GG502
     // sits on CBY's 3 degree leg into PITOM, and `starProfileAt` interpolates
