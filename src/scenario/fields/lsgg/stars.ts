@@ -9,23 +9,39 @@
  * ## Three streams onto one final
  *
  * Runway 22 lands south-west, so every arrival finishes north-east of the field,
- * and the published design brings them in as three streams that all end at SAPRE:
+ * and the published design brings them in as three streams. Only one of them ends
+ * at SAPRE; **the two downwind streams stop at the base turn and wait to be
+ * vectored**, which is the point below:
  *
  * - **North and west → LIRKO.** AKITO 3R from the north, DJL 2R from Dijon and
  *   LUSAR 2R from the west all merge at LIRKO, run down to SOVAD, and fly the
- *   **right** downwind out to GG514 before turning base on 133°.
+ *   **right** downwind out to GG514, where the route ends.
  * - **South and east → GOLEB or BIVLO.** BANKO 3R and KINES 2R merge at GOLEB;
  *   BELUS 3R comes up from Chambéry and joins at BIVLO. All three fly the **left**
- *   downwind out to GG512 and turn base on 313°.
+ *   downwind out to GG512, where the route ends.
  * - **North-east → straight in.** BENOT 2T, ULMES 2R and FRIBU 1R run down the
  *   extended centreline through VADAR or VEROX with no downwind at all.
  *
  * The two downwinds are **exactly 6 NM either side of the final approach course**
  * and dead parallel to it — see `fixes.ts`, where that turns out to be a fact about
- * the published coordinates rather than a design of ours. Both base turns are
- * charted "allowed with ATC clearance only", which is the same statement as VABB's
- * closing `VM` vector: the route is published up to the turn and the sequencing is
- * the controller's.
+ * the published coordinates rather than a design of ours.
+ *
+ * **The six downwind routes end at the base turn, not at SAPRE.** Both base turns
+ * are charted "allowed with ATC clearance only", which is the same statement as
+ * VABB's closing `VM` vector: the route is published up to the turn and the
+ * sequencing is the controller's. Coding them through to SAPRE turned themselves
+ * onto final, which is the one part of the job the field is meant to hand over.
+ * Only the three north-east routes run to SAPRE, because those have no downwind
+ * and no base turn — they are straight-in, and the IAF is where they genuinely
+ * end.
+ *
+ * Ending there is also what exposed **GG512's 8000**. The two downwinds are
+ * symmetric — GG514 is 18.6 NM out and GG512 18.7 — so 8000 against GG514's 7000
+ * was an asymmetry nothing had to answer for while SAPRE followed and brought both
+ * to 7000. A route that *ends* at GG512 has to be handed over somewhere the
+ * approach can be given, and 8000 there is **628 ft above the glideslope**. Both
+ * base turns now leave at 7000, which is the level the northern stream already
+ * used and the one SAPRE would have imposed a mile later.
  *
  * ## The trunks are shared for forty miles, and that is the field
  *
@@ -84,8 +100,9 @@ import type { StarSpec } from '../../types.js';
 import { LSGG_DERIVED as D, LSGG_FIXES as F } from './fixes.js';
 
 /**
- * SAPRE, where all nine routes end — and the one fix in this field with no
- * coordinate in any source.
+ * SAPRE, where the three north-east routes end — and the one fix in this field
+ * with no coordinate in any source. The six downwind routes stop at their base
+ * turn instead and are vectored in from there.
  *
  * Authored in the runway frame because that is what it turned out to be. It is
  * over-determined four ways by the charts: 6 NM from GG512 on 313°, 6 NM from
@@ -101,14 +118,14 @@ import { LSGG_DERIVED as D, LSGG_FIXES as F } from './fixes.js';
 const SAPRE = final(18.7, 0);
 
 /**
- * The platform speed, and now the whole downwind's.
+ * The platform speed at SAPRE, and the downwind's.
  *
  * The charts publish 220 at the base turn, which is what GG514 and GG512 carried.
  * Both streams are slowed to 210 from GG507/GG525 instead — one deceleration on
  * the downwind rather than one there and another on the base — so the speed is
- * monotonic from the gate to the platform. A route that slows to 210 and then
- * asks for 220 back is not a profile any chart codes, and it is what the earlier
- * pair of numbers produced once GG507 and GG525 came down.
+ * monotonic from the gate to wherever the route ends. A route that slows to 210
+ * and then asks for 220 back is not a profile any chart codes, and it is what the
+ * earlier pair of numbers produced once GG507 and GG525 came down.
  */
 const SAPRE_SPEED = 210;
 
@@ -166,7 +183,6 @@ export const LSGG_STARS: readonly StarSpec[] = [
       { name: 'SOVAD', at: F.SOVAD, altitudeFt: 10_000, speedKts: 250 },
       { name: 'GG507', at: F.GG507, altitudeFt: 8500, speedKts: 210 },
       { name: 'GG514', at: F.GG514, altitudeFt: 7000, speedKts: 210 },
-      { name: 'SAPRE', at: SAPRE, altitudeFt: 7000, speedKts: SAPRE_SPEED },
     ],
   },
   {
@@ -181,7 +197,6 @@ export const LSGG_STARS: readonly StarSpec[] = [
       { name: 'SOVAD', at: F.SOVAD, altitudeFt: 10_000, speedKts: 250 },
       { name: 'GG507', at: F.GG507, altitudeFt: 8500, speedKts: 210 },
       { name: 'GG514', at: F.GG514, altitudeFt: 7000, speedKts: 210 },
-      { name: 'SAPRE', at: SAPRE, altitudeFt: 7000, speedKts: SAPRE_SPEED },
     ],
   },
   {
@@ -206,7 +221,6 @@ export const LSGG_STARS: readonly StarSpec[] = [
       { name: 'SOVAD', at: F.SOVAD, altitudeFt: 10_000, speedKts: 250 },
       { name: 'GG507', at: F.GG507, altitudeFt: 8500, speedKts: 210 },
       { name: 'GG514', at: F.GG514, altitudeFt: 7000, speedKts: 210 },
-      { name: 'SAPRE', at: SAPRE, altitudeFt: 7000, speedKts: SAPRE_SPEED },
     ],
   },
 
@@ -224,8 +238,7 @@ export const LSGG_STARS: readonly StarSpec[] = [
       { name: 'SUVEL', at: F.SUVEL, altitudeFt: 12_500, speedKts: 250 },
       { name: 'BIVLO', at: F.BIVLO, altitudeFt: 11_000, speedKts: 250 },
       { name: 'GG525', at: F.GG525, altitudeFt: 9500, speedKts: 210 },
-      { name: 'GG512', at: F.GG512, altitudeFt: 8000, speedKts: 210 },
-      { name: 'SAPRE', at: SAPRE, altitudeFt: 7000, speedKts: SAPRE_SPEED },
+      { name: 'GG512', at: F.GG512, altitudeFt: 7000, speedKts: 210 },
     ],
   },
   {
@@ -242,8 +255,7 @@ export const LSGG_STARS: readonly StarSpec[] = [
       { name: 'SUVEL', at: F.SUVEL, altitudeFt: 12_500, speedKts: 250 },
       { name: 'BIVLO', at: F.BIVLO, altitudeFt: 11_000, speedKts: 250 },
       { name: 'GG525', at: F.GG525, altitudeFt: 9500, speedKts: 210 },
-      { name: 'GG512', at: F.GG512, altitudeFt: 8000, speedKts: 210 },
-      { name: 'SAPRE', at: SAPRE, altitudeFt: 7000, speedKts: SAPRE_SPEED },
+      { name: 'GG512', at: F.GG512, altitudeFt: 7000, speedKts: 210 },
     ],
   },
   {
@@ -263,8 +275,7 @@ export const LSGG_STARS: readonly StarSpec[] = [
       { name: 'PITOM', at: F.PITOM, altitudeFt: 12_000, speedKts: 250 },
       { name: 'BIVLO', at: F.BIVLO, altitudeFt: 11_000, speedKts: 250 },
       { name: 'GG525', at: F.GG525, altitudeFt: 9500, speedKts: 210 },
-      { name: 'GG512', at: F.GG512, altitudeFt: 8000, speedKts: 210 },
-      { name: 'SAPRE', at: SAPRE, altitudeFt: 7000, speedKts: SAPRE_SPEED },
+      { name: 'GG512', at: F.GG512, altitudeFt: 7000, speedKts: 210 },
     ],
   },
 ];
