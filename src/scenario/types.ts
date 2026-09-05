@@ -264,6 +264,24 @@ export interface SidFixSpec {
    * fix, which is the label a chart carries there anyway.
    */
   minAltitudeFt?: Ft;
+  /**
+   * Hold this fix until the aircraft is at or above this level, then turn.
+   *
+   * The one place a SID's vertical state gates its lateral one, and it is opt-in
+   * because almost no chart does it. LSGG's do: every RWY 22 sheet reads **"turn
+   * when passing 7000, but not before PAS"**, because Geneva sits in a valley and
+   * a departure that turns early flies into the Jura rather than over it. Without
+   * it the turn is purely lateral — the aircraft rounds PAS at whatever height it
+   * happens to have — and the A332, the only type in the fleet climbing at 2000
+   * fpm, crossed the ridge 490 ft *below* its 7000 MSA.
+   *
+   * Distinct from `minAltitudeFt`, which the validator reads and which describes
+   * what the aircraft does anyway. This one is read by `stepDeparture` and changes
+   * what it does, so the two must not be conflated: VABB publishes floors at fixes
+   * its departures pass far above, and gating those turns would have them orbiting
+   * a fix waiting for a level they had already climbed through.
+   */
+  turnAtOrAboveFt?: Ft;
 }
 
 // ── Compiled ────────────────────────────────────────────────────────────────
@@ -449,6 +467,8 @@ export interface SidWaypoint {
   position: Point;
   maxAltitudeFt?: Ft;
   minAltitudeFt?: Ft;
+  /** Gate the turn off this fix until at or above this level (`SidFixSpec`). */
+  turnAtOrAboveFt?: Ft;
   /** Route distance from the departure end of the runway to this fix. */
   alongNm: Nm;
 }

@@ -71,7 +71,7 @@ import { LSGG_DERIVED as D, LSGG_FIXES as F } from './fixes.js';
  * The first fix on every SID, and the turn gate every chart states in words:
  * "when passing 7000, but not before PAS".
  */
-const PAS: SidFixSpec = { name: 'PAS', at: F.PAS, minAltitudeFt: 7000 };
+const PAS: SidFixSpec = { name: 'PAS', at: F.PAS, minAltitudeFt: 7000, turnAtOrAboveFt: 7000 };
 
 /**
  * How far out a route is allowed to end, so there is a leg left to leave on.

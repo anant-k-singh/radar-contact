@@ -22,7 +22,7 @@ import { GS_FT_PER_NM, PHYSICS_DT, SEP_HORIZ_NM, SEP_VERT_FT } from '../src/sim/
 import { glideslopeAltitudeFt } from '../src/sim/ils.js';
 import { createArrival, createDeparture, createTrafficState } from '../src/sim/traffic.js';
 import { createWorld, step } from '../src/sim/world.js';
-import { distance, magnitude, rightOf } from '../src/sim/units.js';
+import { bearing, distance, headingDiff, magnitude, rightOf } from '../src/sim/units.js';
 import { VABB } from '../src/scenario/fields/vabb/index.js';
 import { ROTATED, ROTATED_SPEC } from './fixtures/rotatedField.js';
 
@@ -96,6 +96,69 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
       for (const gate of scenario.gates) {
         const edgeNm = boundaryRangeAtBearing(scenario.airspace, gate.bearingDeg);
         expect(magnitude(gate.position)).toBeCloseTo(edgeNm, 1);
+      }
+    });
+
+    it('holds a gated turn on the inbound track until the level is made', () => {
+      // `turnAtOrAboveFt` is the charted "turn when passing 7000, but not before
+      // PAS". Two things have to be true and the second is the one that bites.
+      //
+      // The turn must not happen below the gate — without that LSGG's A332, the
+      // only type climbing at 2000 fpm, crossed the Jura 490 ft under its 7000
+      // MSA. And while waiting, the aircraft must fly the leg it *arrived* on:
+      // a gate that still steers at the fix flies a complete orbit around it,
+      // measured at 257 -> 319 -> 14 -> 91 -> 167 degrees within 4.5 NM of PAS,
+      // which is unflyable and points back at the field.
+      const gated = scenario.sids.flatMap((sid) =>
+        sid.waypoints
+          .map((wpt, index) => ({ sid, wpt, index }))
+          .filter((entry) => entry.wpt.turnAtOrAboveFt !== undefined),
+      );
+      if (gated.length === 0) return;
+
+      // Measured in the loop and asserted after it. `expect` inside a 20 Hz
+      // physics loop over every type is what took this test from milliseconds to
+      // eighteen minutes — the flying is cheap, the assertion machinery is not.
+      for (const { sid, wpt, index } of gated) {
+        const gateFt = wpt.turnAtOrAboveFt!;
+        const inboundDeg = bearing(sid.waypoints[index - 1]!.position, wpt.position);
+        for (const type of scenario.fleet) {
+          const world = createWorld(scenario, 9);
+          world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+          world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
+          world.departureFlowPerHour = 0;
+          const ac = createDeparture(scenario, world.departureRng, createTrafficState(), sid, [], 0);
+          ac.type = type;
+          world.aircraft = [ac];
+
+          let turnedAtFt: number | null = null;
+          let worstOffTrackDeg = 0;
+          for (let i = 0; i < 30 * 60 * (1 / PHYSICS_DT) && world.aircraft.length > 0; i += 1) {
+            step(world, PHYSICS_DT);
+            if (world.aircraft.length === 0) break;
+            if ((ac.sid?.index ?? 0) > index) {
+              turnedAtFt = ac.altitudeFt;
+              break;
+            }
+            // Still held. Once airborne and clear of the roll, the aircraft must
+            // be tracking the leg it came in on rather than the fix it may not
+            // leave.
+            if (ac.phase === 'roll' || ac.altitudeFt < scenario.elevationFt + 500) continue;
+            const offDeg = Math.abs(headingDiff(ac.targetHeadingDeg, inboundDeg));
+            if (offDeg > worstOffTrackDeg) worstOffTrackDeg = offDeg;
+          }
+
+          const where = `${type.code} on ${sid.name}`;
+          expect(turnedAtFt, `${where} never passed the ${gateFt} ft gate`).not.toBeNull();
+          expect(
+            worstOffTrackDeg,
+            `${where} was steered ${worstOffTrackDeg.toFixed(0)} degrees off the inbound track while held at the gate`,
+          ).toBeLessThan(5);
+          expect(
+            turnedAtFt!,
+            `${where} turned at ${Math.round(turnedAtFt!)} ft, below the ${gateFt} ft gate`,
+          ).toBeGreaterThanOrEqual(gateFt - 100);
+        }
       }
     });
 

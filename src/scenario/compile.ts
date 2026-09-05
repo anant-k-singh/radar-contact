@@ -182,6 +182,7 @@ function compileSid(spec: SidSpec, ctx: FixContext, defaultTopFt: Ft): Sid[] {
         position: fix.at(ctx),
         maxAltitudeFt: fix.maxAltitudeFt,
         minAltitudeFt: fix.minAltitudeFt,
+        turnAtOrAboveFt: fix.turnAtOrAboveFt,
         alongNm: 0,
       })),
     ];

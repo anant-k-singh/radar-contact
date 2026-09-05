@@ -147,6 +147,14 @@ function stepGroundRoll(ac: Aircraft, dt: Sec): boolean {
 }
 
 /**
+ * Whether a fix's turn gate is satisfied — trivially true for the fixes that
+ * carry none, which is nearly all of them.
+ */
+function aboveTurnGate(ac: Aircraft, fix: SidWaypoint): boolean {
+  return fix.turnAtOrAboveFt === undefined || ac.altitudeFt >= fix.turnAtOrAboveFt;
+}
+
+/**
  * Drive one tick of a departure. Returns the events for `world.ts` to log; the
  * caller decides whether to run kinematics afterwards by reading `ac.phase`,
  * which is `roll` for exactly as long as the aircraft is on the ground.
@@ -189,6 +197,21 @@ export function stepDeparture(ac: Aircraft, dt: Sec): DepartureEvent[] {
   const rangeNm = distance(position, fix.position);
   const courseDeg = bearing(position, fix.position);
   ac.targetHeadingDeg = courseDeg;
+
+  // A fix whose turn gate is not yet met is overflown on the inbound track: the
+  // chart says "when passing 7000, **but not before PAS**", and what follows a
+  // fix you may not turn at is the leg you arrived on, extended.
+  //
+  // Steering at the fix instead is what a naive gate does, and it does not merely
+  // look wrong — the aircraft reaches the fix, keeps aiming at it, and flies a
+  // complete orbit around it waiting for the level. Measured: an A320 off MEDAM 1A
+  // came round through 257°, 319°, 14°, 91°, 167° and back, all within 4.5 NM of
+  // PAS, which is both unflyable and pointed straight back at the field.
+  if (!aboveTurnGate(ac, fix)) {
+    const previous = nav.route.waypoints[nav.index - 1];
+    if (previous) ac.targetHeadingDeg = bearing(previous.position, fix.position);
+    return [];
+  }
 
   // Sequencing. The capture radius is `fixPassed`'s, but the abeam backstop is
   // not: that half asks whether the fix is behind the *nose*, which is the wrong
