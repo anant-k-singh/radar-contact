@@ -73,10 +73,10 @@
  * rounded to 500 ft. Every one clears its published floor, and nothing descends
  * steeper than 331 ft/NM.
  *
- * **LIRKO and BIVLO publish no level at all.** Both are merge points sitting on a
- * gradient their neighbours already fix — LIRKO between SAUNI/BOLGI and DINIG,
- * BIVLO between SUVEL and GG525 — so a number there restated the descent rather
- * than shaping it. Dropping it has one consequence beyond the label: a fix with no
+ * **BANKO, LIRKO and BIVLO publish no level at all.** Each sits on a gradient its
+ * neighbours already fix — LIRKO between SAUNI/BOLGI and DINIG, BIVLO between
+ * SUVEL and GG525, BANKO between its own handover and GG520 — so a number there
+ * restated the descent rather than shaping it. Dropping it has one consequence beyond the label: a fix with no
  * published level is **not a holding fix** (`toggleHold`), because the pattern
  * would take whatever height the aircraft happened to be passing.
  *
@@ -239,7 +239,7 @@ export const LSGG_STARS: readonly StarSpec[] = [
     entrySpeedKts: 280,
     fixes: [
       // The published BANKO, 46.6 NM out; the gate is 8.4 NM further up this leg.
-      { name: 'BANKO', at: F.BANKO, altitudeFt: 19_000, speedKts: 280 },
+      { name: 'BANKO', at: F.BANKO, speedKts: 280 },
       { name: 'GG520', at: F.GG520, altitudeFt: 18_000, speedKts: 280 },
       { name: 'GOLEB', at: F.GOLEB, altitudeFt: 16_000, speedKts: 270 },
       { name: 'SUVEL', at: F.SUVEL, altitudeFt: 12_500, speedKts: 250 },
