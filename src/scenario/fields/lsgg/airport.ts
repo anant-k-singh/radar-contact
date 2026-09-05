@@ -15,8 +15,10 @@
  * - **STAR CHART NO. 01**, RNAV 1 ARRIVALS RWY 04, 22 — AKITO/DJL/LUSAR, rev 31 OCT 24.
  * - **STAR CHART NO. 03**, RNAV 1 ARRIVALS RWY 22 — BANKO/BELUS/KINES, rev 31 OCT 24.
  * - **STAR CHART NO. 05**, RNAV 1 ARRIVALS RWY 22 — BENOT/FRIBU/ULMES, rev 31 OCT 24.
- * - **SID CHART NO. 22-04 DIPIR 1A, 22-05 KONIL 1R, 22-07 MEDAM 1A, 22-09 SOSAL 1L**,
- *   plus the BEVEN and DEPUL sheets, all RNAV 1 SID RWY 22, rev 31 OCT 24.
+ * - **SID CHART NO. 22-04 DIPIR 1A, 22-07 MEDAM 1A, 22-11 SOSAL 1J**, plus the
+ *   BEVEN and DEPUL sheets, all RNAV 1 SID RWY 22, rev 31 OCT 24. The 22-05
+ *   KONIL 1R and 22-09 SOSAL 1L sheets are published and not flown — `sids.ts`
+ *   says why.
  *
  * Unlike VABB's AIP supplement these carry **no coordinate table**, so the fix
  * positions come from a public navigation database and are checked against the

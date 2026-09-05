@@ -14,19 +14,28 @@
  * and the shared PAS leg is a coincidence of geography rather than a shared
  * identity.
  *
- * **KONIL 1R is published and deliberately not flown here.** It leaves north-east
- * inside SOSAL, running parallel to the right downwind 3 NM off it before crossing
- * the base leg — and it is the one way out this model cannot make work, because the
- * separation it needs comes from the tactical control the real sector has and this
- * simulator does not give a departure. SOSAL 1L leaves in the same direction and
- * carries the traffic instead. It is also the rarest departure on the live picture,
- * so dropping it costs the field almost nothing.
+ * **SOSAL 1J is the exception, and it is the exception that matters.** The other
+ * four turn at PAS; 1J turns at GG601, over the field, when passing 1900. That is
+ * what its chart says, and authoring it the other way does not merely differ from
+ * the chart — it does not fly. PAS is 6.4 NM off the departure end and nothing
+ * reaches 7000 that soon, so a 7000 gate there releases 3.0 NM *past* the fix, by
+ * which point GG603 is 9.6 NM behind and to the right. Measured, the aircraft then
+ * turned 155° away from the field to come back for it: 27.6 NM of track to reach a
+ * fix 13.9 NM along the route, and 14,400 ft where the live picture shows 6000.
+ *
+ * **KONIL 1R and SOSAL 1L are both published and neither is flown here.** 1J
+ * replaces them: it leaves in the same direction, it is what the live picture
+ * actually shows going north-east, and unlike either of them it separates without
+ * being held down. SOSAL 1L climbed through the arrival stream — the thing the
+ * field is supposed to teach you to avoid — and KONIL 1R ran parallel to the right
+ * downwind 3 NM off it, needing tactical control this model does not give a
+ * departure.
  *
  * ## The turns are derived, and four of five agree with the chart's own word
  *
  * `compileSid` reads the turn off the geometry rather than taking it declared, so
  * it is a check on the transcription: BEVEN left, DIPIR right, MEDAM left and
- * SOSAL left are exactly what their charts say. **DEPUL comes out
+ * SOSAL 1J right are exactly what their charts say. **DEPUL comes out
  * `straight`** where its chart says "turn right on track 233°" — and that is the
  * derivation working, not failing. 233° against a 223° runway is ten degrees,
  * inside `STRAIGHT_OUT_DEG`, and a ten-degree divergence is what straight out looks
@@ -45,31 +54,31 @@
  * So `minAltitudeFt` carries the level the traffic is **observed** at, and each
  * fix's comment keeps the published floor beside it so the chart value is not lost.
  * Four points are read directly off the live picture — DIPIR at GG617 and KELUK,
- * and the dropped KONIL at GG603 and GLEND — and they calibrate a climb of about
- * 600 ft/NM to 15 NM and 450 beyond it, which is what places the rest. The fitted
- * curve reproduces the two outer observations to within 150 ft.
+ * and SOSAL 1J at GG603 (6100) and abeam Gland (12,500) — and they calibrate a
+ * climb of about 600 ft/NM to 15 NM and 450 beyond it, which is what places the
+ * rest. The fitted curve reproduces the two outer observations to within 150 ft.
  *
- * With those levels every one of the eleven places a SID passes within
- * `SEP_HORIZ_NM` of a STAR clears by **at least 2000 ft**, and nine of the eleven
- * put the departure over the arrival — which is the shape of a field where the
- * departures climb out of a valley and the arrivals spend twenty miles on a
- * descending downwind.
+ * With those levels every place a SID passes within `SEP_HORIZ_NM` of a STAR
+ * clears by **at least 2000 ft**, and most put the departure over the arrival —
+ * which is the shape of a field where the departures climb out of a valley and the
+ * arrivals spend twenty miles on a descending downwind.
  *
  * ## What the weights are for
  *
  * `rng.pick` over five SIDs would send an equal share out of each. The real split
  * runs from DIPIR's 29% to BEVEN's 7%, derived the same way the gate weights are —
  * every nonstop destination by monthly frequency, mapped onto the bearing it leaves
- * on. They no longer sum to 100 — KONIL's 7 left with it — and nothing requires
+ * on. They no longer sum to 100 — KONIL 1R's 7 left with it — and nothing requires
  * that they do, since `pickWeighted` normalises.
  */
-import { clipToRange } from '../../geometry.js';
+import { alongLeg, clipToRange, depart } from '../../geometry.js';
 import type { SidFixSpec, SidSpec } from '../../types.js';
 import { LSGG_DERIVED as D, LSGG_FIXES as F } from './fixes.js';
 
 /**
- * The first fix on every SID, and the turn gate every chart states in words:
- * "when passing 7000, but not before PAS".
+ * The first fix on four of the five SIDs, and the turn gate their charts state in
+ * words: "when passing 7000, but not before PAS". SOSAL 1J turns at GG601
+ * instead — see its own comment, where the difference is load-bearing.
  */
 const PAS: SidFixSpec = { name: 'PAS', at: F.PAS, minAltitudeFt: 7000, turnAtOrAboveFt: 7000 };
 
@@ -83,6 +92,14 @@ const PAS: SidFixSpec = { name: 'PAS', at: F.PAS, minAltitudeFt: 7000, turnAtOrA
  * still aimed at the real place.
  */
 const EXIT_RANGE_NM = 50;
+
+/**
+ * Where SOSAL 1J turns: 2.5 NM out on runway track, which is the chart's GG601.
+ *
+ * Authored in the departure frame rather than as a coordinate because that is what
+ * it is — a point on the extended centreline, not a navaid.
+ */
+const GG601_NM = 2.5;
 
 export const LSGG_SIDS: readonly SidSpec[] = [
   {
@@ -127,17 +144,39 @@ export const LSGG_SIDS: readonly SidSpec[] = [
     ],
   },
   {
-    // SOSAL 1L, chart 22-09. North-east up the lake. Zurich, Vienna, Munich, and
-    // the one that crosses the left downwind — 14,400 over arrivals at 9900.
-    name: 'SOSAL1L',
+    // SOSAL 1J, chart 22-11. North-east up the lake — Zurich, Vienna, Munich —
+    // and the one SID here that turns at the field rather than at PAS.
+    //
+    // The chart's own note is the whole route: "when passing 1900, but not before
+    // GG601, turn right direct to GG603". After GG603 it runs **direct to SOSAL**,
+    // 38.5 NM up the middle of the lake, and that straight leg is what makes the
+    // field work. It crosses the left downwind dead-on at 21 NM — 0.02 NM lateral,
+    // there is no lateral separation to be had — but 21 NM of unrestricted climb
+    // puts the slowest type in the fleet 2762 ft above the arrival there and the
+    // rest 5000 to 7400 above. **The vertical comes from the distance, not from a
+    // restriction**, which is why this route needs no ceiling on a field that
+    // publishes none.
+    //
+    // It passes 2.3 NM off MOLUS and 4.0 off TINAM rather than through them, so it
+    // is a genuinely different line from the SOSAL 1L it replaces.
+    name: 'SOSAL1J',
     weight: 17,
     fixes: [
-      PAS,
-      // GG602 carries a charted MAX IAS 220 rather than an altitude.
-      { name: 'GG602', at: F.GG602, minAltitudeFt: 7000 },
-      { name: 'TINAM', at: F.TINAM, minAltitudeFt: 18_500 }, // published +FL100, 33 NM into the climb
-      { name: 'MOLUS', at: F.MOLUS, minAltitudeFt: 21_000 },
-      { name: 'SOSAL', at: F.SOSAL, minAltitudeFt: 21_000 },
+      // GG601 is the turn point, on runway track off the departure end. The gate
+      // is the chart's 1900 — low enough that it is made before the fix, which is
+      // the point: what holds the turn here is the *fix*, not the level.
+      { name: 'GG601', at: depart(GG601_NM, 0), turnAtOrAboveFt: 1900 },
+      { name: 'GG603', at: F.GG603, minAltitudeFt: 3500 },
+      // Two points on the direct leg, carrying the observed climb. They are ours,
+      // not the chart's — hence the `RC` prefix this project uses for a fix that is
+      // not off the chart — and they exist for the validator rather than the
+      // aircraft: the static check compares a SID's *published band* against the
+      // arrival, and a leg with no floors declares 0 ft, which reads as a 7583 ft
+      // bust at a crossing the traffic clears by thousands. On a straight leg they
+      // move the flown path by nothing.
+      { name: 'RCGA', at: alongLeg(12, F.GG603, F.SOSAL), minAltitudeFt: 9500 },
+      { name: 'RCGB', at: alongLeg(24, F.GG603, F.SOSAL), minAltitudeFt: 12_500 },
+      { name: 'SOSAL', at: F.SOSAL, minAltitudeFt: 17_000 },
     ],
   },
   {

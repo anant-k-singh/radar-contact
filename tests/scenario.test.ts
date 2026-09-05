@@ -162,6 +162,69 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
       }
     });
 
+    it('never turns a departure away from the fix it is tracking', () => {
+      // A turn gate on the wrong fix does not fail loudly — it flies the aircraft
+      // *away* from its next fix to come back for it. LSGG's SOSAL 1J authored with
+      // the other SIDs' 7000-at-PAS gate released 3 NM past PAS, by which point
+      // GG603 was 9.6 NM behind and to the right, so the aircraft turned 155
+      // degrees outbound and flew 27.6 NM of track to reach a fix 13.9 NM along the
+      // route, arriving 8000 ft high. It separated and cleared terrain the whole
+      // way; nothing else in the suite noticed.
+      //
+      // The signature is the range to the active fix *growing* long after the
+      // aircraft is established. A fly-by turn opens it slightly, so this allows a
+      // mile of it. A fix still holding its turn gate is exempt while it is held:
+      // overflying it on the inbound track is exactly what the gate is for, and
+      // DIPIR 1A legitimately opens 3 NM past PAS climbing to its 7000.
+      for (const sid of scenario.sids) {
+        for (const type of scenario.fleet) {
+          const world = createWorld(scenario, 9);
+          world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+          world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
+          world.departureFlowPerHour = 0;
+          const ac = createDeparture(scenario, world.departureRng, createTrafficState(), sid, [], 0);
+          ac.type = type;
+          world.aircraft = [ac];
+
+          let worstOpenedNm = 0;
+          let worstFix = '';
+          let index = -1;
+          let closestNm = Number.POSITIVE_INFINITY;
+          for (let i = 0; i < 40 * 60 * (1 / PHYSICS_DT) && world.aircraft.length > 0; i += 1) {
+            step(world, PHYSICS_DT);
+            if (world.aircraft.length === 0 || ac.sid === null) break;
+            if (ac.phase === 'roll' || ac.sid.complete) continue;
+            const fix = ac.sid.route.waypoints[ac.sid.index]!;
+            const held =
+              fix.turnAtOrAboveFt !== undefined && ac.altitudeFt < fix.turnAtOrAboveFt;
+            // A new fix resets the datum: the range to it legitimately starts long.
+            if (ac.sid.index !== index) {
+              index = ac.sid.index;
+              closestNm = Number.POSITIVE_INFINITY;
+            }
+            const rangeNm = distance({ x: ac.x, y: ac.y }, fix.position);
+            // While held, the datum tracks the aircraft: the gate is deliberately
+            // flying it past the fix, and only what happens after release counts.
+            if (held) {
+              closestNm = rangeNm;
+              continue;
+            }
+            closestNm = Math.min(closestNm, rangeNm);
+            if (rangeNm - closestNm > worstOpenedNm) {
+              worstOpenedNm = rangeNm - closestNm;
+              worstFix = fix.name;
+            }
+          }
+
+          expect(
+            worstOpenedNm,
+            `${type.code} on ${sid.name} flew ${worstOpenedNm.toFixed(1)} NM back ` +
+              `away from ${worstFix} after closing on it`,
+          ).toBeLessThan(1);
+        }
+      }
+    });
+
     it('builds a runway frame that is orthonormal and consistent', () => {
       const { runway } = scenario;
       const right = rightOf(runway.direction);

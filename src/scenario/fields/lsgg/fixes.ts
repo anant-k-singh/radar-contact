@@ -26,7 +26,7 @@
  *
  * ## The ten fixes solved from a leg
  *
- * Ten fixes are recent terminal waypoints that predate no public database. They
+ * Nine fixes are recent terminal waypoints that predate no public database. They
  * are **not** invented, and they keep their published names: each is a point on a
  * leg between two fixes that *are* published, at a distance the chart prints.
  *
@@ -35,7 +35,7 @@
  * That attempt chained eight legs outward from the field, and the error compounded
  * at every joint. Each fix here is **one** step between two independently
  * published endpoints, and `alongLeg` uses no bearing at all — only a distance
- * along a line whose two ends are known. Nine of the ten are confirmed by the
+ * along a line whose two ends are known. Eight of the nine are confirmed by the
  * chart's own arithmetic: the printed leg distances either side sum to the
  * measured separation of the endpoints to within 0.15 NM.
  *
@@ -157,7 +157,9 @@ export const LSGG_FIXES = {
   GG512: at(46.39722, 6.54917),
 
   // ── Departures ──────────────────────────────────────────────────────────
-  // Every RWY 22 SID leaves on 223° to PAS and turns there when passing 7000.
+  // Four of the five RWY 22 SIDs leave on 223° to PAS and turn there when
+  // passing 7000. SOSAL 1J is the exception and turns at the field — see
+  // `sids.ts`, where that difference is the whole reason the route works.
   /** Passeiry VOR-DME 116.60, 6.4 NM off the departure end on 225°. */
   PAS: at(46.163694, 5.999917),
   GG603: at(46.26861, 6.05778),
@@ -181,16 +183,13 @@ export const LSGG_FIXES = {
 const F = LSGG_FIXES;
 
 /**
- * The ten fixes solved from a published leg, kept apart from the transcribed ones
+ * The nine fixes solved from a published leg, kept apart from the transcribed ones
  * so the distinction is visible rather than remembered. Each comment carries the
  * chart's own arithmetic, which is the check.
  */
 export const LSGG_DERIVED = {
   /** 5.7 NM along BELUS → CBY. Chart: 5.7 + 8.5 = 14.2; measured 14.1. */
   RILTI: alongLeg(5.7, F.BELUS, F.CBY),
-
-  /** 4.2 NM along DEREM → KONIL. Chart: 4.2 + 13.1 = 17.3; measured 17.3. */
-  GLEND: alongLeg(4.2, F.DEREM, F.KONIL),
 
   /** 6.6 NM along ESAPI → VANAS. Chart: 6.6 + 25.7 = 32.3; measured 32.1. */
   ALPOZ: alongLeg(6.6, F.ESAPI, F.VANAS),
