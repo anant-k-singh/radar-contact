@@ -271,7 +271,10 @@ export const LSGG_STARS: readonly StarSpec[] = [
       { name: 'BELUS', at: F.BELUS, altitudeFt: 19_000, speedKts: 280 },
       { name: 'RILTI', at: D.RILTI, altitudeFt: 18_000, speedKts: 280 },
       { name: 'CBY', at: F.CBY, altitudeFt: 16_000, speedKts: 270 },
-      { name: 'GG502', at: F.GG502, altitudeFt: 14_000, speedKts: 250 },
+      // No altitude: CBY 16,000 to PITOM 12,000 is a continuous 3 degree descent
+      // and GG502 sits on it, so a level here only restated what the gradient
+      // already says. The speed is kept, which is the reduction it does carry.
+      { name: 'GG502', at: F.GG502, speedKts: 250 },
       { name: 'PITOM', at: F.PITOM, altitudeFt: 12_000, speedKts: 250 },
       { name: 'BIVLO', at: F.BIVLO, altitudeFt: 11_000, speedKts: 250 },
       { name: 'GG525', at: F.GG525, altitudeFt: 9500, speedKts: 210 },

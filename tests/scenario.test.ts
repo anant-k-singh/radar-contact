@@ -15,7 +15,7 @@ import { compileScenario } from '../src/scenario/compile.js';
 import { identicalTailLength, starForGate, starProfileAt } from '../src/scenario/routes.js';
 import { MERGE_FUNNEL_NM } from '../src/scenario/validate.js';
 import { SCENARIOS } from '../src/scenario/registry.js';
-import type { Scenario } from '../src/scenario/types.js';
+import type { Scenario, ScenarioSpec } from '../src/scenario/types.js';
 import { validateScenario, VALIDATION_GS_FT_PER_NM } from '../src/scenario/validate.js';
 import { isDeparture } from '../src/sim/aircraft.js';
 import { GS_FT_PER_NM, PHYSICS_DT, SEP_HORIZ_NM, SEP_VERT_FT } from '../src/sim/constants.js';
@@ -23,6 +23,7 @@ import { glideslopeAltitudeFt } from '../src/sim/ils.js';
 import { createArrival, createDeparture, createTrafficState } from '../src/sim/traffic.js';
 import { createWorld, step } from '../src/sim/world.js';
 import { bearing, distance, headingDiff, magnitude, rightOf } from '../src/sim/units.js';
+import { LSGG as LSGG_SPEC } from '../src/scenario/fields/lsgg/index.js';
 import { VABB } from '../src/scenario/fields/vabb/index.js';
 import { ROTATED, ROTATED_SPEC } from './fixtures/rotatedField.js';
 
@@ -398,6 +399,36 @@ describe('the validator', () => {
     // It cannot import GS_FT_PER_NM — a scenario may not import the tunables —
     // so the two are checked against each other instead of drifting quietly.
     expect(VALIDATION_GS_FT_PER_NM).toBeCloseTo(GS_FT_PER_NM, 1);
+  });
+
+  it('lets a STAR fix omit its altitude, but not the one the route ends at', () => {
+    // A fix on a continuous descent need not restate the gradient — LSGG's GG502
+    // sits on CBY's 3 degree leg into PITOM, and `starProfileAt` interpolates
+    // across the gap. The route's *last* fix is different: it is the level the
+    // handover happens at and the glideslope check reads it, so it stays required.
+    const drop = (starName: string, index: number): ScenarioSpec => ({
+      ...LSGG_SPEC,
+      stars: LSGG_SPEC.stars.map((star) =>
+        star.name !== starName
+          ? star
+          : {
+              ...star,
+              fixes: star.fixes.map((fix, i) =>
+                i === (index < 0 ? star.fixes.length + index : index)
+                  ? { name: fix.name, at: fix.at, speedKts: fix.speedKts }
+                  : fix,
+              ),
+            },
+      ),
+    });
+
+    const middle = validateScenario(compileScenario(drop('BELUS3R', 3)));
+    expect(middle.filter((p) => p.where === 'BELUS3R')).toEqual([]);
+
+    const end = validateScenario(compileScenario(drop('BELUS3R', -1)));
+    expect(end.map((p) => p.message)).toContain(
+      'GG512 ends the route without publishing an altitude',
+    );
   });
 
   it('catches a departure released under an arrival with no restriction', () => {
