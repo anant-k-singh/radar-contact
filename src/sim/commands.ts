@@ -24,7 +24,7 @@ import {
   isPending,
   issue,
 } from './pilot.js';
-import { activeFix, holdFixIndex } from './star.js';
+import { activeFix, holdFixIndex, starTargetSpeedKts } from './star.js';
 import { clamp, normalizeHeading, quantize } from './units.js';
 import { log, type World } from './world.js';
 
@@ -82,7 +82,12 @@ export function adjustSpeed(world: World, ac: Aircraft, direction: Direction): v
   if (!guard(world, ac)) return;
 
   const floor = speedFloorKts(world.scenario.runway, ac);
-  const base = quantize(assignedIasKts(ac), SPEED_STEP_KTS);
+  // Step from the number the player is reading, which on a STAR is the *next
+  // fix's* speed and not the autopilot's own target. Those differ the whole time
+  // an aircraft is decelerating between two fixes: passing 229 towards BOXAR's
+  // 200, the block shows 200 while `targetIasKts` slides through 229.15, so
+  // stepping from the target sent E to 240 where the player expected 210.
+  const base = quantize(starTargetSpeedKts(ac) ?? assignedIasKts(ac), SPEED_STEP_KTS);
   const requested = base + direction * SPEED_STEP_KTS;
 
   if (requested < floor) {

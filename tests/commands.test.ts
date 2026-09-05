@@ -12,8 +12,11 @@ import {
   SPEED_FLOOR_CLEAN_KTS,
 } from '../src/sim/constants.js';
 import { step } from '../src/sim/world.js';
+import { createRng } from '../src/sim/rng.js';
+import { starTargetSpeedKts } from '../src/sim/star.js';
+import { createArrival, createTrafficState } from '../src/sim/traffic.js';
 import { displayHeading } from '../src/sim/units.js';
-import { HEAVY_TYPE, makeAircraft, MEDIUM_TYPE, onFinal, pilotActs, quietWorld, RUNWAY, SCENARIO } from './helpers.js';
+import { AIRPORT, HEAVY_TYPE, makeAircraft, MEDIUM_TYPE, onFinal, pilotActs, quietWorld, RUNWAY, SCENARIO } from './helpers.js';
 
 describe('heading assignment', () => {
   it('moves in 10° steps and wraps through north', () => {
@@ -112,6 +115,31 @@ describe('speed assignment', () => {
     pilotActs(world);
     expect(far.targetIasKts).toBe(floorKts);
     expect(world.messages.some((m) => m.text.includes('track miles'))).toBe(true);
+  });
+
+  it('steps from the speed shown, not the autopilot target, on a STAR', () => {
+    // Decelerating between two fixes, the block shows the *next* fix's speed
+    // while `targetIasKts` slides continuously between them. Stepping from the
+    // target made E unpredictable: passing 229 towards BOXAR's 200, the block
+    // read 200 and one press gave 240 instead of 210.
+    const gate = AIRPORT.gates.find((candidate) => candidate.name === 'KOVAL')!;
+    const ac = createArrival(SCENARIO, createRng(5), createTrafficState(), gate, [], 0);
+    const world = quietWorld(ac);
+
+    // Fly to where the shown speed has stepped down to BOXAR's but the aircraft
+    // is still well above it.
+    let shown = 0;
+    for (let i = 0; i < 60 * 60 * (1 / PHYSICS_DT) && ac.star !== null; i += 1) {
+      step(world, PHYSICS_DT);
+      shown = starTargetSpeedKts(ac) ?? 0;
+      if (shown === 200 && ac.iasKts > 225) break;
+    }
+    expect(shown, 'never reached the deceleration towards BOXAR').toBe(200);
+    expect(ac.iasKts).toBeGreaterThan(225);
+
+    adjustSpeed(world, ac, 1);
+    pilotActs(world);
+    expect(ac.targetIasKts).toBe(210);
   });
 
   it('gives heavies a higher clean minimum', () => {

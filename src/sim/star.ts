@@ -116,13 +116,14 @@ export function distanceToGoNm(ac: Aircraft, nav: StarNav): Nm {
 }
 
 /**
- * The published speed the aircraft is slowing towards, or null when the
- * controller owns the speed. The autopilot's own target moves continuously
- * down the profile; this is the number on the chart.
+ * The published speed the aircraft is slowing towards, or null when the route is
+ * not flying the speed — the controller has taken it, or the aircraft is in a
+ * hold at `HOLD_SPEED_KTS`. The autopilot's own target moves continuously down
+ * the profile; this is the number on the chart, and the one displayed.
  */
 export function starTargetSpeedKts(ac: Aircraft): number | null {
   const nav = ac.star;
-  if (!nav || nav.speedManual) return null;
+  if (!nav || nav.speedManual || nav.hold) return null;
   return speedAheadKts(nav.route, distanceToGoNm(ac, nav));
 }
 
