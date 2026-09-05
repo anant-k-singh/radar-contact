@@ -6,7 +6,8 @@ import { clipToAirspace, mapLayer } from './mapLayer.js';
 import { msaAt } from '../scenario/terrain.js';
 import { createLogScroll, drawMessages, drawStatusLine, scrollLog } from './messageLog.js';
 import { drawTrackPath, type TrackPathView } from './pathLayer.js';
-import type { Airspace } from '../scenario/types.js';
+import { drawSidHover, sidUnderPointer } from './sidHover.js';
+import type { Airspace, Sid } from '../scenario/types.js';
 import {
   clampZoom,
   createProjection,
@@ -199,11 +200,39 @@ export function createScope(canvas: HTMLCanvasElement): Scope {
     return msaAt(world.scenario.terrain, toWorld(projection, sx, sy));
   };
 
+  /**
+   * The SID under the pointer, or null.
+   *
+   * Suppressed over an aircraft for the same reason the MSA readout is: the data
+   * block is what the controller is reading there, and lighting a route up
+   * underneath it competes with that. Suppressed in replay too — a recording is
+   * not a chart the player is planning against.
+   */
+  const sidUnderCursor = (world: World, options: RenderOptions): Sid | null => {
+    if (options.mode !== 'live') return null;
+    if (!pointer || !projection) return null;
+    const rect = canvas.getBoundingClientRect();
+    const sx = pointer.clientX - rect.left;
+    const sy = pointer.clientY - rect.top;
+    if (!isOnScope(world.scenario.airspace, projection, sx, sy)) return null;
+    if (pick(world, pointer.clientX, pointer.clientY) !== null) return null;
+    return sidUnderPointer(world.scenario, projection, sx, sy);
+  };
+
   return {
     render(world: World, options: RenderOptions = LIVE_RENDER): void {
       const p = resize(world.scenario.airspace);
       const dpr = window.devicePixelRatio || 1;
       ctx.drawImage(mapLayer(world.scenario, p, dpr), 0, 0, p.width, p.height);
+      // Over the chart and under the traffic: it is chart furniture, and an
+      // aircraft must never be hidden behind it. Clipped like the rest of the
+      // chart, since a SID's fixes can sit outside the drawn boundary.
+      const hovered = sidUnderCursor(world, options);
+      if (hovered) {
+        clipped(ctx, (c) => clipToAirspace(c, world.scenario, p), () =>
+          drawSidHover(ctx, p, hovered),
+        );
+      }
       // The track path is content, so it is clipped to the same fixed circle the
       // map layer clips to. An aircraft magnified outside the boundary stops
       // being drawn; it is still flying, still logging and still recorded —

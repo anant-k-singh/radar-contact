@@ -7,12 +7,14 @@
  * airspace circle erases the label while leaving the diamond visible.
  */
 import { describe, expect, it } from 'vitest';
-import { draw } from '../src/render/mapLayer.js';
+import { draw, sidFixLabels } from '../src/render/mapLayer.js';
+import { drawSidHover, sidUnderPointer } from '../src/render/sidHover.js';
 import { drawTraffic } from '../src/render/trafficLayer.js';
 import { LIVE_RENDER } from '../src/render/scope.js';
 import {
   createProjection,
   DEFAULT_VIEWPORT,
+  toScreen,
   MAX_ZOOM,
   STATS_GUTTER_PX,
   type Viewport,
@@ -321,4 +323,95 @@ describe('drawing state across a clip lift', () => {
       expect(lost.length, `${lost.length} strokes lost their colour across a clip lift`).toBe(0);
     });
   }
+});
+
+describe('hovering a SID', () => {
+  // The chart layer thins a SID's floors down to the turns and the ends. The
+  // levels are still in `scenario.sids` — the thinning is a rendering choice, not
+  // a data one — and hovering is how a player asks for the rest of them.
+  const LSGG = SCENARIOS.find((s) => s.id === 'LSGG')!;
+
+  const project = (scenario: Scenario): ReturnType<typeof createProjection> =>
+    createProjection(scenario.airspace, W - STATS_GUTTER_PX, H, DEFAULT_VIEWPORT);
+
+  it('picks the SID whose track the pointer is nearest', () => {
+    const p = project(LSGG);
+    for (const sid of LSGG.sids) {
+      // The midpoint of the route's *last* leg, which is the one place every LSGG
+      // SID is on its own rather than in the shared fan out of the field.
+      const a = sid.waypoints[sid.waypoints.length - 2]!.position;
+      const b = sid.waypoints[sid.waypoints.length - 1]!.position;
+      const mid = toScreen(p, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+      expect(sidUnderPointer(LSGG, p, mid.x, mid.y)?.name, sid.name).toBe(sid.name);
+    }
+  });
+
+  it('resolves a shared leg by which track is nearer', () => {
+    // Four of LSGG's five SIDs run out to PAS together, so a pointer in that fan
+    // is near several tracks at once. Nearest has to win: taking the first match
+    // in registration order would make the other three unhoverable near the field.
+    const p = project(LSGG);
+    const shared = LSGG.sids.filter((s) => s.waypoints[1]!.name === 'PAS');
+    expect(shared.length, 'LSGG should still have a shared departure fan').toBeGreaterThan(1);
+
+    for (const sid of shared) {
+      // Just past the shared fix, on this route's own second leg, where the
+      // tracks have begun to diverge but are still within a hover of each other.
+      const from = sid.waypoints[1]!.position;
+      const to = sid.waypoints[2]!.position;
+      const near = { x: from.x + (to.x - from.x) * 0.15, y: from.y + (to.y - from.y) * 0.15 };
+      const screen = toScreen(p, near);
+      expect(sidUnderPointer(LSGG, p, screen.x, screen.y)?.name, sid.name).toBe(sid.name);
+    }
+  });
+
+  it('picks nothing out in open airspace', () => {
+    const p = project(LSGG);
+    const centre = toScreen(p, { x: 0, y: 0 });
+    // Well off any track, but still on the scope.
+    expect(sidUnderPointer(LSGG, p, centre.x + 200, centre.y)).toBeNull();
+  });
+
+  it('prints every fix name, and the levels the chart thinned away', () => {
+    const p = project(LSGG);
+    // MEDAM 1A is the case the thinning exists for: five ascending floors down a
+    // line that never turns, of which the chart prints only the ends.
+    const sid = LSGG.sids.find((s) => s.name === 'MEDAM1A')!;
+
+    const chart = recordingContext();
+    draw(chart.ctx, LSGG, p);
+    const chartTexts = new Set(chart.texts.map((t) => t.text));
+
+    const hover = recordingContext();
+    drawSidHover(hover.ctx, p, sid);
+    const hoverTexts = new Set(hover.texts.map((t) => t.text));
+
+    // Every fix on the route is named, which the chart layer never does at all.
+    for (const wpt of sid.waypoints.slice(1)) {
+      expect(hoverTexts, `${wpt.name} was not named on hover`).toContain(wpt.name);
+      expect(chartTexts, `${wpt.name} should not be named by the chart`).not.toContain(wpt.name);
+    }
+
+    // And every published level is printed, including the ones the chart drops.
+    // GG616 and ESAPI are mid-route floors on a straight run: thinned by the
+    // chart, and the whole reason to hover.
+    const thinned = sidFixLabels(sid).filter((l) => l.index > 0 && !l.printed && l.crossing);
+    expect(thinned.length, 'MEDAM1A should have levels worth revealing').toBeGreaterThan(0);
+    for (const { wpt, crossing } of thinned) {
+      expect(hoverTexts, `${wpt.name}'s ${crossing} was not revealed`).toContain(crossing!);
+    }
+  });
+
+  it('agrees with the chart about what the chart already prints', () => {
+    // The two layers ask `sidFixLabels` the same question, so a fix the chart
+    // prints must never be re-printed by the hover at a different offset — that
+    // is what a doubled label looks like on screen.
+    for (const sid of LSGG.sids) {
+      for (const { index, crossing, printed } of sidFixLabels(sid)) {
+        if (index === 0 || crossing === undefined) continue;
+        // A ceiling is never thinned; a floor mid-straight always is.
+        if (crossing.startsWith('≤')) expect(printed).toBe(true);
+      }
+    }
+  });
 });

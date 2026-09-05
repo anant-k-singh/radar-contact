@@ -59,6 +59,12 @@ export const THEME = {
   sidPath: '#5c4a2a',
   sidFix: '#7d6b45',
   sidConstraint: '#b08a3c',
+  /**
+   * The hovered SID: its track, its fix rings and the figures the default chart
+   * thins away. Brighter than `sidConstraint` because the whole point is that the
+   * hovered route lifts off a layer drawn at `SID_ALPHA` to recede.
+   */
+  sidHover: '#e8c069',
 
   /** Data block and leader line: the cool near-white of a radar block. */
   traffic: '#cfdae6',

@@ -7,7 +7,7 @@
  */
 import { boundaryRangeAtBearing, isInsideAirspace } from '../scenario/airspace.js';
 import { STRAIGHT_OUT_DEG } from '../scenario/geometry.js';
-import type { Scenario, Sid } from '../scenario/types.js';
+import type { Scenario, Sid, SidWaypoint } from '../scenario/types.js';
 import { centerlinePoint } from '../sim/ils.js';
 import { bearing, headingDiff, headingVector, magnitude, type Point } from '../sim/units.js';
 import { clipped, nested, unclipped } from './clip.js';
@@ -32,7 +32,12 @@ const LABEL_LINE_PX = 11;
  * stops being readable. The outline is the background colour, so it reads as the
  * label having cut a hole in whatever it crosses rather than as a border.
  */
-function haloText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number): void {
+export function haloText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+): void {
   // Unclipped, always: this is the chokepoint every label on the layer goes
   // through, so routing it here is what makes "the clip never cuts a label" a
   // property of the code rather than of remembering (see `clip.ts`).
@@ -295,22 +300,7 @@ function drawSidChart(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Proj
     ctx.stroke();
     drawArrowHead(ctx, toScreen(p, last.position), exitPoint);
 
-    let maxAltitudeFt: number | undefined;
-    for (const [index, wpt] of sid.waypoints.entries()) {
-      const previous = sid.waypoints[index - 1];
-      const next = sid.waypoints[index + 1];
-      // A ceiling republished at the next fix is the *same* restriction carried
-      // on (§4.7), so it is labelled only where it changes — otherwise the level
-      // segment reads as two separate constraints instead of one that runs
-      // through both fixes. Same trick `drawStars` uses for a level leg.
-      const crossing =
-        wpt.maxAltitudeFt !== undefined && wpt.maxAltitudeFt !== maxAltitudeFt
-          ? `≤${wpt.maxAltitudeFt}`
-          : wpt.minAltitudeFt !== undefined
-            ? `${wpt.minAltitudeFt}+`
-            : undefined;
-      maxAltitudeFt = wpt.maxAltitudeFt;
-
+    for (const { index, wpt, crossing, printed } of sidFixLabels(sid)) {
       // Index 0 is the runway itself, which is already drawn and labelled.
       if (index === 0) continue;
       if (labelled.has(wpt.name)) continue;
@@ -339,25 +329,13 @@ function drawSidChart(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Proj
       // The threshold is `STRAIGHT_OUT_DEG`, borrowed rather than invented,
       // because it is already this codebase's answer to "how much divergence
       // still reads as straight" — `turnOf` uses it to decide a SID's direction.
-      const straightThrough =
-        wpt.maxAltitudeFt === undefined &&
-        previous !== undefined &&
-        next !== undefined &&
-        index > 1 &&
-        Math.abs(
-          headingDiff(
-            bearing(wpt.position, next.position),
-            bearing(previous.position, wpt.position),
-          ),
-        ) < STRAIGHT_OUT_DEG;
-
       const point = toScreen(p, wpt.position);
       ctx.strokeStyle = THEME.sidFix;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.arc(point.x, point.y, 2.5, 0, Math.PI * 2);
       ctx.stroke();
-      if (straightThrough) continue;
+      if (!printed) continue;
 
       // The label goes *above* the fix, away from the track. Every SID fix
       // sits south of or abeam the field, and the STAR labels are placed
@@ -372,6 +350,60 @@ function drawSidChart(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Proj
       }
     }
   }
+}
+
+/**
+ * What each fix on a SID would print, and whether the default chart prints it.
+ *
+ * The single place that decision is made, because it is made twice: the cached
+ * map layer prints the thinned set, and the hover overlay
+ * (`drawSidHover`) prints the rest. Two copies of the rule would drift, and the
+ * failure is a doubled label rather than a missing one.
+ *
+ * `crossing` is the figure — a ceiling where it *changes*, since a ceiling
+ * republished at the next fix is the same restriction carried on (§4.7) and a
+ * repeated number reads as two constraints instead of one. `printed` is whether
+ * the default chart shows it: a floor on a fix the route runs straight through is
+ * dropped (see `drawSidChart`), a ceiling never is.
+ */
+export interface SidFixLabel {
+  index: number;
+  wpt: SidWaypoint;
+  /** The figure to print, or undefined where the fix publishes nothing. */
+  crossing: string | undefined;
+  /** Whether `drawSidChart` prints it without being asked. */
+  printed: boolean;
+}
+
+export function sidFixLabels(sid: Sid): SidFixLabel[] {
+  const out: SidFixLabel[] = [];
+  let maxAltitudeFt: number | undefined;
+  for (const [index, wpt] of sid.waypoints.entries()) {
+    const previous = sid.waypoints[index - 1];
+    const next = sid.waypoints[index + 1];
+    const crossing =
+      wpt.maxAltitudeFt !== undefined && wpt.maxAltitudeFt !== maxAltitudeFt
+        ? `≤${wpt.maxAltitudeFt}`
+        : wpt.minAltitudeFt !== undefined
+          ? `${wpt.minAltitudeFt}+`
+          : undefined;
+    maxAltitudeFt = wpt.maxAltitudeFt;
+
+    const straightThrough =
+      wpt.maxAltitudeFt === undefined &&
+      previous !== undefined &&
+      next !== undefined &&
+      index > 1 &&
+      Math.abs(
+        headingDiff(
+          bearing(wpt.position, next.position),
+          bearing(previous.position, wpt.position),
+        ),
+      ) < STRAIGHT_OUT_DEG;
+
+    out.push({ index, wpt, crossing, printed: !straightThrough });
+  }
+  return out;
 }
 
 /**
