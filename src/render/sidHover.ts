@@ -1,26 +1,10 @@
 /**
  * The hovered SID: every fix named, every published level printed.
  *
- * The chart layer thins a SID's figures down to the ones the controller cannot
- * infer — a floor only at a turn, at the exit and at the first fix after the
- * runway, because a departure's floors otherwise print a column of ascending
- * numbers along a line that never turns (see `drawSidChart`). That is the right
- * default and it is also lossy: the levels are *there*, in `scenario.sids`, and a
- * player who wants to read one has no way to ask.
- *
- * Hovering is that ask. It prints the fix names, which the chart layer never
- * shows at all, and the figures the thinning dropped.
- *
- * **This draws per frame, not into `mapLayer`.** The map layer is an offscreen
- * canvas keyed on field and viewport; painting a hover into it would rebuild the
- * whole chart on every pointer move, which is the one redraw that would actually
- * cost something. Drawing here costs a few dozen segment tests and under ten
- * labels, against the per-aircraft blocks `drawTraffic` already paints at 20 fps.
- *
- * What it must *not* do is disagree with the layer underneath. Both go through
- * `sidFixLabels`, so "would the chart have printed this" is asked once and
- * answered the same way twice — two copies of that rule would drift into a
- * doubled label.
+ * The chart draws a SID as rings and a track only, so all of this is new. It
+ * draws per frame rather than into `mapLayer` — that layer is cached on field and
+ * viewport, and painting a hover into it would rebuild the chart on every pointer
+ * move. Here it is a few dozen segment tests and under ten labels.
  */
 import type { Scenario, Sid } from '../scenario/types.js';
 import type { Point } from '../sim/units.js';
@@ -28,21 +12,12 @@ import { haloText, sidFixLabels } from './mapLayer.js';
 import { toScreen, type Projection } from './project.js';
 import { THEME } from './theme.js';
 
-/**
- * How near the pointer has to be to a SID's track to pick it, in pixels.
- *
- * Generous, because the track is a 1.5 px line drawn at `SID_ALPHA` and hitting
- * it exactly is not a thing a player should have to do. Small enough that two
- * SIDs sharing a leg still resolve by which one the pointer is nearer.
- */
+/** Pick radius. Generous — the track is a 1.5 px line at `SID_ALPHA`. */
 const HOVER_PX = 12;
 
 /**
- * Which SID the pointer is over, or null.
- *
- * Nearest wins rather than first: LSGG's five SIDs share their first leg out of
- * the field, and picking the first in registration order would make four of them
- * unhoverable near the runway.
+ * Which SID the pointer is over, or null. Nearest wins rather than first: four of
+ * LSGG's five share the leg out to PAS, and first-match makes three unpickable.
  */
 export function sidUnderPointer(
   scenario: Scenario,
@@ -103,8 +78,7 @@ export function drawSidHover(
     ctx.fillStyle = THEME.sidHover;
     haloText(ctx, wpt.name, point.x, point.y - 10);
 
-    // The figure sits under the name. Every one of them is new: the chart layer
-    // draws no SID figures at all, which is what hovering is for.
+    // Under the name. All new — the chart draws no SID figures.
     if (crossing !== undefined) {
       ctx.fillStyle = THEME.sidHover;
       haloText(ctx, crossing, point.x, point.y + 10);

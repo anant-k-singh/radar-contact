@@ -299,15 +299,9 @@ function drawSidChart(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Proj
     ctx.stroke();
     drawArrowHead(ctx, toScreen(p, last.position), exitPoint);
 
-    // Rings only — no figures, and no names. A SID's levels are read by hovering
-    // it (`sidHover.ts`), which prints all of them; the chart draws the shape.
-    //
-    // There used to be a rule here about which figures survived: floors at a turn
-    // and at the ends, ceilings always. It was a good rule and it is gone, because
-    // hovering answers the question it was rationing. What it bought was a scope
-    // where a departure's levels were partly readable and partly not, with the
-    // split invisible — LSGG prints ten floors and two ceilings under it, over
-    // ground already carrying nine STARs and fourteen terrain bands.
+    // Rings only — no figures, no names. Levels are read by hovering
+    // (`sidHover.ts`). The thinning rule that used to live here left them partly
+    // readable with the split invisible, which is what hovering answers.
     for (const { index, wpt } of sidFixLabels(sid)) {
       // Index 0 is the runway itself, which is already drawn and labelled.
       if (index === 0) continue;
@@ -325,16 +319,9 @@ function drawSidChart(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Proj
 }
 
 /**
- * What each fix on a SID publishes, as the string a label would show.
- *
- * `crossing` is a ceiling where it *changes*, since a ceiling republished at the
- * next fix is the same restriction carried on (§4.7) and repeating the number
- * reads as two constraints instead of one; otherwise the floor, if there is one.
- *
- * The chart layer draws none of these — a SID is rings and a track, and its
- * levels are read by hovering it. So this exists for `sidHover.ts`, and lives
- * here because `drawSidChart` walks the same fixes to place the rings and the two
- * must agree about which fix is which.
+ * What each fix on a SID publishes, as a label string. A ceiling only where it
+ * *changes* — republished at the next fix it is the same restriction (§4.7).
+ * Drawn by `sidHover.ts`; lives here because `drawSidChart` walks the same fixes.
  */
 export interface SidFixLabel {
   index: number;

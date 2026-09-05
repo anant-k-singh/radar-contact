@@ -24,7 +24,7 @@ import {
   isPending,
   issue,
 } from './pilot.js';
-import { activeFix } from './star.js';
+import { activeFix, holdFixIndex } from './star.js';
 import { clamp, normalizeHeading, quantize } from './units.js';
 import { log, type World } from './world.js';
 
@@ -123,16 +123,22 @@ export function toggleHold(world: World, ac: Aircraft): void {
     return;
   }
 
-  // A fix with no published level is not a holding fix. Since a STAR fix may now
-  // omit its altitude where it merely sits on a descent — LSGG's GG502 is on
-  // CBY's gradient into PITOM — those fixes have no level to hold *at*: the hold
-  // would take whatever the aircraft happened to be passing, which is a different
-  // height every time and not a level the controller chose or can predict.
-  const fix = activeFix(ac.star);
-  if (ac.star.hold === null && fix.altitudeFt === undefined) {
-    log(world, `${ac.callsign} unable — ${fix.name} is not a holding fix.`, 'system', [ac.id]);
-    return;
+  // A bare fix cannot anchor a pattern, so the hold moves up the route to the
+  // next fix publishing a level. Entry only — an existing hold is toggling out.
+  if (ac.star.hold === null) {
+    const holdAt = holdFixIndex(ac.star);
+    if (holdAt === null) {
+      log(world, `${ac.callsign} unable — no holding fix ahead on the arrival.`, 'system', [
+        ac.id,
+      ]);
+      return;
+    }
+    // Sequencing forward is what anchors it. Skipping the fixes between loses
+    // no crossing, since they publish none.
+    ac.star.index = holdAt;
   }
+
+  const fix = activeFix(ac.star);
 
   // `H` toggles one thing: whether the aircraft is to stay in the pattern. That
   // makes three cases rather than two, because an aircraft that has been told

@@ -80,6 +80,18 @@ export function activeFix(nav: StarNav) {
 }
 
 /**
+ * Where a hold anchors: the active fix, or the next one publishing a level.
+ * `enterHold` takes the level *at* the fix, and a bare one would take whatever
+ * height the aircraft was passing. Null if nothing ahead has one.
+ */
+export function holdFixIndex(nav: StarNav): number | null {
+  for (let i = nav.index; i < nav.route.waypoints.length; i += 1) {
+    if (nav.route.waypoints[i]!.altitudeFt !== undefined) return i;
+  }
+  return null;
+}
+
+/**
  * True while the published profile owns the vertical, in which case the
  * altitude comes straight from the route geometry and kinematics must not also
  * integrate it — exactly as on the glideslope.

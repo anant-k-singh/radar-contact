@@ -221,13 +221,8 @@ export function departureClimbRateFpm(ac: Aircraft): Fpm {
 }
 
 /**
- * What altitude takes off the book climb rate — 1 in the thick air, falling
- * linearly to `CLIMB_DECAY_MIN_SCALE` at the top.
- *
- * Measured pressure altitude, not AGL: it is the air that thins, and it does not
- * care how far below the aircraft the ground is. That is the opposite datum from
- * the acceleration-altitude reduction above, which is about flap drag and so is
- * measured from the field.
+ * What altitude takes off book climb rate. Pressure altitude, not AGL — it is the
+ * air that thins; the flap-drag reduction above is the one measured from the field.
  */
 function climbDecayScale(altitudeFt: Ft): number {
   if (altitudeFt <= CLIMB_DECAY_FLOOR_FT) return 1;

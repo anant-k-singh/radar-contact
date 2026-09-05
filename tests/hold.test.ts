@@ -52,15 +52,14 @@ describe('entering a holding pattern', () => {
     expect(world.messages.at(-1)!.text).toContain('not on an arrival');
   });
 
-  it('is refused at a fix that publishes no altitude', () => {
-    // A STAR fix may omit its level where it merely sits on a descent — LSGG's
-    // BIVLO and LIRKO do. There is nothing to hold *at* there: the pattern would
-    // take whatever height the aircraft happened to be passing, which is a
-    // different level every time and not one the controller chose.
+  it('holds at the next eligible fix when the active one publishes no altitude', () => {
+    // LSGG's BANKO, LIRKO and BIVLO publish no level, so a pattern cannot anchor
+    // there — the hold moves up the route rather than being refused.
     const lsgg = SCENARIOS.find((scenario) => scenario.id === 'LSGG')!;
     const star = lsgg.stars.find((candidate) => candidate.name === 'BANKO3R')!;
     const bare = star.waypoints.findIndex((wpt) => wpt.altitudeFt === undefined);
     expect(bare, 'BANKO3R should still have a fix with no published level').toBeGreaterThan(0);
+    const expected = star.waypoints.slice(bare).find((wpt) => wpt.altitudeFt !== undefined)!;
 
     const gate = lsgg.gates.find((candidate) => candidate.name === star.gate)!;
     const ac = createArrival(lsgg, createRng(5), createTrafficState(), gate, [], 0);
@@ -70,13 +69,13 @@ describe('entering a holding pattern', () => {
     world.departureFlowPerHour = 0;
     world.aircraft = [ac];
     world.messages = [];
-    // Track to the bare fix, which is what the hold would be anchored on.
     ac.star!.index = bare;
 
-    toggleHold(world, ac);
+    pressHold(world, ac);
 
-    expect(ac.pending).toHaveLength(0);
-    expect(world.messages.at(-1)!.text).toContain('is not a holding fix');
+    expect(ac.star!.hold!.fix).toBe(expected.name);
+    expect(ac.star!.hold!.altitudeFt).toBe(expected.altitudeFt);
+    expect(world.messages.some((message) => message.text.includes(expected.name))).toBe(true);
   });
 
   it('holds at the fix the aircraft is already tracking to', () => {

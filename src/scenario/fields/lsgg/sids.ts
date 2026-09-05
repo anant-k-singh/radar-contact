@@ -14,22 +14,15 @@
  * and the shared PAS leg is a coincidence of geography rather than a shared
  * identity.
  *
- * **SOSAL 1J is the exception, and it is the exception that matters.** The other
- * four turn at PAS; 1J turns at GG601, over the field, when passing 1900. That is
- * what its chart says, and authoring it the other way does not merely differ from
- * the chart — it does not fly. PAS is 6.4 NM off the departure end and nothing
- * reaches 7000 that soon, so a 7000 gate there releases 3.0 NM *past* the fix, by
- * which point GG603 is 9.6 NM behind and to the right. Measured, the aircraft then
- * turned 155° away from the field to come back for it: 27.6 NM of track to reach a
- * fix 13.9 NM along the route, and 14,400 ft where the live picture shows 6000.
+ * **SOSAL 1J turns at GG601 on 1900, over the field**, where the other four turn
+ * at PAS on 7000. Authoring it their way does not fly: PAS is 6.4 NM out and
+ * nothing makes 7000 that soon, so the gate releases 3 NM *past* it with GG603
+ * 9.6 NM behind — the aircraft turns 155° away and flies 27.6 NM of track to
+ * reach a fix 13.9 NM along the route.
  *
- * **KONIL 1R and SOSAL 1L are both published and neither is flown here.** 1J
- * replaces them: it leaves in the same direction, it is what the live picture
- * actually shows going north-east, and unlike either of them it separates without
- * being held down. SOSAL 1L climbed through the arrival stream — the thing the
- * field is supposed to teach you to avoid — and KONIL 1R ran parallel to the right
- * downwind 3 NM off it, needing tactical control this model does not give a
- * departure.
+ * **KONIL 1R and SOSAL 1L are published and neither is flown.** 1J replaces them
+ * and is what the live picture shows leaving north-east. 1L climbed through the
+ * arrival stream; KONIL 1R needed tactical control a departure never gets here.
  *
  * ## The turns are derived, and four of five agree with the chart's own word
  *
@@ -134,12 +127,9 @@ export const LSGG_SIDS: readonly SidSpec[] = [
     weight: 18,
     fixes: [
       PAS,
-      // A ceiling, not the published floor. This is the one place a Geneva SID has
-      // to be held *under* an arrival: MEDAM 1A passes 2.7 NM from BELUS 3R's
-      // descent into PITOM, and flown at the published floor a B738 met it at
-      // 11,966 ft with **nothing between them**. The chart publishes no "at or
-      // below" here — Geneva publishes none anywhere — so 10,000 is ours, read off
-      // what clears the arrival rather than off the sheet.
+      // A ceiling, not the published floor: MEDAM 1A passes 2.7 NM from BELUS 3R
+      // and at the floor a B738 met it at 11,966 with nothing between them.
+      // Geneva publishes no "at or below" anywhere, so this level is ours.
       { name: 'GG619', at: D.GG619, maxAltitudeFt: 10_000 }, // chart: +FL100
       { name: 'GG616', at: D.GG616, minAltitudeFt: 13_000 }, // published +FL120
       { name: 'ESAPI', at: F.ESAPI, minAltitudeFt: 15_000 }, // published +FL140
@@ -150,36 +140,22 @@ export const LSGG_SIDS: readonly SidSpec[] = [
     ],
   },
   {
-    // SOSAL 1J, chart 22-11. North-east up the lake — Zurich, Vienna, Munich —
-    // and the one SID here that turns at the field rather than at PAS.
-    //
-    // The chart's own note is the whole route: "when passing 1900, but not before
-    // GG601, turn right direct to GG603". After GG603 it runs **direct to SOSAL**,
-    // 38.5 NM up the middle of the lake, and that straight leg is what makes the
-    // field work. It crosses the left downwind dead-on at 21 NM — 0.02 NM lateral,
-    // there is no lateral separation to be had — but 21 NM of unrestricted climb
-    // puts the slowest type in the fleet 2762 ft above the arrival there and the
-    // rest 5000 to 7400 above. **The vertical comes from the distance, not from a
-    // restriction**, which is why this route needs no ceiling on a field that
-    // publishes none.
-    //
-    // It passes 2.3 NM off MOLUS and 4.0 off TINAM rather than through them, so it
-    // is a genuinely different line from the SOSAL 1L it replaces.
+    // SOSAL 1J, chart 22-11. North-east up the lake, and the one SID turning at
+    // the field: "when passing 1900, but not before GG601, turn right to GG603".
+    // After GG603 it runs direct to SOSAL, 38.5 NM up the middle of the lake.
+    // That leg crosses the left downwind dead-on, but 21 NM of unrestricted climb
+    // puts even the A332 2762 ft above it — the vertical comes from the distance,
+    // not a restriction, which is what a field publishing no ceilings needs.
     name: 'SOSAL1J',
     weight: 17,
     fixes: [
-      // GG601 is the turn point, on runway track off the departure end. The gate
-      // is the chart's 1900 — low enough that it is made before the fix, which is
-      // the point: what holds the turn here is the *fix*, not the level.
+      // The chart's 1900 is made before the fix, which is the point: what holds
+      // the turn here is the fix, not the level.
       { name: 'GG601', at: depart(GG601_NM, 0), turnAtOrAboveFt: 1900 },
       { name: 'GG603', at: F.GG603, minAltitudeFt: 3500 },
-      // Two points on the direct leg, carrying the observed climb. They are ours,
-      // not the chart's — hence the `RC` prefix this project uses for a fix that is
-      // not off the chart — and they exist for the validator rather than the
-      // aircraft: the static check compares a SID's *published band* against the
-      // arrival, and a leg with no floors declares 0 ft, which reads as a 7583 ft
-      // bust at a crossing the traffic clears by thousands. On a straight leg they
-      // move the flown path by nothing.
+      // Ours, not the chart's (hence `RC`), and for the validator rather than the
+      // aircraft: a 38.5 NM leg with no floors declares 0 ft, which reads as a
+      // 7583 ft bust at a crossing the traffic clears by thousands.
       { name: 'RCGA', at: alongLeg(12, F.GG603, F.SOSAL), minAltitudeFt: 9500 },
       { name: 'RCGB', at: alongLeg(24, F.GG603, F.SOSAL), minAltitudeFt: 12_500 },
       { name: 'SOSAL', at: F.SOSAL, minAltitudeFt: 17_000 },
@@ -193,9 +169,8 @@ export const LSGG_SIDS: readonly SidSpec[] = [
     fixes: [
       PAS,
       { name: 'GG611', at: D.GG611, minAltitudeFt: 11_500 }, // published +FL100
-      // A ceiling for the same reason GG619 carries one: BEVEN 1A passes 3.0 NM
-      // from BELUS 3R and flown at the published floor a B738 met it at 13,117 ft
-      // with nothing between them. Ours, not the chart's.
+      // Same as GG619: at the published floor a B738 met BELUS 3R at 13,117 with
+      // nothing between them. Ours, not the chart's.
       { name: 'RUMIL', at: F.RUMIL, maxAltitudeFt: 11_000 }, // chart: +FL120
       { name: 'GG622', at: D.GG622, minAltitudeFt: 16_000 }, // published +FL150
       { name: 'BEVEN', at: F.BEVEN, minAltitudeFt: 19_000 },

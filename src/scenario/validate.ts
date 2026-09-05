@@ -225,16 +225,10 @@ function checkStar(scenario: Scenario, star: Star, problems: Problem[]): void {
 
   checkLegs(scenario, star.name, star.waypoints, problems);
 
-  // A fix may publish neither, either or both. `compileStar` drops the gaps and
-  // `starProfileAt` interpolates across them, which is what a fix sitting on a
-  // continuous descent should do — LSGG's GG502 is on CBY's 3 degree gradient
-  // into PITOM, so a level there only restated what the two ends already say.
-  // The route's *ends* are what must be pinned, and the two checks below do that:
-  // the entry carries the handover level and the last fix is checked against the
-  // glideslope.
-  // The *last* fix must carry one: it is the level the route hands over at, and
-  // the glideslope check below reads it. The first is guaranteed already — the
-  // gate waypoint is synthesised from `entryAltitudeFt`, which is required.
+  // A fix may omit its altitude where it sits on a gradient its neighbours fix;
+  // `starProfileAt` interpolates across the gap. The *last* must carry one — it
+  // is the handover level, and the glideslope check reads it. The first is
+  // synthesised from `entryAltitudeFt`, which is required separately.
   const end = star.waypoints[star.waypoints.length - 1]!;
   if (end.altitudeFt === undefined) {
     add('error', `${end.name} ends the route without publishing an altitude`);

@@ -37,22 +37,11 @@ import type {
 import { bearing, distance, headingVector, type Deg, type Ft, type Point } from '../sim/units.js';
 
 /**
- * Where a departure levels off once every published restriction is behind it.
- *
- * A cruise level rather than a margin over the field's ceiling, which is what it
- * used to be. A departure with nothing left to cross is not being kept anywhere by
- * anybody — it is climbing away to its cruise, and the only reason to stop it is
- * that the model has to stop it somewhere. Levelling it 1000 ft over the highest
- * arrival made that number look like a restriction, and it produced the one thing
- * it was meant to prevent: LSGG's MEDAM 1A sat at 21,000 against a KINES 2R
- * arrival entering at 20,000, exactly 1000 ft apart, nearly head-on at the
- * boundary. At 30,000 it is 4195 ft clear and still climbing.
- *
- * Safe to raise for every field because `departureClimbRateFpm` decays with
- * altitude (`CLIMB_DECAY_*`): nothing below 10,000 changes at all, so every
- * observed level on every SID is what it was, and the extra climb costs the
- * steepest types minutes rather than seconds. The validator still requires it to
- * clear the assignable ceiling, which it does by a wider margin than before.
+ * Where a departure levels off with every restriction behind it — a cruise level,
+ * not a margin over the ceiling. The old `ceilingFt + 1000` made an arbitrary
+ * number look like a restriction and caused the conflict it prevented: MEDAM 1A
+ * sat at 21,000 against a KINES 2R arrival at 20,000, head-on at the boundary.
+ * Safe to raise because `departureClimbRateFpm` decays above 10,000.
  */
 const DEPARTURE_TOP_FT = 30_000;
 
@@ -204,11 +193,8 @@ function compileSid(spec: SidSpec, ctx: FixContext, defaultTopFt: Ft): Sid[] {
       })),
     ];
 
-    // A chart labels the top of climb at the last fix, and this used to default
-    // the floor there to `topFt`. It no longer can: `topFt` is a cruise level now
-    // rather than a margin over the ceiling, and an exit fix inside the boundary
-    // is nowhere near it, so that default authored a level no departure makes.
-    // A field wanting a figure there publishes one.
+    // No default floor at the exit fix: `topFt` is a cruise level, and a fix
+    // inside the boundary is nowhere near it. A field wanting one publishes it.
     const last = waypoints[waypoints.length - 1]!;
 
     for (let i = 1; i < waypoints.length; i += 1) {
