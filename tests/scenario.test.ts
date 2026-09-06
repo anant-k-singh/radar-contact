@@ -21,13 +21,24 @@ import { isDeparture } from '../src/sim/aircraft.js';
 import { GS_FT_PER_NM, PHYSICS_DT, SEP_HORIZ_NM, SEP_VERT_FT } from '../src/sim/constants.js';
 import { glideslopeAltitudeFt } from '../src/sim/ils.js';
 import { createArrival, createDeparture, createTrafficState } from '../src/sim/traffic.js';
+import { createRng } from '../src/sim/rng.js';
+import { resumeArrival } from '../src/sim/commands.js';
+import { issue } from '../src/sim/pilot.js';
+import { legGeometry, starOwnsVertical } from '../src/sim/star.js';
+import { stateTag } from '../src/render/trafficLayer.js';
 import { createWorld, step } from '../src/sim/world.js';
-import { bearing, distance, headingDiff, magnitude, rightOf } from '../src/sim/units.js';
+import { bearing, distance, headingDiff, magnitude, normalizeHeading, rightOf } from '../src/sim/units.js';
 import { LSGG as LSGG_SPEC } from '../src/scenario/fields/lsgg/index.js';
 import { VABB } from '../src/scenario/fields/vabb/index.js';
 import { ROTATED, ROTATED_SPEC } from './fixtures/rotatedField.js';
 
 const FIELDS: Scenario[] = [...SCENARIOS, ROTATED];
+
+/** Step a world forward without the recorder, for the rejoin flight below. */
+function flyOn(world: ReturnType<typeof createWorld>, seconds: number): void {
+  for (let i = 0; i < Math.round(seconds / PHYSICS_DT); i += 1) step(world, PHYSICS_DT);
+}
+
 
 /**
  * Fields whose **published** procedures do not separate their own departures from
@@ -390,6 +401,60 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
           expect(isDeparture(ac)).toBe(true);
         }
       }
+    });
+
+    it('lets a vectored arrival be given its route back, and never climbs it', () => {
+      // The rejoin is only worth having if it works on a real field's geometry,
+      // so this flies one rather than checking a bound: vector an arrival off,
+      // set up a 30° intercept, press R, and fly it until the published profile
+      // has the vertical again (§4.5a).
+      let flown = 0;
+      for (const gate of scenario.gates) {
+        const ac = createArrival(scenario, createRng(11), createTrafficState(), gate, [], 0);
+        if (!ac.star) continue; // a gate with no STAR has nothing to resume
+        const world = createWorld(scenario, 3);
+        world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+        world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
+        world.departureFlowPerHour = 0;
+        world.aircraft = [ac];
+        flyOn(world, 60);
+
+        issue(world, ac, { kind: 'heading', headingDeg: normalizeHeading(ac.headingDeg + 30) });
+        flyOn(world, 150);
+        if (!ac.rejoin) continue;
+        const nav = ac.rejoin.nav;
+        // Converging on whichever leg is still ahead, from whichever side the
+        // aircraft is on, at the angle a controller would actually assign.
+        for (let leg = Math.max(nav.index, 1); leg < nav.route.waypoints.length; leg += 1) {
+          const geo = legGeometry(nav.route, leg, ac);
+          if (geo.alongNm > geo.lengthNm) continue;
+          issue(world, ac, {
+            kind: 'heading',
+            headingDeg: normalizeHeading(geo.courseDeg + (geo.xtkNm > 0 ? -30 : 30)),
+          });
+          flyOn(world, 40);
+          resumeArrival(world, ac);
+          flyOn(world, 5);
+          if (ac.rejoin?.leg != null) break;
+        }
+        if (ac.rejoin?.leg == null) continue; // no leg reachable from here
+
+        expect(stateTag(ac)).toMatch(/^\u2192/);
+        const armedFt = ac.altitudeFt;
+        let highestFt = ac.altitudeFt;
+        for (let i = 0; i < 40_000 && (ac.star || ac.rejoin?.leg != null); i += 1) {
+          step(world, PHYSICS_DT);
+          highestFt = Math.max(highestFt, ac.altitudeFt);
+          if (ac.star && starOwnsVertical(ac)) break;
+        }
+        if (!ac.star) continue;
+        // An arrival is never hauled back up to a profile it is under.
+        expect(highestFt).toBeLessThan(armedFt + 10);
+        expect(ac.star.altitudeManual).toBe(false);
+        expect(ac.star.speedManual).toBe(false);
+        flown += 1;
+      }
+      expect(flown).toBeGreaterThan(0);
     });
   },
 );

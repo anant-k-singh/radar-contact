@@ -5,6 +5,7 @@ import {
   adjustSpeed,
   clearForIls,
   nextSelectableId,
+  resumeArrival,
   toggleHold,
 } from '../sim/commands.js';
 import { REPLAY_SKIP_S, TIME_SCALES } from '../sim/constants.js';
@@ -86,6 +87,9 @@ export function bindKeyboard(controller: () => SessionController): void {
         break;
       case 'h':
         toggleHold(world, ac);
+        break;
+      case 'r':
+        resumeArrival(world, ac);
         break;
       default:
         return;

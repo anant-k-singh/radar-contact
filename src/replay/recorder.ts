@@ -155,6 +155,8 @@ const ALERT_MASK = 0b11 << ALERT_SHIFT;
  * displayed state, and nothing in a rebuilt frame could infer it.
  */
 const F_HOLD_EXITING = 1 << 15;
+/** A rejoin armed and not yet established (§4.5a); the leg rides `starIndex`. */
+const F_REJOIN_ARMED = 1 << 16;
 
 // Seven states in three bits, with one spare. The two departure phases are in
 // the same enumeration as the approach ones (§4.7).
@@ -179,6 +181,7 @@ export interface DecodedFlags {
   speedManual: boolean;
   holding: boolean;
   holdExiting: boolean;
+  rejoinArmed: boolean;
   rejoining: boolean;
   pendingHeading: boolean;
   pendingAltitude: boolean;
@@ -196,6 +199,7 @@ function encodeFlags(ac: Aircraft): number {
   if (nav?.hold) bits |= F_HOLDING;
   if (nav?.hold?.exitRequested) bits |= F_HOLD_EXITING;
   if (nav?.rejoining) bits |= F_REJOINING;
+  if (ac.rejoin?.leg != null) bits |= F_REJOIN_ARMED;
   // Only the three axes are recorded: a pending clearance or hold changes
   // nothing on the display, whereas a pending turn is the difference between
   // "vectored" and "following the route" (§7.3).
@@ -218,6 +222,7 @@ export function decodeFlags(bits: number): DecodedFlags {
     speedManual: (bits & F_SPEED_MANUAL) !== 0,
     holding: (bits & F_HOLDING) !== 0,
     holdExiting: (bits & F_HOLD_EXITING) !== 0,
+    rejoinArmed: (bits & F_REJOIN_ARMED) !== 0,
     rejoining: (bits & F_REJOINING) !== 0,
     pendingHeading: (bits & F_PENDING_HEADING) !== 0,
     pendingAltitude: (bits & F_PENDING_ALTITUDE) !== 0,
@@ -313,7 +318,9 @@ function appendSample(track: Track, ac: Aircraft): void {
   track.assignedAltitudeFt.push(assignedAltitudeFt(ac));
   track.assignedHeadingDeg.push(assignedHeadingDeg(ac));
   track.assignedIasKts.push(assignedIasKts(ac));
-  track.starIndex.push(ac.star ? ac.star.index : -1);
+  // One channel for two meanings, told apart by `F_REJOIN_ARMED`: the fix being
+  // tracked, or the leg being intercepted (§4.5a).
+  track.starIndex.push(ac.star ? ac.star.index : (ac.rejoin?.leg ?? -1));
   // −1 once the route is complete, which is what tells playback the aircraft is
   // flying its exit heading rather than tracking a fix.
   track.sidIndex.push(ac.sid && !ac.sid.complete ? ac.sid.index : -1);

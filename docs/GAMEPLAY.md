@@ -29,6 +29,7 @@ Procedures follow standard radar-control practice. Every number below is derived
 | `Q` / `E` | Speed −10 / +10 kt |
 | `C` | Clear for the ILS approach |
 | `H` | Enter / leave the published hold |
+| `R` | Resume the arrival — hand the published profile back, or rejoin the route after vectors |
 | `Tab` | Cycle selection, nearest the runway first |
 | `1` … `5` | Time rate — each key doubles the one before it: `1` real time, `3` is 4×, `5` is 16× |
 | `Space` | Pause · `Esc` deselect |
@@ -103,6 +104,7 @@ The tag after the callsign is the fix while the aircraft is on its arrival, then
 | `ILS` | Cleared for the approach, flying the intercept |
 | `LOC` | Established on the localizer |
 | `G/S` | Descending on the glideslope |
+| `→FIX` | Rejoining the arrival: flying a heading to intercept the leg ending at that fix |
 | `HOLD` | In the published hold at that fix |
 | `H̶O̶L̶D̶` | Same, struck through: you've told it to leave, and it will at the next crossing of the fix |
 | `G/A` | Going around |
@@ -284,6 +286,31 @@ while it's in the pattern; take it out first.
 
 Use it when the sequence has gotten away from you and you need one aircraft to stop making the
 problem worse.
+
+## Getting one back on its arrival
+
+Vector one of two converging arrivals away to break them up, and you now have an aircraft on your
+hands for the rest of its approach. `R` gives it its route back.
+
+Turn it so it points across the arrival, press `R`, and it holds that heading until it reaches a leg
+and joins it — the same intercept the localizer gets, and 45° is the steepest crossing it will take.
+The leg it joins is **the first one the heading vector crosses**, so what it will do is on the scope
+in front of you: draw the heading out and see where it meets the route. Aim across the arc and it
+joins further down and cuts the fixes between out, which is how you buy back some of the miles the
+vector cost. The block reads `→ARDIS` while it is joining and plain `ARDIS` once it is on.
+
+If the heading reaches nothing, or crosses too steeply to turn onto, you hear so at once with the
+number in it — turn first, then press `R`. `R` again while it is joining cancels. Once it has been
+cleared for the approach the arrival is over and `R` is refused: vector it off first.
+
+From the moment the crew reads `R` back the aircraft is flying the arrival's published descent and
+speeds again, not diving to the next fix's level — so it arrives at the leg already on profile and
+looks like every other aircraft on that arrival.
+
+It also works on an aircraft still on its route. Give one an altitude or a speed and the chart's
+version of that axis is off; `R` hands it back, and the aircraft carries on down the published
+profile from wherever it is. If it is *under* the profile it stays where it is and waits for the
+descent to come down to it rather than climbing back up.
 
 **They stack.** The four fixes closest to the gates — OKPUR, NIVEL, SUDIX, TAVIR — are where a
 sequence backs up, so Center delivers each new arrival 1,000 ft above the highest aircraft already

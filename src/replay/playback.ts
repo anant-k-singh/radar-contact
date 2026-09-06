@@ -33,7 +33,7 @@ import type { HoldNav } from '../sim/hold.js';
 import type { PendingInstruction } from '../sim/pilot.js';
 import { createRng } from '../sim/rng.js';
 import { analyzeSeparation } from '../sim/separation.js';
-import { activeFix, type StarNav } from '../sim/star.js';
+import { activeFix, type RejoinNav, type StarNav } from '../sim/star.js';
 import { clamp, type Point, type Sec } from '../sim/units.js';
 import type { Message, Stats, World } from '../sim/world.js';
 import {
@@ -145,6 +145,24 @@ function aircraftAt(scenario: Scenario, track: Track, frame: number): Aircraft {
     if (flags.holding) star.hold = displayHold(star, track.altitudeFt[i]!, flags.holdExiting);
   }
 
+  // An armed rejoin, rebuilt inert for the data block and the sidebar the way a
+  // hold is: nothing in playback flies it (§4.5a).
+  let rejoin: RejoinNav | null = null;
+  if (flags.rejoinArmed && route) {
+    rejoin = {
+      nav: {
+        route,
+        index: 0,
+        altitudeManual: false,
+        speedManual: false,
+        hold: null,
+        rejoining: 0,
+        altitudes: route.altitudes,
+      },
+      leg: track.starIndex[i]!,
+    };
+  }
+
   // A departure is rebuilt from its chart name and the fix it was tracking.
   // Nothing in playback flies a SID, but `sid` being non-null is what makes the
   // aircraft read as a departure everywhere else — muted on the scope,
@@ -204,6 +222,7 @@ function aircraftAt(scenario: Scenario, track: Track, frame: number): Aircraft {
     targetIasKts: assignedIasKts,
     pending,
     turnDirection: null,
+    rejoin,
     star,
     sid,
     phase: flags.phase,

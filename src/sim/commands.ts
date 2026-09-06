@@ -14,6 +14,7 @@ import {
   SPEED_FLOOR_LOW_KTS,
   SPEED_MAX_KTS,
   SPEED_STEP_KTS,
+  MAX_INTERCEPT_ANGLE_DEG,
 } from './constants.js';
 import type { Runway } from '../scenario/types.js';
 import { evaluateClearance, finalGeometry, rangeToThresholdNm } from './ils.js';
@@ -24,8 +25,14 @@ import {
   isPending,
   issue,
 } from './pilot.js';
-import { activeFix, holdFixIndex, starTargetSpeedKts } from './star.js';
-import { clamp, normalizeHeading, quantize } from './units.js';
+import {
+  activeFix,
+  holdFixIndex,
+  rejoinAngleDeg,
+  rejoinLegIndex,
+  starTargetSpeedKts,
+} from './star.js';
+import { clamp, displayHeading, normalizeHeading, quantize } from './units.js';
 import { log, type World } from './world.js';
 
 export type Direction = -1 | 1;
@@ -159,6 +166,92 @@ export function toggleHold(world: World, ac: Aircraft): void {
     log(world, `${ac.callsign}, leave the hold, continue on the arrival.`, 'system', [ac.id]);
   }
   issue(world, ac, { kind: 'hold', hold: stay });
+}
+
+/**
+ * Resume the arrival (§4.5a). Three meanings by state, as `H` has: on the route
+ * it hands the published profile back, off it and unarmed it arms an intercept
+ * of the first leg the assigned heading crosses, and off it and armed it cancels.
+ */
+export function resumeArrival(world: World, ac: Aircraft): void {
+  if (!guard(world, ac)) return;
+  if (isPending(ac, 'rejoin')) return; // already transmitted, still being read back
+
+  // A clearance is not something `R` may quietly take back — only a heading
+  // cancels one (§6.1c) — and a go-around is being flown, not sequenced.
+  if (ac.phase !== 'inbound') {
+    const reason =
+      ac.phase === 'goAround' ? 'going around — re-vector first' : 'cleared for the approach';
+    log(world, `${ac.callsign} unable — ${reason}.`, 'alert', [ac.id]);
+    return;
+  }
+
+  if (ac.star?.hold) {
+    log(world, `${ac.callsign} unable — in the hold at ${ac.star.hold.fix}.`, 'alert', [ac.id]);
+    return;
+  }
+
+  if (ac.star) {
+    if (!ac.star.altitudeManual && !ac.star.speedManual) {
+      log(world, `${ac.callsign} is already on the ${ac.star.route.name}.`, 'system', [ac.id]);
+      return;
+    }
+    log(world, `${ac.callsign}, resume the ${ac.star.route.name} arrival.`, 'system', [ac.id]);
+    issue(world, ac, { kind: 'rejoin', resume: true });
+    return;
+  }
+
+  const rejoin = ac.rejoin;
+  if (!rejoin) {
+    log(world, `${ac.callsign} unable — no arrival to resume.`, 'alert', [ac.id]);
+    return;
+  }
+
+  if (rejoin.leg !== null) {
+    log(world, `${ac.callsign}, cancel the rejoin, maintain heading.`, 'system', [ac.id]);
+    issue(world, ac, { kind: 'rejoin', resume: false });
+    return;
+  }
+
+  // The intercept is settled off the *assigned* heading, so "turn left 210,
+  // resume the arrival" joins the leg the turn is aimed at rather than the one
+  // the aircraft is still pointing at.
+  const headingDeg = assignedHeadingDeg(ac);
+  const leg = rejoinLegIndex(rejoin.nav, ac, headingDeg);
+  if (leg === null) {
+    log(
+      world,
+      `${ac.callsign} unable — heading ${displayHeading(headingDeg)} does not reach the ` +
+        `${rejoin.nav.route.name}.`,
+      'alert',
+      [ac.id],
+    );
+    return;
+  }
+
+  // The angle is knowable here because the leg is, so the refusal is heard now
+  // rather than two minutes away at the leg (§6.1a takes the other half of this
+  // split, for the case that only the aircraft can settle).
+  const angleDeg = rejoinAngleDeg(rejoin.nav.route, leg, headingDeg);
+  if (angleDeg > MAX_INTERCEPT_ANGLE_DEG) {
+    log(
+      world,
+      `${ac.callsign} unable — heading ${displayHeading(headingDeg)} crosses the ` +
+        `${rejoin.nav.route.name} at ${Math.round(angleDeg)}°.`,
+      'alert',
+      [ac.id],
+    );
+    return;
+  }
+
+  log(
+    world,
+    `${ac.callsign}, resume the ${rejoin.nav.route.name} arrival, join at ` +
+      `${rejoin.nav.route.waypoints[leg]!.name}.`,
+    'system',
+    [ac.id],
+  );
+  issue(world, ac, { kind: 'rejoin', resume: true });
 }
 
 export function clearForIls(world: World, ac: Aircraft): void {

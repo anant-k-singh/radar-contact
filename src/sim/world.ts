@@ -436,6 +436,14 @@ function logStarEvents(world: World, ac: Aircraft, events: readonly StarEvent[])
       case 'holdExited':
         log(world, `${ac.callsign} leaving ${event.fix}, back on the arrival.`, 'pilot', [ac.id]);
         break;
+      case 'rejoinEstablished':
+        log(world, `${ac.callsign} established on the ${event.route} at ${event.fix}.`, 'pilot', [
+          ac.id,
+        ]);
+        break;
+      case 'rejoinMissed':
+        log(world, `${ac.callsign} unable to rejoin — ${event.reason}.`, 'alert', [ac.id]);
+        break;
     }
   }
 }

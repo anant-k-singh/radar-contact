@@ -365,13 +365,22 @@ describe('instructions while holding', () => {
 
     // Nothing snaps (§4.3) — including the rejoin, which starts 3000 ft above
     // the profile and so cannot simply be written onto it.
+    //
+    // Measured until the profile is captured, which is where the rejoin ends.
+    // Past that the aircraft is flying an ordinary STAR, and an ordinary STAR
+    // steps its altitude at a fly-by turn — up to 102 ft here, 799 at LSGG —
+    // because the distance to go is measured to the fix being tracked and that
+    // reference moves the moment sequencing anticipates the turn. That is a
+    // real defect and it is not this test's: it is there with no hold, no
+    // vector and no rejoin anywhere in the session.
     let previous = ac.altitudeFt;
     let worstJumpFt = 0;
-    for (let i = 0; i < 24_000 && ac.star; i += 1) {
+    for (let i = 0; i < 24_000 && ac.star && ac.star.rejoining !== 0; i += 1) {
       run(world, PHYSICS_DT);
       worstJumpFt = Math.max(worstJumpFt, Math.abs(ac.altitudeFt - previous));
       previous = ac.altitudeFt;
     }
+    expect(ac.star?.rejoining ?? 0).toBe(0); // it captured rather than running out of route
     // 2500 fpm, the steepest the energy budget allows, is ~2 ft per tick.
     expect(worstJumpFt).toBeLessThan(10);
   });

@@ -2,13 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { starForGate, starProfileAt } from '../src/scenario/routes.js';
 import type { Star } from '../src/scenario/types.js';
 import type { Aircraft } from '../src/sim/aircraft.js';
-import { adjustAltitude, adjustHeading, adjustSpeed } from '../src/sim/commands.js';
-import { SEP_HORIZ_NM, SPEED_FLOOR_CLEAN_KTS } from '../src/sim/constants.js';
+import { adjustAltitude, adjustHeading, adjustSpeed, resumeArrival } from '../src/sim/commands.js';
+import { PHYSICS_DT, SEP_HORIZ_NM, SPEED_FLOOR_CLEAN_KTS, STAR_REJOIN_XTK_NM } from '../src/sim/constants.js';
 import { createRng } from '../src/sim/rng.js';
 import { createArrival, createTrafficState } from '../src/sim/traffic.js';
-import { distance, type Point } from '../src/sim/units.js';
+import { joinStar, rejoinLegIndex, starOwnsVertical } from '../src/sim/star.js';
+import { bearing, distance, headingVector, normalizeHeading, type Point } from '../src/sim/units.js';
 import { step } from '../src/sim/world.js';
-import { AIRPORT, pilotActs, quietWorld, run, SCENARIO } from './helpers.js';
+import { issue } from '../src/sim/pilot.js';
+import { AIRPORT, makeAircraft, pilotActs, quietWorld, run, SCENARIO } from './helpers.js';
 
 /** A fresh arrival at `gateName`, on its STAR, in an otherwise empty world. */
 function arrival(gateName: string): { ac: Aircraft; world: ReturnType<typeof quietWorld> } {
@@ -259,5 +261,236 @@ describe('taking an aircraft off its STAR', () => {
     expect(ac.iasKts).toBeCloseTo(240, 0);
     // Still descending on the published profile, below the handover level.
     expect(ac.altitudeFt).toBeLessThan(gate.entryAltitudeFt);
+  });
+});
+
+describe('rejoining a STAR', () => {
+  /** Vector the aircraft off its route and fly it well clear of it. */
+  function vectorAway(world: ReturnType<typeof quietWorld>, ac: Aircraft, steps = 3, flyS = 200): void {
+    for (let i = 0; i < steps; i += 1) adjustHeading(world, ac, 1);
+    pilotActs(world, ac);
+    run(world, flyS);
+  }
+
+  /** Aim at an exact heading, which `adjustHeading`'s 10° steps cannot reach. */
+  function steer(world: ReturnType<typeof quietWorld>, ac: Aircraft, headingDeg: number): void {
+    issue(world, ac, { kind: 'heading', headingDeg });
+    pilotActs(world, ac);
+  }
+
+  /**
+   * Point it at the middle of the last leg, crossing it well inside 45°. Aimed
+   * twice with the turn flown in between, because a 100° turn carries the
+   * aircraft far enough that a heading computed before it is stale after it.
+   */
+  function aimAtTheEnd(world: ReturnType<typeof quietWorld>, ac: Aircraft): void {
+    const route = ac.rejoin!.nav.route;
+    const a = route.waypoints[route.waypoints.length - 2]!.position;
+    const b = route.waypoints[route.waypoints.length - 1]!.position;
+    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    steer(world, ac, bearing({ x: ac.x, y: ac.y }, midpoint));
+    run(world, 60);
+    steer(world, ac, bearing({ x: ac.x, y: ac.y }, midpoint));
+  }
+
+  function flyToEstablished(world: ReturnType<typeof quietWorld>, ac: Aircraft, limitS = 900): void {
+    for (let elapsed = 0; elapsed < limitS; elapsed += 5) {
+      run(world, 5);
+      if (ac.star) return;
+    }
+    throw new Error('never rejoined the route');
+  }
+
+  it('remembers the route a vector took it off, and gives it back on R', () => {
+    const { ac, world } = arrival('VANDA');
+    run(world, 60);
+    const star = ac.star!.route;
+
+    vectorAway(world, ac);
+    // The whole nav is parked, not just the name: the raised profile of a
+    // stacked delivery and the sequencing index both have to survive (§4.5a).
+    expect(ac.star).toBeNull();
+    expect(ac.rejoin!.nav.route).toBe(star);
+    expect(ac.rejoin!.leg).toBeNull();
+
+    aimAtTheEnd(world, ac);
+    resumeArrival(world, ac);
+    pilotActs(world, ac);
+    expect(ac.rejoin!.leg).not.toBeNull();
+
+    flyToEstablished(world, ac);
+    expect(ac.star!.route).toBe(star);
+    expect(offRouteNm(ac, star)).toBeLessThan(STAR_REJOIN_XTK_NM);
+    // The published profile has all three axes back.
+    expect(ac.star!.altitudeManual).toBe(false);
+    expect(ac.star!.speedManual).toBe(false);
+    // And flies it: the aircraft descends onto the published profile and the
+    // profile takes the vertical back once it is there.
+    let onProfile = false;
+    for (let i = 0; i < 600 && ac.star && !onProfile; i += 1) {
+      run(world, 1);
+      onProfile = starOwnsVertical(ac);
+    }
+    expect(onProfile).toBe(true);
+  });
+
+  it('takes the first leg the assigned heading crosses, and none behind it', () => {
+    const star = SCENARIO.stars[0]!;
+    const nav = joinStar(star);
+    const a = star.waypoints[1]!.position;
+    const b = star.waypoints[2]!.position;
+    const course = bearing(a, b);
+    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    // 5 NM to the left of the leg, so a heading 90° right of its course crosses it.
+    const offset = headingVector(normalizeHeading(course - 90));
+    const ac = makeAircraft({ x: midpoint.x + offset.x * 5, y: midpoint.y + offset.y * 5 });
+
+    expect(rejoinLegIndex(nav, ac, normalizeHeading(course + 90))).toBe(2);
+    // Away from the route it reaches nothing at all, and a track parallel to a
+    // leg never crosses that one however far it runs.
+    expect(rejoinLegIndex(nav, ac, normalizeHeading(course - 90))).toBeNull();
+    expect(rejoinLegIndex(nav, ac, course)).not.toBe(2);
+    // Legs already flown are not candidates: the scan starts at `nav.index`.
+    nav.index = 3;
+    expect(rejoinLegIndex(nav, ac, normalizeHeading(course + 90))).not.toBe(2);
+  });
+
+  it('joins a later leg when the heading cuts the corner, which is the shortcut', () => {
+    const { ac, world } = arrival('VANDA');
+    run(world, 60);
+    const legLeft = ac.star!.index;
+
+    vectorAway(world, ac);
+    aimAtTheEnd(world, ac);
+    resumeArrival(world, ac);
+    pilotActs(world, ac);
+
+    // Aimed across the arc, the ray reaches a leg further down the route first,
+    // and the published fixes between are cut out — which is the point.
+    expect(ac.rejoin!.leg!).toBeGreaterThan(legLeft);
+    flyToEstablished(world, ac);
+    expect(ac.star!.index).toBeGreaterThan(legLeft);
+  });
+
+  it('re-casts the ray when the aircraft is turned while armed', () => {
+    const { ac, world } = arrival('VANDA');
+    run(world, 60);
+    vectorAway(world, ac);
+    aimAtTheEnd(world, ac);
+    resumeArrival(world, ac);
+    pilotActs(world, ac);
+    expect(ac.rejoin!.leg).not.toBeNull();
+
+    // A turn does not disarm — aiming the intercept is what it is for — but it
+    // is the only thing that moves the ray, so a turn away drops the leg.
+    steer(world, ac, normalizeHeading(ac.targetHeadingDeg + 140));
+    expect(ac.rejoin!.leg).toBeNull();
+    expect(ac.star).toBeNull();
+  });
+
+  it('gives up when it flies past the end of the leg it was joining', () => {
+    const { ac, world } = arrival('VANDA');
+    run(world, 60);
+    vectorAway(world, ac);
+    aimAtTheEnd(world, ac);
+    resumeArrival(world, ac);
+    pilotActs(world, ac);
+    const route = ac.rejoin!.nav.route;
+    const end = route.waypoints[ac.rejoin!.leg!]!;
+
+    // Put it beyond the leg's end fix, still armed. The leg's own end is the
+    // range limit, so there is nothing left to intercept (§4.5a).
+    const beyond = headingVector(bearing(route.waypoints[ac.rejoin!.leg! - 1]!.position, end.position));
+    ac.x = end.position.x + beyond.x * 5;
+    ac.y = end.position.y + beyond.y * 5;
+    run(world, PHYSICS_DT);
+
+    expect(ac.rejoin!.leg).toBeNull();
+    expect(ac.star).toBeNull();
+  });
+
+  it('holds its level rather than climbing when it rejoins from below the profile', () => {
+    const { ac, world } = arrival('VANDA');
+    run(world, 60);
+    // Vectored off and descended well under the profile in the same breath,
+    // which `R` then hands back — the aircraft must not be hauled up to meet it.
+    for (let i = 0; i < 3; i += 1) adjustHeading(world, ac, 1);
+    for (let i = 0; i < 5; i += 1) adjustAltitude(world, ac, -1);
+    pilotActs(world, ac);
+    run(world, 200);
+
+    aimAtTheEnd(world, ac);
+    resumeArrival(world, ac);
+    pilotActs(world, ac);
+    flyToEstablished(world, ac);
+    expect(ac.star!.rejoining).toBe(-1);
+
+    const atRejoinFt = ac.altitudeFt;
+    let highestFt = ac.altitudeFt;
+    let previousFt = ac.altitudeFt;
+    let worstJumpFt = 0;
+    for (let i = 0; i < 24_000 && ac.star; i += 1) {
+      run(world, PHYSICS_DT);
+      highestFt = Math.max(highestFt, ac.altitudeFt);
+      worstJumpFt = Math.max(worstJumpFt, Math.abs(ac.altitudeFt - previousFt));
+      previousFt = ac.altitudeFt;
+    }
+    // It waits for the descending profile to come down to it and never gains a
+    // foot, and nothing snaps when it does (§4.3).
+    expect(highestFt).toBeLessThan(atRejoinFt + 10);
+    expect(worstJumpFt).toBeLessThan(10);
+  });
+
+  it('descends on the published gradient, not at the rate of a level assignment', () => {
+    // Same route, same seed, same point on the descent: one arrival never
+    // touched, one vectored off and given the route back. "Resume the arrival"
+    // has to mean it descends like the arrival — given the joining fix's level
+    // as a plain assignment instead, it dives at the full kinematic rate and
+    // levels off early, which is the dive-and-drive §4.5 exists to avoid.
+    const untouched = arrival('RIMOL');
+    run(untouched.world, 420);
+    expect(untouched.ac.star).not.toBeNull();
+
+    const { ac, world } = arrival('RIMOL');
+    run(world, 60);
+    vectorAway(world, ac);
+    aimAtTheEnd(world, ac);
+    resumeArrival(world, ac);
+    pilotActs(world, ac);
+
+    run(world, 30);
+    // Both are descending towards the same published crossing.
+    expect(ac.targetAltitudeFt).toBe(untouched.ac.targetAltitudeFt);
+    // Within half the untouched rate of it, rather than the ~1400 fpm a plain
+    // "descend 7000" produces from up here.
+    const gradientFpm = Math.abs(untouched.ac.vsFpm);
+    expect(Math.abs(ac.vsFpm)).toBeLessThan(gradientFpm * 1.5);
+  });
+
+  it('hands the published profile back to an aircraft still on the route', () => {
+    const { ac, world } = arrival('KOVAL');
+    run(world, 60);
+    adjustAltitude(world, ac, -1);
+    adjustSpeed(world, ac, -1);
+    pilotActs(world, ac);
+    expect(ac.star!.altitudeManual).toBe(true);
+    expect(ac.star!.speedManual).toBe(true);
+    const before = { x: ac.x, y: ac.y };
+
+    resumeArrival(world, ac);
+    pilotActs(world, ac);
+    expect(ac.star!.altitudeManual).toBe(false);
+    expect(ac.star!.speedManual).toBe(false);
+    // Nothing lateral changed, and nothing snapped vertically.
+    expect(distance({ x: ac.x, y: ac.y }, before)).toBeLessThan(0.5);
+
+    let previousFt = ac.altitudeFt;
+    let worstJumpFt = 0;
+    for (let i = 0; i < 4000 && ac.star; i += 1) {
+      run(world, PHYSICS_DT);
+      worstJumpFt = Math.max(worstJumpFt, Math.abs(ac.altitudeFt - previousFt));
+      previousFt = ac.altitudeFt;
+    }
+    expect(worstJumpFt).toBeLessThan(10);
   });
 });

@@ -87,7 +87,7 @@ export const LOC_RANGE_NM = 25; // localizer service volume
  * course cancels the clearance, whereas an aircraft that is not yet level under
  * the path simply has not captured it yet.
  */
-export const MAX_INTERCEPT_ANGLE_DEG = 45;
+export const MAX_INTERCEPT_ANGLE_DEG = 45; // shared with the STAR rejoin (§4.5a)
 export const MAX_INTERCEPT_SPEED_KTS = 230; // ceiling for both intercepts
 export const LEVEL_VS_LIMIT_FPM = 200; // "level" test at the glideslope
 export const IDEAL_INTERCEPT_ANGLE_DEG = 30; // preferred angle; soft warning beyond
@@ -239,6 +239,15 @@ export const SPAWN_VETO_FT = 1000;
 export const STAR_FIX_CAPTURE_NM = 0.5;
 /** Cap on fly-by turn anticipation, so a near-reversal cannot cut half the route. */
 export const STAR_MAX_ANTICIPATION_NM = 6;
+
+// ── Rejoining a STAR (§4.5a) ────────────────────────────────────────────────
+
+/**
+ * Cross-track band inside which a rejoin captures its leg. The localizer's
+ * number, for the localizer's reason — ten physics ticks wide at 250 kt — but
+ * its own constant: a route leg is not a radio facility.
+ */
+export const STAR_REJOIN_XTK_NM = 0.5;
 
 // ── Departures and SIDs (§4.7) ──────────────────────────────────────────────
 /**

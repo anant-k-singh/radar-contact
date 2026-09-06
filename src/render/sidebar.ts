@@ -22,7 +22,7 @@ import {
   rangeToThresholdNm,
 } from '../sim/ils.js';
 import { assignedAltitudeFt, assignedHeadingDeg, assignedIasKts, isPending } from '../sim/pilot.js';
-import { activeFix, starTargetSpeedKts } from '../sim/star.js';
+import { activeFix, legGeometry, starTargetSpeedKts } from '../sim/star.js';
 import { displayHeading, distance, quantize } from '../sim/units.js';
 import type { World } from '../sim/world.js';
 import { selectedAircraft } from '../sim/world.js';
@@ -89,7 +89,8 @@ const template = (scenarios: readonly Scenario[]): string => `
   <h2 class="live-only">Controls</h2>
   <div class="keys live-only">
     <kbd>A</kbd><kbd>D</kbd> heading &nbsp; <kbd>W</kbd><kbd>S</kbd> altitude<br />
-    <kbd>Q</kbd><kbd>E</kbd> speed &nbsp; <kbd>C</kbd> clear ILS &nbsp; <kbd>H</kbd> hold<br />
+    <kbd>Q</kbd><kbd>E</kbd> speed &nbsp; <kbd>C</kbd> clear ILS<br />
+    <kbd>H</kbd> hold &nbsp; <kbd>R</kbd> resume arrival<br />
     <kbd>Tab</kbd> cycle &nbsp; <kbd>Space</kbd> pause &nbsp; ${TIME_SCALES.map(
       (_, index) => `<kbd>${index + 1}</kbd>`,
     ).join('')} rate
@@ -279,6 +280,13 @@ export function createSidebar(
             .join(' + ');
           set('star', manual ? `${nav.route.name} (${manual} assigned)` : nav.route.name);
           set('nextfix', `${fix.name} · ${distance({ x: ac.x, y: ac.y }, fix.position).toFixed(1)} NM`);
+        } else if (ac.rejoin != null && ac.rejoin.leg !== null) {
+          // Armed but not established: name the leg being intercepted and how
+          // far off it the aircraft still is (§4.5a).
+          const { nav, leg } = ac.rejoin;
+          const geo = legGeometry(nav.route, leg, ac);
+          set('star', `${nav.route.name} (joining)`);
+          set('nextfix', `${nav.route.waypoints[leg]!.name} · ${Math.abs(geo.xtkNm).toFixed(1)} NM off`);
         } else {
           set('star', 'vectors');
           set('nextfix', '—');
