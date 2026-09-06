@@ -160,11 +160,13 @@ export function leaveHold(ac: Aircraft): void {
     // assignment: unless the controller had already taken the vertical over
     // before the hold, the published profile gets it back (§4.6).
     nav.altitudeManual = hold.altitudeWasManual;
-    // Stacked above the profile, the aircraft has to descend back down to it
-    // rather than be written onto it. Cleared by `stepStar` on capture.
+    // Off the profile, the aircraft has to fly back to it rather than be
+    // written onto it. Cleared by `stepStar` on capture. Signed because the
+    // pattern can be flown *below* the published crossing too — the level is
+    // given back on exit — and writing the profile on there is a teleport up.
     if (!nav.altitudeManual) {
       const profileFt = starProfileAt(nav.route, distanceToGoNm(ac, nav), nav.altitudes).altitudeFt;
-      nav.rejoining = ac.altitudeFt > profileFt;
+      nav.rejoining = Math.sign(ac.altitudeFt - profileFt) as -1 | 0 | 1;
     }
   }
   // The forced right turn belongs to the pattern; anything else turns the short

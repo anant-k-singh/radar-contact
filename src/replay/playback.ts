@@ -134,7 +134,9 @@ function aircraftAt(scenario: Scenario, track: Track, frame: number): Aircraft {
       altitudeManual: flags.altitudeManual,
       speedManual: flags.speedManual,
       hold: null,
-      rejoining: flags.rejoining,
+      // The *sense* is not displayed and playback never flies the profile, so
+      // "off the profile" is all a rebuilt frame needs to carry.
+      rejoining: flags.rejoining ? 1 : 0,
       // A stacked delivery raises the profile the *live* aircraft flies, but
       // nothing displays that profile — only the altitude it produced, which is
       // recorded — so a rebuilt frame flies the chart and reads identically.

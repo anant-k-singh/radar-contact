@@ -36,14 +36,18 @@ export interface StarNav {
    */
   hold: HoldNav | null;
   /**
-   * True while the aircraft is descending back down to the published profile
-   * after holding above it (§4.6). The profile is normally written straight
-   * onto the aircraft, which assumes it is already on it — true for an ordinary
-   * arrival, but a teleport for one leaving a hold thousands of feet high. So
-   * it flies down on ordinary kinematic rates until it reaches the profile,
-   * which is a descent through it: the capture test is simply "no longer above".
+   * Which side of the published profile the aircraft is rejoining from — 1
+   * above, -1 below, 0 once it is on it (§4.6). The profile is normally written
+   * straight onto the aircraft, which assumes it is already on it — right for an
+   * ordinary arrival, a teleport for one leaving a hold thousands of feet high.
+   * Off the profile it flies on ordinary kinematic rates until it reaches it,
+   * and the capture test is simply "no longer on the side it started".
+   *
+   * Signed rather than boolean because a hold can be flown *below* its published
+   * crossing just as legally as above it, and from below the rejoin has to be a
+   * level-off rather than a climb.
    */
-  rejoining: boolean;
+  rejoining: -1 | 0 | 1;
   /**
    * The altitude constraints this aircraft is actually flying.
    *
@@ -70,7 +74,7 @@ export function joinStar(route: Star, levelFt: Ft | null = null): StarNav {
     altitudeManual: false,
     speedManual: false,
     hold: null,
-    rejoining: false,
+    rejoining: 0,
     altitudes: levelFt === null ? route.altitudes : raisedToLevel(route, levelFt),
   };
 }
@@ -104,9 +108,9 @@ export function starOwnsVertical(ac: Aircraft): boolean {
   // A hold is flown level at a target, like any other assigned altitude, so
   // kinematics keep the vertical while the pattern is being flown.
   if (!nav || nav.altitudeManual || nav.hold) return false;
-  // An aircraft rejoining from a holding level is descending *to* the profile,
-  // not sitting on it; kinematics own that descent until it is captured.
-  return !nav.rejoining;
+  // An aircraft rejoining is flying *to* the profile, not sitting on it;
+  // kinematics own that until it is captured.
+  return nav.rejoining === 0;
 }
 
 /** Distance still to fly along the route, from wherever the aircraft actually is. */
@@ -170,17 +174,22 @@ export function stepStar(ac: Aircraft, dt: Sec, timeS: Sec = 0): StarEvent[] {
 
   const profile = starProfileAt(nav.route, dtgNm, nav.altitudes);
   if (!nav.altitudeManual) {
-    // The profile is captured the moment the aircraft is no longer above it.
-    // Descending onto it is the only way to rejoin, so this needs no tolerance
-    // window: the descent crosses the profile and the crossing is the capture.
-    if (nav.rejoining && ac.altitudeFt <= profile.altitudeFt) nav.rejoining = false;
+    // The profile is captured the moment the aircraft is no longer on the side
+    // it started. Both approaches to it are a crossing, so this needs no
+    // tolerance window: the crossing is the capture. `Math.sign(0)` is 0, so
+    // arriving exactly on the profile captures too.
+    const offsetFt = ac.altitudeFt - profile.altitudeFt;
+    if (nav.rejoining !== 0 && Math.sign(offsetFt) !== nav.rejoining) nav.rejoining = 0;
 
-    if (nav.rejoining) {
-      // Still above it — fly down on ordinary rates rather than being written
-      // onto the chart, which for an aircraft leaving a hold thousands of feet
-      // high would be a teleport (§4.6). `starOwnsVertical` agrees for this
-      // tick, so kinematics integrate the vertical.
-      ac.targetAltitudeFt = profile.altitudeFt;
+    if (nav.rejoining !== 0) {
+      // Off the profile — fly on ordinary rates rather than being written onto
+      // the chart, which for an aircraft leaving a hold thousands of feet high
+      // would be a teleport (§4.6). `starOwnsVertical` agrees for this tick, so
+      // kinematics integrate the vertical.
+      //
+      // From below, hold the level and let the descending profile come down to
+      // meet it: an arrival is never climbed back up to a profile it is under.
+      ac.targetAltitudeFt = nav.rejoining > 0 ? profile.altitudeFt : ac.altitudeFt;
     } else {
       // Fly the published profile exactly, so every crossing altitude is made
       // good; the vertical rate falls out of the geometry (~400–600 fpm) and its

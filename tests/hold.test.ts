@@ -376,6 +376,33 @@ describe('instructions while holding', () => {
     expect(worstJumpFt).toBeLessThan(10);
   });
 
+  it('never climbs back up to the profile after holding below it', () => {
+    const { ac, world } = arrival('TEMBA');
+    pressHold(world, ac);
+    flyToEstablished(world, ac);
+    // Stacked *down* rather than up, which is just as legal — the holding level
+    // is not a standing assignment either way (§4.6).
+    for (let i = 0; i < 3; i += 1) {
+      adjustAltitude(world, ac, -1);
+      pilotActs(world, ac);
+      run(world, 20);
+    }
+    run(world, 600);
+    const belowFt = ac.altitudeFt;
+    pressHold(world, ac);
+
+    // The profile is above the aircraft here, and writing it straight on would
+    // be a teleport upwards. It holds its level until the descending profile
+    // comes down to meet it, so it never gains a foot.
+    let highestFt = ac.altitudeFt;
+    for (let i = 0; i < 24_000 && ac.star; i += 1) {
+      run(world, PHYSICS_DT);
+      highestFt = Math.max(highestFt, ac.altitudeFt);
+    }
+    expect(highestFt).toBeLessThan(belowFt + 10);
+    expect(ac.star?.rejoining ?? 0).toBe(0);
+  });
+
   it('leaves the pattern and the STAR when a heading is assigned', () => {
     const { ac, world } = arrival();
     pressHold(world, ac);
