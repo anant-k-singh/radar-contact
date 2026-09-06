@@ -11,11 +11,12 @@ import { createRng } from '../src/sim/rng.js';
 import { activeFix } from '../src/sim/star.js';
 import { createArrival, createTrafficState, trySpawn } from '../src/sim/traffic.js';
 import { distance } from '../src/sim/units.js';
+import { SCENARIOS } from '../src/scenario/registry.js';
 import { type World } from '../src/sim/world.js';
 import { worldAtFrame } from '../src/replay/playback.js';
 import { createRecording, sample } from '../src/replay/recorder.js';
 import { stateTag } from '../src/render/trafficLayer.js';
-import { step } from '../src/sim/world.js';
+import { createWorld, step } from '../src/sim/world.js';
 import { AIRPORT, makeAircraft, pilotActs, quietWorld, run, SCENARIO } from './helpers.js';
 
 /** A fresh arrival at `gateName`, on its STAR, in an otherwise empty world. */
@@ -49,6 +50,32 @@ describe('entering a holding pattern', () => {
 
     expect(ac.pending).toHaveLength(0);
     expect(world.messages.at(-1)!.text).toContain('not on an arrival');
+  });
+
+  it('holds at the next eligible fix when the active one publishes no altitude', () => {
+    // LSGG's BANKO, LIRKO and BIVLO publish no level, so a pattern cannot anchor
+    // there — the hold moves up the route rather than being refused.
+    const lsgg = SCENARIOS.find((scenario) => scenario.id === 'LSGG')!;
+    const star = lsgg.stars.find((candidate) => candidate.name === 'BANKO3R')!;
+    const bare = star.waypoints.findIndex((wpt) => wpt.altitudeFt === undefined);
+    expect(bare, 'BANKO3R should still have a fix with no published level').toBeGreaterThan(0);
+    const expected = star.waypoints.slice(bare).find((wpt) => wpt.altitudeFt !== undefined)!;
+
+    const gate = lsgg.gates.find((candidate) => candidate.name === star.gate)!;
+    const ac = createArrival(lsgg, createRng(5), createTrafficState(), gate, [], 0);
+    const world = createWorld(lsgg, 42);
+    world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+    world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
+    world.departureFlowPerHour = 0;
+    world.aircraft = [ac];
+    world.messages = [];
+    ac.star!.index = bare;
+
+    pressHold(world, ac);
+
+    expect(ac.star!.hold!.fix).toBe(expected.name);
+    expect(ac.star!.hold!.altitudeFt).toBe(expected.altitudeFt);
+    expect(world.messages.some((message) => message.text.includes(expected.name))).toBe(true);
   });
 
   it('holds at the fix the aircraft is already tracking to', () => {

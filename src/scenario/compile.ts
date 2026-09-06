@@ -16,9 +16,11 @@ import {
   DEFAULT_TRAFFIC,
 } from './defaults.js';
 import { lerp, turnOf, type FixContext } from './geometry.js';
+import { identicalTailLength } from './routes.js';
 import type {
   EntryGate,
   InactiveRunway,
+  MergeGroup,
   Runway,
   RunwaySpec,
   Scenario,
@@ -34,8 +36,14 @@ import type {
 } from './types.js';
 import { bearing, distance, headingVector, type Deg, type Ft, type Point } from '../sim/units.js';
 
-/** How far above the assignable ceiling a departure levels off (§4.7). */
-const DEPARTURE_TOP_MARGIN_FT = 1000;
+/**
+ * Where a departure levels off with every restriction behind it — a cruise level,
+ * not a margin over the ceiling. The old `ceilingFt + 1000` made an arbitrary
+ * number look like a restriction and caused the conflict it prevented: MEDAM 1A
+ * sat at 21,000 against a KINES 2R arrival at 20,000, head-on at the boundary.
+ * Safe to raise because `departureClimbRateFpm` decays above 10,000.
+ */
+const DEPARTURE_TOP_FT = 30_000;
 
 /**
  * A spec's own values, with the keys it left out dropped rather than spread as
@@ -180,15 +188,14 @@ function compileSid(spec: SidSpec, ctx: FixContext, defaultTopFt: Ft): Sid[] {
         position: fix.at(ctx),
         maxAltitudeFt: fix.maxAltitudeFt,
         minAltitudeFt: fix.minAltitudeFt,
+        turnAtOrAboveFt: fix.turnAtOrAboveFt,
         alongNm: 0,
       })),
     ];
 
-    // The chart labels the top of climb at the last fix, so default it there.
+    // No default floor at the exit fix: `topFt` is a cruise level, and a fix
+    // inside the boundary is nowhere near it. A field wanting one publishes it.
     const last = waypoints[waypoints.length - 1]!;
-    if (last.minAltitudeFt === undefined && last.maxAltitudeFt === undefined) {
-      last.minAltitudeFt = topFt;
-    }
 
     for (let i = 1; i < waypoints.length; i += 1) {
       waypoints[i]!.alongNm =
@@ -206,10 +213,89 @@ function compileSid(spec: SidSpec, ctx: FixContext, defaultTopFt: Ft): Sid[] {
       // opposite sides then report opposite turns, which is what they fly.
       turn: turnOf(ctx.runway, waypoints),
       topFt,
+      // Declared once per chart and inherited by every branch: a fan is one
+      // clearance as far as the departure flow is concerned, so splitting the
+      // weight across its exits would quietly favour the SID with more of them.
+      weight: spec.weight ?? 1,
       waypoints,
       lengthNm: last.alongNm,
     };
   });
+}
+
+/**
+ * Which STARs run together to the end, and from where.
+ *
+ * Two routes are in a group when they share a fix and every fix after it — which
+ * makes this a fact read off the field's own geometry rather than something a
+ * field can claim or forget. The merge fix is the *earliest* such fix, since that
+ * is where the two streams actually become one and therefore where the delivery
+ * interval has to have separated them already.
+ *
+ * A group of one is not a group, and neither is a pair that merely ends at the
+ * same fix — three of VABB's five do that, and `checkStarSeparation` already has
+ * a rule for it. What this finds is a shared *trunk*: at LSGG, 40 NM of it.
+ *
+ * The shared fixes must also be at the same level — see `identicalTailLength`,
+ * which is where that distinction is drawn and why.
+ */
+function findMergeGroups(stars: readonly Star[]): MergeGroup[] {
+  // `sharedFixes` is how far back the stream runs, kept so that folding two
+  // overlapping groups keeps the *earliest* merge rather than whichever was seen
+  // first: BANKO 3R and KINES 2R are one stream from GOLEB, 13 NM before BELUS 3R
+  // joins them at BIVLO, and the exemption has to start at the earlier of the two.
+  type Building = { fixName: string; starNames: string[]; sharedFixes: number };
+  const tailFrom = (star: Star, index: number): string =>
+    star.waypoints.slice(index).map((waypoint) => waypoint.name).join('>');
+
+  // Keyed by the shared tail, so routes converging at different fixes on the same
+  // trunk still land in one group — LSGG's BELUS 3R joins BANKO 3R and KINES 2R
+  // at BIVLO, six fixes after those two have already merged at GOLEB.
+  const byMerge = new Map<string, Building>();
+  for (let i = 0; i < stars.length; i += 1) {
+    for (let j = i + 1; j < stars.length; j += 1) {
+      const a = stars[i]!;
+      const b = stars[j]!;
+      // Two fixes in common is a trunk; one is a shared last fix, which the
+      // validator has its own rule for and the traffic generator need not space.
+      const shared = identicalTailLength(a, b);
+      if (shared < 2) continue;
+      const group = byMerge.get(tailFrom(a, a.waypoints.length - shared)) ?? {
+        fixName: a.waypoints[a.waypoints.length - shared]!.name,
+        starNames: [],
+        sharedFixes: shared,
+      };
+      for (const name of [a.name, b.name]) {
+        if (!group.starNames.includes(name)) group.starNames.push(name);
+      }
+      byMerge.set(tailFrom(a, a.waypoints.length - shared), group);
+    }
+  }
+
+  // Fold a group into any it overlaps: BANKO/KINES merging at GOLEB and
+  // BANKO/BELUS at BIVLO are one stream of three, cooled down together. The
+  // surviving group keeps the **earliest** merge fix, since that is where the
+  // stream actually becomes one and therefore where spacing has to hold.
+  const groups = [...byMerge.values()].sort((x, y) => y.starNames.length - x.starNames.length);
+  const kept: Building[] = [];
+  const absorb = (into: Building, from: Building): void => {
+    for (const name of from.starNames) {
+      if (!into.starNames.includes(name)) into.starNames.push(name);
+    }
+    if (from.sharedFixes > into.sharedFixes) {
+      into.fixName = from.fixName;
+      into.sharedFixes = from.sharedFixes;
+    }
+  };
+  for (const group of groups) {
+    const overlapping = kept.find((other) =>
+      group.starNames.some((name) => other.starNames.includes(name)),
+    );
+    if (overlapping) absorb(overlapping, group);
+    else kept.push({ ...group, starNames: [...group.starNames] });
+  }
+  // `sharedFixes` is scaffolding for the fold, not part of the compiled field.
+  return kept.map(({ fixName, starNames }) => ({ fixName, starNames }));
 }
 
 export function compileScenario(spec: ScenarioSpec): Scenario {
@@ -263,7 +349,7 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     return compileStar(starSpec, gate, ctx);
   });
 
-  const defaultTopFt = airspace.ceilingFt + DEPARTURE_TOP_MARGIN_FT;
+  const defaultTopFt = Math.max(DEPARTURE_TOP_FT, airspace.ceilingFt + 1000);
   const sids = spec.sids.flatMap((sidSpec) => compileSid(sidSpec, ctx, defaultTopFt));
 
   return {
@@ -287,6 +373,7 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     gates,
     stars,
     sids,
+    mergeGroups: findMergeGroups(stars),
     fleet: spec.fleet,
     airlines: spec.airlines,
     performance: { ...DEFAULT_PERFORMANCE, ...definedOnly(spec.performance ?? {}) },

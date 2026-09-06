@@ -91,34 +91,34 @@ describe('the ZZZZ chart', () => {
 
     const sabar1a = byName.get('SABAR1A')!;
     expect(sabar1a.turn).toBe('right');
-    expect(sabar1a.topFt).toBe(14_000);
+    expect(sabar1a.topFt).toBe(30_000);
     expect(sabar1a.lengthNm).toBeCloseTo(39.2, 6);
     expect(sabar1a.waypoints.map((w) => [w.name, at(w.position), Number(w.alongNm.toFixed(6)), w.maxAltitudeFt, w.minAltitudeFt])).toEqual([
       ['RWY18', [0.0, -0.8], 0, undefined, undefined],
       ['NORVU', [0, -4], 3.2, undefined, undefined],
       ['MORVA', [-8, -4], 11.2, 4000, undefined],
-      ['SABAR', [-36, -4], 39.2, undefined, 14000],
+      ['SABAR', [-36, -4], 39.2, undefined, undefined],
     ]);
 
     const kiros1a = byName.get('KIROS1A')!;
     expect(kiros1a.turn).toBe('left');
-    expect(kiros1a.topFt).toBe(14_000);
+    expect(kiros1a.topFt).toBe(30_000);
     expect(kiros1a.lengthNm).toBeCloseTo(39.2, 6);
     expect(kiros1a.waypoints.map((w) => [w.name, at(w.position), Number(w.alongNm.toFixed(6)), w.maxAltitudeFt, w.minAltitudeFt])).toEqual([
       ['RWY18', [0.0, -0.8], 0, undefined, undefined],
       ['NORVU', [0, -4], 3.2, undefined, undefined],
       ['TELMU', [8, -4], 11.2, 4000, undefined],
-      ['KIROS', [36, -4], 39.2, undefined, 14000],
+      ['KIROS', [36, -4], 39.2, undefined, undefined],
     ]);
 
     const ramox1a = byName.get('RAMOX1A')!;
     expect(ramox1a.turn).toBe('straight');
-    expect(ramox1a.topFt).toBe(14_000);
+    expect(ramox1a.topFt).toBe(30_000);
     expect(ramox1a.lengthNm).toBeCloseTo(35.2, 6);
     expect(ramox1a.waypoints.map((w) => [w.name, at(w.position), Number(w.alongNm.toFixed(6)), w.maxAltitudeFt, w.minAltitudeFt])).toEqual([
       ['RWY18', [0.0, -0.8], 0, undefined, undefined],
       ['NORVU', [0, -4], 3.2, undefined, undefined],
-      ['RAMOX', [0, -36], 35.2, undefined, 14000],
+      ['RAMOX', [0, -36], 35.2, undefined, undefined],
     ]);
   });
 });

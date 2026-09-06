@@ -24,7 +24,7 @@ import {
   isPending,
   issue,
 } from './pilot.js';
-import { activeFix } from './star.js';
+import { activeFix, holdFixIndex, starTargetSpeedKts } from './star.js';
 import { clamp, normalizeHeading, quantize } from './units.js';
 import { log, type World } from './world.js';
 
@@ -82,7 +82,12 @@ export function adjustSpeed(world: World, ac: Aircraft, direction: Direction): v
   if (!guard(world, ac)) return;
 
   const floor = speedFloorKts(world.scenario.runway, ac);
-  const base = quantize(assignedIasKts(ac), SPEED_STEP_KTS);
+  // Step from the number the player is reading, which on a STAR is the *next
+  // fix's* speed and not the autopilot's own target. Those differ the whole time
+  // an aircraft is decelerating between two fixes: passing 229 towards BOXAR's
+  // 200, the block shows 200 while `targetIasKts` slides through 229.15, so
+  // stepping from the target sent E to 240 where the player expected 210.
+  const base = quantize(starTargetSpeedKts(ac) ?? assignedIasKts(ac), SPEED_STEP_KTS);
   const requested = base + direction * SPEED_STEP_KTS;
 
   if (requested < floor) {
@@ -123,6 +128,23 @@ export function toggleHold(world: World, ac: Aircraft): void {
     return;
   }
 
+  // A bare fix cannot anchor a pattern, so the hold moves up the route to the
+  // next fix publishing a level. Entry only — an existing hold is toggling out.
+  if (ac.star.hold === null) {
+    const holdAt = holdFixIndex(ac.star);
+    if (holdAt === null) {
+      log(world, `${ac.callsign} unable — no holding fix ahead on the arrival.`, 'system', [
+        ac.id,
+      ]);
+      return;
+    }
+    // Sequencing forward is what anchors it. Skipping the fixes between loses
+    // no crossing, since they publish none.
+    ac.star.index = holdAt;
+  }
+
+  const fix = activeFix(ac.star);
+
   // `H` toggles one thing: whether the aircraft is to stay in the pattern. That
   // makes three cases rather than two, because an aircraft that has been told
   // to leave is still in the pattern until it next crosses the fix — and
@@ -130,9 +152,7 @@ export function toggleHold(world: World, ac: Aircraft): void {
   const hold = ac.star.hold;
   const stay = hold === null || hold.exitRequested;
   if (hold === null) {
-    log(world, `${ac.callsign}, hold at ${activeFix(ac.star).name} as published.`, 'system', [
-      ac.id,
-    ]);
+    log(world, `${ac.callsign}, hold at ${fix.name} as published.`, 'system', [ac.id]);
   } else if (hold.exitRequested) {
     log(world, `${ac.callsign}, disregard, continue holding at ${hold.fix}.`, 'system', [ac.id]);
   } else {

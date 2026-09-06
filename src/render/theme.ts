@@ -21,31 +21,26 @@ export const THEME = {
    */
   coastline: '#3f7fa8',
   /**
-   * High ground, one fill per 1000 ft band, low to high.
+   * The ends of the high-ground ramp: the lowest band's fill and the highest.
    *
-   * A warm grey-brown ramp, and deliberately *dark* — this is the bottom layer of
-   * the scope and everything the player actually works with is drawn on top of it,
-   * so the brightest band has to stay below `starPath` or the chart stops reading
-   * against the ground it crosses. The published palette that comes with the
-   * contours is a hiking-map green-to-yellow, which is right for a map read on its
-   * own and far too loud under a radar display.
+   * Two colours rather than a list, because the number of steps is the *field's*
+   * and not the theme's — see `terrainRamp`. Stated as the ends of a range so a
+   * field with four bands and one with fourteen are the same design decision.
+   *
+   * A warm grey-brown, and deliberately *dark* — this is the bottom layer of the
+   * scope and everything the player actually works with is drawn on top of it, so
+   * the brightest band has to stay below `starPath` (luminance 70.6) or the chart
+   * stops reading against the ground it crosses. That ceiling is what caps the
+   * range, and therefore how many steps are distinguishable within it. The
+   * published palette that comes with the contours is a hiking-map
+   * green-to-yellow, right for a map read on its own and far too loud under a
+   * radar display.
    *
    * The ramp is in brightness rather than in hue: terrain means one thing, and a
-   * band that is higher is simply more of it. The steps are even so the escarpment
-   * reads as a slope rather than as an edge.
+   * band that is higher is simply more of it.
    */
-  terrain: ['#0e1714', '#1b2a23', '#283d33', '#375142'],
-  /**
-   * The band labels. Brighter than any of the fills, because they now sit outside
-   * the airspace on bare background rather than on the band they describe.
-   */
-  terrainLabel: '#6d8474',
-  /**
-   * The leader line from a band to its figure. Dimmer than the label: the line's
-   * job is to say which area is meant and then get out of the way, and it crosses
-   * the boundary and the outer range ring on its way out.
-   */
-  terrainCallout: '#3d5145',
+  terrainLow: '#0e1714',
+  terrainHigh: '#375142',
   centerline: '#2f6fd0',
   centerlineTick: '#3f86e8',
   gate: '#2f7a58',
@@ -64,6 +59,22 @@ export const THEME = {
   sidPath: '#5c4a2a',
   sidFix: '#7d6b45',
   sidConstraint: '#b08a3c',
+  /**
+   * The hovered SID's *labels* — its fix names and the figures the default chart
+   * thins away. Brighter than `sidConstraint` because the point of hovering is to
+   * read them off a layer drawn at `SID_ALPHA` to recede.
+   */
+  sidHover: '#e8c069',
+  /**
+   * The hovered SID's *track*, which is deliberately much darker than its labels.
+   *
+   * At label brightness the line was 55.9 against `starPath`'s 6.5 — eight times
+   * the arrival routes it crosses — and a departure track is not what the
+   * controller is reading. It only has to say *which* route the labels belong to,
+   * so it sits just above `sidConstraint`: clearly lifted off `sidPath`'s 7.3, and
+   * still the dimmest thing in the hovered group.
+   */
+  sidHoverPath: '#8a6f3e',
 
   /** Data block and leader line: the cool near-white of a radar block. */
   traffic: '#cfdae6',
@@ -125,3 +136,69 @@ export const THEME = {
   fontLabel: '10px "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace',
   fontLog: '12px "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace',
 } as const;
+
+/**
+ * The terrain ramp for a field with `bands` bands, darkest first.
+ *
+ * Stretched to fit rather than fixed, so every field uses the whole usable
+ * contrast range whatever its band count. The alternative — one shade meaning one
+ * altitude everywhere — was considered and rejected: it would have left VABB's
+ * four bands crowded into the bottom of a scale built for Geneva's fourteen, and
+ * a field's terrain has to read against *itself* first. The cost is that a shade
+ * cannot be read as an altitude on its own, which is what `MSA @ pointer` is for.
+ *
+ * Interpolated in sRGB and **shaped**, not linear. A constant step in sRGB is not
+ * a constant *apparent* step near black: the linear ramp gave the bottom three
+ * bands 3.8–4.4 units of luminance each, which at those levels was not readable,
+ * while the top of the ramp had steps to spare. `TERRAIN_RAMP_GAMMA` under 1
+ * front-loads the range, taking the first three steps to 5.5/5.4/4.7 and costing
+ * the crowded upper bands about a tenth of a unit each.
+ *
+ * The range itself is as wide as it can usefully be, and both ends are pinned by
+ * something real. The top is `starPath`: VABB draws arrival routes *directly
+ * over* its two brightest bands, 0.0 and 0.1 NM away, so a brighter top costs
+ * those lines their contrast. The bottom is the background — the lowest band has
+ * only the background to read against, since it has no darker neighbour, and at
+ * 1.9× it stopped being visible at all. 2.2× is where it reads, and taking it
+ * lower to buy wider steps was a trade in the wrong direction.
+ *
+ * So the range is fixed and the shaping is the only free variable, which is what
+ * `TERRAIN_RAMP_GAMMA` is for.
+ *
+ * The step shrinks as bands are added, and at some count it stops being legible:
+ * fourteen bands over this range give about 4 units of luminance each, which is
+ * near the limit for irregular patches on a dark ground. That is a bound on how
+ * finely a field may usefully band its terrain, not something this can fix — the
+ * ceiling is `starPath`, and lifting it costs the STAR lines their contrast.
+ */
+/**
+ * Shapes the ramp so the dark end gets wider steps than the bright end.
+ *
+ * Below 1 because a fixed sRGB step is worth less near black — the bands that
+ * needed help were 4000/5000/6000, the darkest three. Far below 1 and the top
+ * bands crowd instead, which at fourteen bands they cannot afford: past 0.85 the
+ * minimum step falls under 3 units and the bright end goes flat, which is the
+ * same complaint at the other end of the ramp. 0.85 is the last value where both
+ * ends hold, and `tests/terrain.test.ts` asserts each of them.
+ */
+const TERRAIN_RAMP_GAMMA = 0.85;
+
+export function terrainRamp(bands: number): string[] {
+  if (bands <= 0) return [];
+  if (bands === 1) return [THEME.terrainLow];
+  const lo = rgb(THEME.terrainLow);
+  const hi = rgb(THEME.terrainHigh);
+  return Array.from({ length: bands }, (_, i) => {
+    const t = Math.pow(i / (bands - 1), TERRAIN_RAMP_GAMMA);
+    return hex(lo.map((c, k) => c + (hi[k]! - c) * t));
+  });
+}
+
+const rgb = (color: string): number[] => [
+  parseInt(color.slice(1, 3), 16),
+  parseInt(color.slice(3, 5), 16),
+  parseInt(color.slice(5, 7), 16),
+];
+
+const hex = (channels: number[]): string =>
+  `#${channels.map((c) => Math.round(c).toString(16).padStart(2, '0')).join('')}`;

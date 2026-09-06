@@ -18,10 +18,10 @@ export const STATS_GUTTER_PX = 190;
  * it is a fact about the space the scope is given, and the consumers are the
  * layers that have to keep out of it. `mapLayer` needs it and is the *static*
  * layer, so it has no `World` to count the panel's rows from and must not acquire
- * one. Twelve rows against the eleven `drawStats` currently emits, so the reserve
- * stays right if a statistic is added.
+ * one. Thirteen rows against the twelve `drawStats` currently emits, so the
+ * reserve stays right if a statistic is added.
  */
-export const STATS_BLOCK_HEIGHT_PX = 34 + 12 * 15;
+export const STATS_BLOCK_HEIGHT_PX = 34 + 13 * 15;
 
 /**
  * How far the scope will magnify. The controller zooms to pull apart a pair that

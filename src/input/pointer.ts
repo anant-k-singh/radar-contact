@@ -38,6 +38,16 @@ export function bindPointer(
     host.select(hit ? hit.id : null);
   });
 
+  // The MSA readout follows the pointer, so the scope has to be told where it is
+  // even when nothing is clicked. `pointerleave` rather than `pointerout`, which
+  // also fires crossing into a child element and would blank the readout mid-scope.
+  canvas.addEventListener('pointermove', (event) => {
+    scope.setPointer(event.clientX, event.clientY);
+  });
+  canvas.addEventListener('pointerleave', () => {
+    scope.clearPointer();
+  });
+
   let wheelPx = 0;
   canvas.addEventListener(
     'wheel',

@@ -52,7 +52,8 @@ function spanText(recording: Recording): string {
   const spanS = recordingSpanS(recording);
   const minutes = Math.floor(spanS / 60);
   const seconds = Math.floor(spanS % 60);
-  const capped = spanS >= REPLAY_WINDOW_S - 1 ? ' (last hour)' : '';
+  // Derived, not written: the window has moved once already.
+  const capped = spanS >= REPLAY_WINDOW_S - 1 ? ` (last ${REPLAY_WINDOW_S / 60} min)` : '';
   return `${minutes}:${String(seconds).padStart(2, '0')} recorded${capped}`;
 }
 

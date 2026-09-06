@@ -7,12 +7,14 @@
  * airspace circle erases the label while leaving the diamond visible.
  */
 import { describe, expect, it } from 'vitest';
-import { draw } from '../src/render/mapLayer.js';
+import { draw, sidFixLabels } from '../src/render/mapLayer.js';
+import { drawSidHover, sidUnderPointer } from '../src/render/sidHover.js';
 import { drawTraffic } from '../src/render/trafficLayer.js';
 import { LIVE_RENDER } from '../src/render/scope.js';
 import {
   createProjection,
   DEFAULT_VIEWPORT,
+  toScreen,
   MAX_ZOOM,
   STATS_GUTTER_PX,
   type Viewport,
@@ -129,6 +131,7 @@ describe.each(SCENARIOS.map((s) => [s.id, s] as const))('the %s chart', (_id, sc
     expect(label, `no label drawn for gate ${name}`).toBeDefined();
     expect(visible(label!), `gate ${name} is labelled outside the clip`).toBe(true);
   });
+
 
   it('draws the gates clear of the stats panel', () => {
     // Unclipped means nothing else is keeping them off the panel the projection
@@ -273,4 +276,110 @@ describe('drawing state across a clip lift', () => {
       expect(lost.length, `${lost.length} strokes lost their colour across a clip lift`).toBe(0);
     });
   }
+});
+
+describe('hovering a SID', () => {
+  // The chart layer thins a SID's floors down to the turns and the ends. The
+  // levels are still in `scenario.sids` — the thinning is a rendering choice, not
+  // a data one — and hovering is how a player asks for the rest of them.
+  const LSGG = SCENARIOS.find((s) => s.id === 'LSGG')!;
+
+  const project = (scenario: Scenario): ReturnType<typeof createProjection> =>
+    createProjection(scenario.airspace, W - STATS_GUTTER_PX, H, DEFAULT_VIEWPORT);
+
+  it('picks the SID whose track the pointer is nearest', () => {
+    const p = project(LSGG);
+    for (const sid of LSGG.sids) {
+      // The midpoint of the route's *last* leg, which is the one place every LSGG
+      // SID is on its own rather than in the shared fan out of the field.
+      const a = sid.waypoints[sid.waypoints.length - 2]!.position;
+      const b = sid.waypoints[sid.waypoints.length - 1]!.position;
+      const mid = toScreen(p, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+      expect(sidUnderPointer(LSGG, p, mid.x, mid.y)?.name, sid.name).toBe(sid.name);
+    }
+  });
+
+  it('resolves a shared leg by which track is nearer', () => {
+    // Four of LSGG's five SIDs run out to PAS together, so a pointer in that fan
+    // is near several tracks at once. Nearest has to win: taking the first match
+    // in registration order would make the other three unhoverable near the field.
+    const p = project(LSGG);
+    const shared = LSGG.sids.filter((s) => s.waypoints[1]!.name === 'PAS');
+    expect(shared.length, 'LSGG should still have a shared departure fan').toBeGreaterThan(1);
+
+    for (const sid of shared) {
+      // Just past the shared fix, on this route's own second leg, where the
+      // tracks have begun to diverge but are still within a hover of each other.
+      const from = sid.waypoints[1]!.position;
+      const to = sid.waypoints[2]!.position;
+      const near = { x: from.x + (to.x - from.x) * 0.15, y: from.y + (to.y - from.y) * 0.15 };
+      const screen = toScreen(p, near);
+      expect(sidUnderPointer(LSGG, p, screen.x, screen.y)?.name, sid.name).toBe(sid.name);
+    }
+  });
+
+  it('picks nothing out in open airspace', () => {
+    const p = project(LSGG);
+    const centre = toScreen(p, { x: 0, y: 0 });
+    // Well off any track, but still on the scope.
+    expect(sidUnderPointer(LSGG, p, centre.x + 200, centre.y)).toBeNull();
+  });
+
+  it('prints every fix name, and the levels the chart thinned away', () => {
+    const p = project(LSGG);
+    // MEDAM 1A is the case the thinning exists for: five ascending floors down a
+    // line that never turns, of which the chart prints only the ends.
+    const sid = LSGG.sids.find((s) => s.name === 'MEDAM1A')!;
+
+    const chart = recordingContext();
+    draw(chart.ctx, LSGG, p);
+    const chartTexts = new Set(chart.texts.map((t) => t.text));
+
+    const hover = recordingContext();
+    drawSidHover(hover.ctx, p, sid);
+    const hoverTexts = new Set(hover.texts.map((t) => t.text));
+
+    // Every fix on the route is named, which the chart layer never does at all.
+    for (const wpt of sid.waypoints.slice(1)) {
+      expect(hoverTexts, `${wpt.name} was not named on hover`).toContain(wpt.name);
+      expect(chartTexts, `${wpt.name} should not be named by the chart`).not.toContain(wpt.name);
+    }
+
+    // And every published level, all of which are new — the chart draws none.
+    const levels = sidFixLabels(sid).filter((l) => l.index > 0 && l.crossing !== undefined);
+    expect(levels.length, 'MEDAM1A should have levels worth revealing').toBeGreaterThan(0);
+    for (const { wpt, crossing } of levels) {
+      expect(hoverTexts, `${wpt.name}'s ${crossing} was not revealed`).toContain(crossing!);
+    }
+  });
+
+  it('prints no SID figure on the chart itself, at any field', () => {
+    // A SID is rings and a track; its levels are read by hovering it. This is the
+    // invariant that replaced the thinning rule — floors at a turn and the ends,
+    // ceilings always — and it is stated over every field rather than one, since
+    // the old rule was per-fix and this one is not a rule at all.
+    for (const scenario of SCENARIOS) {
+      const chart = recordingContext();
+      draw(chart.ctx, scenario, project(scenario));
+      const printed = new Set(chart.texts.map((t) => t.text));
+
+      for (const sid of scenario.sids) {
+        for (const { index, wpt, crossing } of sidFixLabels(sid)) {
+          if (index === 0) continue;
+          expect(printed, `${scenario.id} ${sid.name}: ${wpt.name} was named`).not.toContain(
+            wpt.name,
+          );
+          // The figure may legitimately collide with a STAR's — VABB crosses 9000
+          // both ways — so this asks whether the SID's *own* fix printed one, by
+          // checking the position rather than the string.
+          if (crossing === undefined) continue;
+          const at = toScreen(project(scenario), wpt.position);
+          const near = chart.texts.filter(
+            (t) => t.text === crossing && Math.hypot(t.x - at.x, t.y - at.y) < 20,
+          );
+          expect(near, `${scenario.id} ${sid.name}: ${wpt.name} printed ${crossing}`).toEqual([]);
+        }
+      }
+    }
+  });
 });

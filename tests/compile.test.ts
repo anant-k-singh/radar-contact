@@ -96,8 +96,11 @@ describe('a SID with several ways out', () => {
     expect(ahead.waypoints[ahead.waypoints.length - 1]!.name).toBe('AHEAD');
     expect(near.waypoints[near.waypoints.length - 1]!.name).toBe('NEARR');
     expect(ahead.lengthNm).toBeGreaterThan(near.lengthNm);
-    // The top of climb is defaulted onto whichever fix each branch ends at.
-    expect(ahead.waypoints[ahead.waypoints.length - 1]!.minAltitudeFt).toBe(ahead.topFt);
+    // Each branch carries the chart's top, and neither has it written onto its
+    // exit fix as a floor: `topFt` is a cruise level a departure leaves the
+    // airspace climbing towards, not a level it is crossed at.
+    expect(ahead.topFt).toBe(near.topFt);
+    expect(ahead.waypoints[ahead.waypoints.length - 1]!.minAltitudeFt).toBeUndefined();
   });
 });
 

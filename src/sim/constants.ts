@@ -306,6 +306,14 @@ export const DEPARTURE_CLIMB_SPEED_KTS = 250;
  */
 export const INITIAL_CLIMB_REDUCTION_FPM = 500;
 /**
+ * Where a jet's climb rate falls away, and how fast (§4.7). Thrust drops with
+ * density while weight does not, so the rate decays roughly linearly. Below the
+ * floor nothing changes, which keeps every observed low-level number intact.
+ */
+export const CLIMB_DECAY_FLOOR_FT = 10_000;
+export const CLIMB_DECAY_CEILING_FT = 30_000;
+export const CLIMB_DECAY_MIN_SCALE = 0.35;
+/**
  * Where a departure levels off with every restriction behind it is *not* here
  * either: it is `Sid.topFt`, a thousand feet above the field's own assignable
  * ceiling. The two are deliberately different numbers — the ceiling is the top of
@@ -437,11 +445,11 @@ export function energyFtPerKnot(tasKts: number): number {
 export const REPLAY_SAMPLE_HZ = 5;
 export const REPLAY_SAMPLE_PERIOD_S = 1 / REPLAY_SAMPLE_HZ;
 /**
- * Rolling window held in memory: the last 60 minutes of sim time, so a session
- * flown at 8× still keeps its last hour of *flying* rather than of watching.
- * Nothing is persisted — a refresh loses the recording.
+ * Rolling window held in memory: the last 90 minutes of sim time, so a session
+ * flown at 8× keeps that much *flying* rather than watching. Nothing is
+ * persisted — a refresh loses the recording.
  */
-export const REPLAY_WINDOW_S = 3600;
+export const REPLAY_WINDOW_S = 5400;
 /**
  * How far past the window the recording is allowed to grow before old frames
  * are dropped. Pruning splices every channel of every track, so it is done in

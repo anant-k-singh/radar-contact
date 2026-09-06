@@ -11,7 +11,7 @@
  * every route of every registered field.
  */
 import { boundaryMarginNm } from './airspace.js';
-import { ceilingAtFt, floorAtFt, starProfileAt } from './routes.js';
+import { ceilingAtFt, floorAtFt, identicalTailLength, starProfileAt } from './routes.js';
 import type { Scenario, Sid, Star } from './types.js';
 import { bearing, distance, headingDiff, type Nm } from '../sim/units.js';
 
@@ -27,8 +27,33 @@ const SAMPLE_STEP_NM: Nm = 0.25;
 /** Lateral distance at which a departure and an arrival need vertical separation. */
 const CONFLICT_HORIZ_NM: Nm = 3;
 const CONFLICT_VERT_FT = 1000;
-/** The steepest turn a fly-by can be flown as; past this the route doubles back. */
-const MAX_TURN_DEG = 150;
+/**
+ * How far back from a merge the vertical check stops applying.
+ *
+ * Two tracks converging on one fix are inside `CONFLICT_HORIZ_NM` of each other
+ * for the last few miles whatever anyone publishes — it is the angle they meet at,
+ * not a design decision — and if they cross that fix at the same level they are
+ * co-level for all of it. So the funnel is exempt on the same grounds as the fix
+ * itself: they are one stream, spaced by when Center offers them (§4.4), not by a
+ * split no procedure could hold.
+ *
+ * Ten miles covers every convergence on either merging field with margin; LSGG's
+ * widest is BENOT 2T against ULMES 2R, inside 3 NM from 5.5 NM before SAPRE. It
+ * applies **only** where the shared fixes carry identical levels, so a field that
+ * deconflicts a shared fix by height is still checked to the old 3 NM.
+ */
+export const MERGE_FUNNEL_NM: Nm = 10;
+/**
+ * The steepest turn a fly-by can be flown as; past this the route doubles back.
+ *
+ * 165 rather than 150, on evidence. LSGG's KONIL 1R reverses 156° over PAS, which
+ * is what a departure does when the chart sends it out on runway heading and then
+ * back across the field — and the sequencer flies it to within 0.88 NM of the
+ * published track, no worse than its 106° turn. What actually breaks is a true
+ * reversal, where the bisector `isPastFix` needs degenerates; that is at 180, and
+ * this leaves room short of it.
+ */
+const MAX_TURN_DEG = 165;
 /** Shorter than this and a leg has no meaningful bearing. */
 const MIN_LEG_NM: Nm = 0.1;
 /**
@@ -65,7 +90,12 @@ function checkRunwayAndAirspace(scenario: Scenario, problems: Problem[]): void {
   const numbered = Number.parseInt(runway.id, 10);
   if (Number.isFinite(numbered)) {
     const implied = numbered * 10;
-    if (headingDiff(implied, runway.courseDeg) > 5) {
+    // Eight rather than five, because a designator is **magnetic** and
+    // `courseDeg` is effectively true (§3.1 A3). Half a designator step is five
+    // degrees, and the variation adds the rest: Geneva's 2.6° E puts RWY 22 at
+    // 226° true, which the old tolerance rejected. Still catches a transposed
+    // course, which is what this is for.
+    if (headingDiff(implied, runway.courseDeg) > 8) {
       add('error', `id implies ${implied}° but the course is ${runway.courseDeg}°`);
     }
   }
@@ -195,11 +225,17 @@ function checkStar(scenario: Scenario, star: Star, problems: Problem[]): void {
 
   checkLegs(scenario, star.name, star.waypoints, problems);
 
+  // A fix may omit its altitude where it sits on a gradient its neighbours fix;
+  // `starProfileAt` interpolates across the gap. The *last* must carry one — it
+  // is the handover level, and the glideslope check reads it. The first is
+  // synthesised from `entryAltitudeFt`, which is required separately.
+  const end = star.waypoints[star.waypoints.length - 1]!;
+  if (end.altitudeFt === undefined) {
+    add('error', `${end.name} ends the route without publishing an altitude`);
+  }
+
   for (const wpt of star.waypoints) {
-    if (wpt.altitudeFt === undefined || wpt.speedKts === undefined) {
-      add('error', `${wpt.name} does not publish both an altitude and a speed`);
-      continue;
-    }
+    if (wpt.altitudeFt === undefined) continue;
     if (wpt.altitudeFt < scenario.airspace.mvaFt) {
       add('error', `${wpt.name} publishes ${wpt.altitudeFt} ft, below the MVA`);
     }
@@ -271,6 +307,17 @@ function checkSid(scenario: Scenario, sid: Sid, problems: Problem[]): void {
  * the published procedure has ended and the aircraft are a queue for the controller
  * to sequence, which is the job rather than a design error — three of VABB's five
  * end at OLGUS. Everywhere else, a merge must be flyable with nobody watching.
+ *
+ * A shared **trunk** is the same exception, further back. Where two routes run
+ * together for miles at the same levels there is no lateral separation to be
+ * deconflicted and no vertical split that could hold between two aircraft on one
+ * track — they are one stream, and what spaces them is the interval Center offers
+ * the group at (`Scenario.mergeGroups`, and `traffic.ts`). LSGG's northern three
+ * are coincident for 40 NM.
+ *
+ * The distinction is drawn by the compiler and not here: a pair is in a merge group
+ * only when the shared fixes are at the *same* level. Two routes that reach a fix
+ * together 1000 ft apart are still two streams, and are still checked.
  */
 function checkStarSeparation(scenario: Scenario, problems: Problem[]): void {
   const stars = scenario.stars;
@@ -283,14 +330,25 @@ function checkStarSeparation(scenario: Scenario, problems: Problem[]): void {
           a.waypoints[a.waypoints.length - 1]!.position,
           b.waypoints[b.waypoints.length - 1]!.position,
         ) < 0.01;
+      // How far back the last mile extends. A pair sharing a run of fixes at the
+      // same level is one stream, and is exempt from the earliest of them plus the
+      // funnel into it; a pair that merely ends together keeps the old 3 NM.
+      const identical = identicalTailLength(a, b);
+      const exemptDtgNm =
+        identical >= 1
+          ? a.waypoints[a.waypoints.length - identical]!.dtgNm + MERGE_FUNNEL_NM
+          : sharedEnd
+            ? CONFLICT_HORIZ_NM
+            : 0;
       let worst: { apartNm: Nm; apartFt: number } | null = null;
 
       for (const pa of sampleStar(a)) {
         for (const pb of sampleStar(b)) {
           const apartNm = distance(pa, pb);
           if (apartNm > CONFLICT_HORIZ_NM) continue;
-          // Where both routes end together, the last mile is the controller's.
-          if (sharedEnd && Math.min(pa.dtgNm, pb.dtgNm) < CONFLICT_HORIZ_NM) continue;
+          // Where both routes end together, the last mile is the controller's —
+          // and where they run together, so is the trunk and the funnel into it.
+          if (Math.min(pa.dtgNm, pb.dtgNm) < exemptDtgNm) continue;
           const apartFt = Math.abs(
             starProfileAt(a, pa.dtgNm).altitudeFt - starProfileAt(b, pb.dtgNm).altitudeFt,
           );

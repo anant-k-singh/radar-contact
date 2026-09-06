@@ -114,14 +114,37 @@ export function holdingStackLevelFt(route: Star, existing: readonly Aircraft[]):
   return Math.ceil(topFt / ALTITUDE_STEP_FT) * ALTITUDE_STEP_FT + ALTITUDE_STEP_FT;
 }
 
+/**
+ * Every cooldown key a handover at this gate sets, and therefore every key it has
+ * to be clear of: the gate itself, plus any merge group its route belongs to.
+ *
+ * A group is one key shared by several gates, which is the whole mechanism — two
+ * routes that become one stream are offered traffic at the rate a single route
+ * would be, so they are already in trail by the time they reach the merge. LSGG's
+ * nine gates are three groups of three; a field with no shared trunks has no
+ * groups, and this reduces to the gate's own name.
+ */
+function cooldownKeys(scenario: Scenario, gate: EntryGate): string[] {
+  const keys = [gate.name];
+  const route = starForGate(scenario, gate.name);
+  if (route) {
+    for (const group of scenario.mergeGroups) {
+      if (group.starNames.includes(route.name)) keys.push(`merge:${group.fixName}`);
+    }
+  }
+  return keys;
+}
+
 function gateAvailable(
   scenario: Scenario,
   gate: EntryGate,
   state: TrafficState,
   timeS: Sec,
 ): boolean {
-  const last = state.gateLastSpawnS.get(gate.name);
-  return last === undefined || timeS - last >= scenario.traffic.gateCooldownS;
+  return cooldownKeys(scenario, gate).every((key) => {
+    const last = state.gateLastSpawnS.get(key);
+    return last === undefined || timeS - last >= scenario.traffic.gateCooldownS;
+  });
 }
 
 /**
@@ -218,7 +241,8 @@ export function trySpawn(
   // field (§4.4). A field that states no weights gets the even split it always
   // had, from the same draw.
   const gate = rng.pickWeighted(candidates, (candidate) => candidate.weight);
-  state.gateLastSpawnS.set(gate.name, timeS);
+  // Every key this handover occupies, so a merge group goes quiet as a whole.
+  for (const key of cooldownKeys(scenario, gate)) state.gateLastSpawnS.set(key, timeS);
   return createArrival(scenario, rng, state, gate, existing, timeS);
 }
 
@@ -344,7 +368,11 @@ export function tryDeparture(
   timeS: Sec,
 ): Aircraft | null {
   if (runwayBlockedBy(scenario, state, existing, timeS) !== null) return null;
-  const route = rng.pick(scenario.sids);
+  // Weighted, not uniform: which way an airport's traffic leaves is a fact about
+  // the route network, and at LSGG the busiest way out carries four times the
+  // quietest. `pickWeighted` draws once and lands where `pick` would when every
+  // weight is equal, so ZZZZ and VABB draw the same departures from the same seed.
+  const route = rng.pickWeighted(scenario.sids, (sid) => sid.weight);
   state.lastDepartureS = timeS;
   return createDeparture(scenario, rng, state, route, existing, timeS);
 }

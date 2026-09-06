@@ -29,7 +29,7 @@
  * `controlVertical: false` seam is not one of this module's problems.
  */
 import type { AircraftType } from '../scenario/aircraftTypes.js';
-import { ceilingAtFt } from '../scenario/routes.js';
+import { ceilingAtFt, isPastFix } from '../scenario/routes.js';
 import type { Sid, SidWaypoint } from '../scenario/types.js';
 import type { Aircraft } from './aircraft.js';
 import {
@@ -39,7 +39,7 @@ import {
   SID_MAX_ANTICIPATION_NM,
   TAKEOFF_ACCEL_KTS_S,
 } from './constants.js';
-import { fixPassed, routeAnticipationNm } from './dynamics.js';
+import { routeAnticipationNm } from './dynamics.js';
 import {
   bearing,
   distance,
@@ -147,6 +147,14 @@ function stepGroundRoll(ac: Aircraft, dt: Sec): boolean {
 }
 
 /**
+ * Whether a fix's turn gate is satisfied — trivially true for the fixes that
+ * carry none, which is nearly all of them.
+ */
+function aboveTurnGate(ac: Aircraft, fix: SidWaypoint): boolean {
+  return fix.turnAtOrAboveFt === undefined || ac.altitudeFt >= fix.turnAtOrAboveFt;
+}
+
+/**
  * Drive one tick of a departure. Returns the events for `world.ts` to log; the
  * caller decides whether to run kinematics afterwards by reading `ac.phase`,
  * which is `roll` for exactly as long as the aircraft is on the ground.
@@ -190,8 +198,34 @@ export function stepDeparture(ac: Aircraft, dt: Sec): DepartureEvent[] {
   const courseDeg = bearing(position, fix.position);
   ac.targetHeadingDeg = courseDeg;
 
-  // Sequencing, exactly as on a STAR.
-  const passed = fixPassed(rangeNm, ac.headingDeg, courseDeg, SID_FIX_CAPTURE_NM);
+  // A fix whose turn gate is not yet met is overflown on the inbound track: the
+  // chart says "when passing 7000, **but not before PAS**", and what follows a
+  // fix you may not turn at is the leg you arrived on, extended.
+  //
+  // Steering at the fix instead is what a naive gate does, and it does not merely
+  // look wrong — the aircraft reaches the fix, keeps aiming at it, and flies a
+  // complete orbit around it waiting for the level. Measured: an A320 off MEDAM 1A
+  // came round through 257°, 319°, 14°, 91°, 167° and back, all within 4.5 NM of
+  // PAS, which is both unflyable and pointed straight back at the field.
+  if (!aboveTurnGate(ac, fix)) {
+    const previous = nav.route.waypoints[nav.index - 1];
+    if (previous) ac.targetHeadingDeg = bearing(previous.position, fix.position);
+    return [];
+  }
+
+  // Sequencing. The capture radius is `fixPassed`'s, but the abeam backstop is
+  // not: that half asks whether the fix is behind the *nose*, which is the wrong
+  // question on the tick a turn begins. Anticipation advances the index early to
+  // fly the corner, and a SID that reverses at the departure end then has its next
+  // fix more than 90° off before the aircraft has turned an inch — which reads as
+  // already past it, and unwinds the whole route in one tick. LSGG's KONIL 1R did
+  // exactly that 4.5 NM before it reached PAS.
+  //
+  // `isPastFix` asks whether the fix is behind the *leg*, which is what being past
+  // it means, and is the line the crossing restrictions are already released on.
+  // The index still advances early on anticipation, so the fly-by is unchanged —
+  // only the backstop is, and only where it was firing for the wrong reason.
+  const passed = rangeNm < SID_FIX_CAPTURE_NM || isPastFix(nav.route, nav.index, position);
   const last = nav.index === nav.route.waypoints.length - 1;
 
   if (last) {

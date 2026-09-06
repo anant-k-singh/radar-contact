@@ -1,7 +1,7 @@
 /**
  * Session recording (docs §17).
  *
- * A rolling 60 minutes of sim time, sampled at 5 Hz, held in memory only. The
+ * A rolling 90 minutes of sim time, sampled at 5 Hz, held in memory only. The
  * recorder is a *reader* of the world: it never writes to it, and the sim knows
  * nothing about it — `main.ts` calls `sample()` after each physics step, so
  * frames are laid down against sim time and a session flown at 8× records the
