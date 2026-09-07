@@ -106,6 +106,11 @@ export function stateTag(ac: Aircraft): string {
   if (ac.star?.hold) {
     return ac.star.hold.exitRequested ? struckThrough('HOLD') : 'HOLD';
   }
+  // Joining, not tracking: the arrow is the whole difference, and the fix is the
+  // one the intercept is aimed at (§4.5a).
+  if (ac.rejoin != null && ac.rejoin.leg !== null) {
+    return `→${ac.rejoin.nav.route.waypoints[ac.rejoin.leg]!.name}`;
+  }
   // On the arrival, the fix it is tracking to says more than any state name.
   if (ac.star && ac.phase === 'inbound') return activeFix(ac.star).name;
   switch (ac.phase) {

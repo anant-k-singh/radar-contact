@@ -8,11 +8,11 @@ import {
   REPLAY_WINDOW_S,
   TRAIL_LENGTH,
 } from '../src/sim/constants.js';
-import { adjustAltitude, toggleHold } from '../src/sim/commands.js';
-import { assignedAltitudeFt, assignedHeadingDeg, isPending } from '../src/sim/pilot.js';
+import { adjustAltitude, adjustHeading, resumeArrival, toggleHold } from '../src/sim/commands.js';
+import { assignedAltitudeFt, assignedHeadingDeg, isPending, issue } from '../src/sim/pilot.js';
 import { isDeparture } from '../src/sim/aircraft.js';
 import { activeSidFix } from '../src/sim/departure.js';
-import { createDeparture, createTrafficState } from '../src/sim/traffic.js';
+import { createArrival, createDeparture, createTrafficState } from '../src/sim/traffic.js';
 import { createRng } from '../src/sim/rng.js';
 import { activeFix } from '../src/sim/star.js';
 import {
@@ -32,6 +32,8 @@ import {
   sample,
   type Recording,
 } from '../src/replay/recorder.js';
+import { bearing } from '../src/sim/units.js';
+import { stateTag } from '../src/render/trafficLayer.js';
 import { makeAircraft, onFinal, quietWorld, SCENARIO } from './helpers.js';
 
 /** Run the world forward, recording it exactly as `main.ts` does. */
@@ -144,6 +146,41 @@ describe('rebuilding a frame', () => {
     }
     // Routes are looked up by chart name, so the recording only holds the name.
     expect(SCENARIO.stars.some((star) => star.name === rec.tracks[0]!.starName)).toBe(true);
+  });
+
+  it('rebuilds an armed rejoin, so the data block reads the same in playback', () => {
+    const gate = SCENARIO.gates.find((candidate) => candidate.name === 'VANDA')!;
+    const ac = createArrival(SCENARIO, createRng(5), createTrafficState(), gate, [], 0);
+    const world = quietWorld(ac);
+    const rec = createRecording(SCENARIO);
+    runRecorded(world, rec, 60);
+
+    // Vector it off, point it back through the route and arm the rejoin. The
+    // crew's reaction time is flown rather than skipped, so the recorder keeps
+    // sampling an unbroken frame grid.
+    for (let i = 0; i < 3; i += 1) adjustHeading(world, ac, 1);
+    runRecorded(world, rec, 200);
+    const route = ac.rejoin!.nav.route;
+    const a = route.waypoints[route.waypoints.length - 2]!.position;
+    const b = route.waypoints[route.waypoints.length - 1]!.position;
+    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    for (let pass = 0; pass < 2; pass += 1) {
+      issue(world, ac, { kind: 'heading', headingDeg: bearing({ x: ac.x, y: ac.y }, midpoint) });
+      runRecorded(world, rec, pass === 0 ? 60 : 5);
+    }
+    resumeArrival(world, ac);
+    runRecorded(world, rec, 5);
+    expect(ac.rejoin!.leg).not.toBeNull();
+
+    const replayed = worldAtFrame(rec, rec.lastFrame, {
+      selectedId: null,
+      paused: true,
+      timeScale: 1,
+    });
+    const copy = replayed.aircraft.find((candidate) => candidate.id === ac.id)!;
+    // The leg rides the `starIndex` channel, told apart by the armed flag.
+    expect(copy.rejoin!.leg).toBe(ac.rejoin!.leg);
+    expect(stateTag(copy)).toBe(stateTag(ac));
   });
 
   it('separates an assigned target from the one being flown', () => {

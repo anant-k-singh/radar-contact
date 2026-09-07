@@ -4,7 +4,9 @@ import {
   adjustHeading,
   adjustSpeed,
   clearForIls,
+  resumeArrival,
   speedFloorKts,
+  toggleHold,
 } from '../src/sim/commands.js';
 import {
   HEADING_HINT_S,
@@ -15,8 +17,9 @@ import { step } from '../src/sim/world.js';
 import { createRng } from '../src/sim/rng.js';
 import { starTargetSpeedKts } from '../src/sim/star.js';
 import { createArrival, createTrafficState } from '../src/sim/traffic.js';
-import { displayHeading } from '../src/sim/units.js';
-import { AIRPORT, HEAVY_TYPE, makeAircraft, MEDIUM_TYPE, onFinal, pilotActs, quietWorld, RUNWAY, SCENARIO } from './helpers.js';
+import { issue } from '../src/sim/pilot.js';
+import { bearing, displayHeading } from '../src/sim/units.js';
+import { AIRPORT, HEAVY_TYPE, makeAircraft, MEDIUM_TYPE, onFinal, pilotActs, quietWorld, run, RUNWAY, SCENARIO } from './helpers.js';
 
 describe('heading assignment', () => {
   it('moves in 10° steps and wraps through north', () => {
@@ -363,5 +366,110 @@ describe('vectoring off an approach', () => {
     pilotActs(world);
     expect(ac.phase).toBe('inbound');
     expect(world.messages.some((m) => m.text.includes('cancelling the approach'))).toBe(true);
+  });
+});
+
+describe('the R key', () => {
+  /** A fresh arrival on its STAR, in an otherwise empty world. */
+  function arrival(gateName = 'VANDA') {
+    const gate = AIRPORT.gates.find((candidate) => candidate.name === gateName)!;
+    const ac = createArrival(SCENARIO, createRng(5), createTrafficState(), gate, [], 0);
+    return { ac, world: quietWorld(ac) };
+  }
+
+  const lastMessage = (world: ReturnType<typeof quietWorld>) =>
+    world.messages[world.messages.length - 1]!.text;
+
+  it('says so rather than transmitting when the aircraft is already on the arrival', () => {
+    const { ac, world } = arrival();
+    resumeArrival(world, ac);
+    expect(ac.pending).toHaveLength(0);
+    expect(lastMessage(world)).toContain('already on the');
+  });
+
+  it('hands the profile back when an altitude has been assigned', () => {
+    const { ac, world } = arrival();
+    adjustAltitude(world, ac, -1);
+    pilotActs(world, ac);
+    resumeArrival(world, ac);
+    pilotActs(world, ac);
+    expect(ac.star!.altitudeManual).toBe(false);
+  });
+
+  it('refuses an aircraft cleared for the approach, rather than un-clearing it', () => {
+    const ac = makeAircraft({ ...onFinal(14, 0), headingDeg: RUNWAY.courseDeg, altitudeFt: 4000 });
+    const world = quietWorld(ac);
+    clearForIls(world, ac);
+    pilotActs(world, ac);
+    expect(ac.phase).toBe('cleared');
+
+    resumeArrival(world, ac);
+    expect(ac.phase).toBe('cleared');
+    expect(lastMessage(world)).toContain('cleared for the approach');
+  });
+
+  it('refuses an aircraft in the hold, which H owns getting out of', () => {
+    const { ac, world } = arrival();
+    toggleHold(world, ac);
+    pilotActs(world, ac);
+    resumeArrival(world, ac);
+    expect(lastMessage(world)).toContain('in the hold');
+  });
+
+  it('refuses an aircraft that was never on an arrival', () => {
+    const ac = makeAircraft();
+    const world = quietWorld(ac);
+    resumeArrival(world, ac);
+    expect(lastMessage(world)).toContain('no arrival to resume');
+  });
+
+  it('refuses a heading that never reaches the route, naming it', () => {
+    const { ac, world } = arrival();
+    // Straight back out of the airspace: the ray crosses nothing.
+    for (let i = 0; i < 18; i += 1) adjustHeading(world, ac, 1);
+    pilotActs(world, ac);
+    resumeArrival(world, ac);
+
+    expect(ac.rejoin!.leg).toBeNull();
+    expect(lastMessage(world)).toContain('does not reach the');
+    expect(lastMessage(world)).toContain(displayHeading(ac.targetHeadingDeg));
+  });
+
+  it('refuses a crossing steeper than the intercept limit, before the aircraft flies it', () => {
+    const { ac, world } = arrival();
+    step(world, PHYSICS_DT);
+    // 90° across its own leg — the angle is knowable from the assigned heading,
+    // so the refusal is heard now rather than at the leg.
+    for (let i = 0; i < 9; i += 1) adjustHeading(world, ac, -1);
+    pilotActs(world, ac);
+    resumeArrival(world, ac);
+
+    expect(ac.rejoin!.leg).toBeNull();
+    expect(lastMessage(world)).toMatch(/crosses the .* at \d+°/);
+  });
+
+  it('toggles: a second R while armed cancels the rejoin', () => {
+    const { ac, world } = arrival();
+    run(world, 60);
+    for (let i = 0; i < 3; i += 1) adjustHeading(world, ac, 1);
+    pilotActs(world, ac);
+    run(world, 200);
+    const route = ac.rejoin!.nav.route;
+    const a = route.waypoints[2]!.position;
+    const b = route.waypoints[3]!.position;
+    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    for (let pass = 0; pass < 2; pass += 1) {
+      issue(world, ac, { kind: 'heading', headingDeg: bearing({ x: ac.x, y: ac.y }, midpoint) });
+      pilotActs(world, ac);
+      if (pass === 0) run(world, 60);
+    }
+    resumeArrival(world, ac);
+    pilotActs(world, ac);
+    expect(ac.rejoin!.leg).not.toBeNull();
+
+    resumeArrival(world, ac);
+    pilotActs(world, ac);
+    expect(ac.rejoin!.leg).toBeNull();
+    expect(ac.star).toBeNull();
   });
 });

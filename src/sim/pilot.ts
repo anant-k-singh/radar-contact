@@ -18,7 +18,14 @@ import {
   PILOT_ORDER_GAP_S,
 } from './constants.js';
 import { enterHold, requestHoldExit } from './hold.js';
-import { leaveStar } from './star.js';
+import { altitudeAheadFt, starProfileAt } from '../scenario/routes.js';
+import {
+  distanceToGoNm,
+  leaveStar,
+  rejoinDistanceToGoNm,
+  rejoinLegIndex,
+  type StarNav,
+} from './star.js';
 import { displayHeading, headingDelta, type Deg, type Ft, type Kts, type Sec } from './units.js';
 import type { MessageKind, World } from './world.js';
 
@@ -32,7 +39,12 @@ export type Instruction =
    * both entering and *staying* — taking back an exit already instructed — so
    * one boolean carries the whole of what `H` toggles.
    */
-  | { kind: 'hold'; hold: boolean };
+  | { kind: 'hold'; hold: boolean }
+  /**
+   * Resume the arrival (§4.5a). `resume: false` is the cancel — `R` on an
+   * aircraft whose rejoin is already armed, the way `H` toggles the hold.
+   */
+  | { kind: 'rejoin'; resume: boolean };
 
 export interface PendingInstruction {
   /** Sim time the crew acts on it. */
@@ -122,6 +134,12 @@ function cancelApproachForAltitude(ac: Aircraft): Readback | null {
   return ac.phase === 'gs' ? cancelApproach(ac) : null;
 }
 
+/** Which side of its published profile the aircraft is on right now (§4.6). */
+function profileSideOf(ac: Aircraft, nav: StarNav, dtgNm = distanceToGoNm(ac, nav)): -1 | 0 | 1 {
+  const profileFt = starProfileAt(nav.route, dtgNm, nav.altitudes).altitudeFt;
+  return Math.sign(ac.altitudeFt - profileFt) as -1 | 0 | 1;
+}
+
 function apply(runway: Runway, ac: Aircraft, instruction: Instruction): Readback[] {
   const readbacks: Readback[] = [];
 
@@ -132,6 +150,18 @@ function apply(runway: Runway, ac: Aircraft, instruction: Instruction): Readback
       // A vector is a departure from the route in the one way that matters:
       // the aircraft is no longer where the STAR says it should be.
       leaveStar(ac);
+      // A turn does not disarm a rejoin — aiming the intercept is what the turn
+      // is *for* — but it is the only thing that moves the ray, so this is
+      // where the leg is re-chosen rather than in the tick loop (§4.5a).
+      if (ac.rejoin?.leg != null) {
+        ac.rejoin.leg = rejoinLegIndex(ac.rejoin.nav, ac, instruction.headingDeg);
+        if (ac.rejoin.leg === null) {
+          readbacks.push({
+            text: `${ac.callsign}, that heading takes us away from the ${ac.rejoin.nav.route.name}.`,
+            kind: 'pilot',
+          });
+        }
+      }
       const turn = headingDelta(ac.headingDeg, instruction.headingDeg);
       const sense =
         Math.abs(turn) < 0.5 ? 'maintaining' : turn < 0 ? 'turning left' : 'turning right';
@@ -146,8 +176,11 @@ function apply(runway: Runway, ac: Aircraft, instruction: Instruction): Readback
     case 'altitude': {
       const cancelled = cancelApproachForAltitude(ac);
       if (cancelled) readbacks.push(cancelled);
-      // The published profile is off, but the aircraft stays on the route.
-      if (ac.star) ac.star.altitudeManual = true;
+      // The published profile is off, but the aircraft stays on the route — and
+      // an armed rejoin is flying that profile too, so the takeover has to reach
+      // the parked nav or `stepRejoin` would fight the assignment (§4.5a).
+      const nav = ac.star ?? ac.rejoin?.nav;
+      if (nav) nav.altitudeManual = true;
       ac.targetAltitudeFt = instruction.altitudeFt;
       const verb =
         instruction.altitudeFt > ac.altitudeFt
@@ -163,8 +196,10 @@ function apply(runway: Runway, ac: Aircraft, instruction: Instruction): Readback
     }
 
     case 'speed': {
-      // Speed control does not take an aircraft off its STAR (§4.5).
-      if (ac.star) ac.star.speedManual = true;
+      // Speed control does not take an aircraft off its STAR (§4.5), and reaches
+      // an armed rejoin's parked nav for the reason the altitude does.
+      const nav = ac.star ?? ac.rejoin?.nav;
+      if (nav) nav.speedManual = true;
       // "Maintain XXX kt until X mile final" survives the clearance
       // and switches off the deceleration schedule, so it has to mean the
       // technique and nothing else. That means *established*, not merely
@@ -231,8 +266,66 @@ function apply(runway: Runway, ac: Aircraft, instruction: Instruction): Readback
       return readbacks;
     }
 
+    case 'rejoin': {
+      // Case (b): still on the route, just flying an assignment instead of the
+      // chart. Handing the profile back is all "resume" means here.
+      const onRoute = ac.star;
+      if (onRoute) {
+        onRoute.altitudeManual = false;
+        onRoute.speedManual = false;
+        onRoute.rejoining = profileSideOf(ac, onRoute);
+        readbacks.push({
+          text: `${ac.callsign}, resuming the ${onRoute.route.name} profile.`,
+          kind: 'pilot',
+        });
+        return readbacks;
+      }
+
+      // The aircraft may have been cleared for the approach, or re-vectored
+      // onto a heading that reaches nothing, in the 1–3 s since the transmission.
+      const rejoin = ac.rejoin;
+      if (!rejoin) {
+        readbacks.push({ text: `${ac.callsign}, negative — we have no arrival to resume.`, kind: 'pilot' });
+        return readbacks;
+      }
+
+      if (!instruction.resume) {
+        rejoin.leg = null;
+        readbacks.push({ text: `${ac.callsign}, cancelling the rejoin, maintaining heading.`, kind: 'pilot' });
+        return readbacks;
+      }
+
+      const leg = rejoinLegIndex(rejoin.nav, ac, ac.targetHeadingDeg);
+      if (leg === null) {
+        readbacks.push({
+          text: `${ac.callsign}, negative — this heading does not reach the ${rejoin.nav.route.name}.`,
+          kind: 'pilot',
+        });
+        return readbacks;
+      }
+      rejoin.leg = leg;
+      // Resume means the whole arrival, so the axes the controller took come
+      // back now rather than at the capture — `stepRejoin` flies the published
+      // profile from here, on the route's own gradient (§4.5a).
+      rejoin.nav.altitudeManual = false;
+      rejoin.nav.speedManual = false;
+      rejoin.nav.rejoining = profileSideOf(ac, rejoin.nav, rejoinDistanceToGoNm(rejoin.nav, leg, ac));
+      const fix = rejoin.nav.route.waypoints[leg]!;
+      const crossingFt = altitudeAheadFt(rejoin.nav.route, fix.dtgNm, rejoin.nav.altitudes);
+      readbacks.push({
+        text:
+          `${ac.callsign}, joining the ${rejoin.nav.route.name} at ${fix.name}, ` +
+          `${crossingFt < ac.altitudeFt ? 'descending' : 'maintaining'} ${crossingFt} feet.`,
+        kind: 'pilot',
+      });
+      return readbacks;
+    }
+
     case 'approach': {
       leaveStar(ac);
+      // The arrival is over, so there is nothing left to resume: the route is
+      // forgotten rather than remembered (§4.5a).
+      ac.rejoin = null;
       ac.phase = 'cleared';
       ac.speedAssignedAfterClearance = false;
       readbacks.push({

@@ -2,7 +2,7 @@ import type { AircraftType } from '../scenario/aircraftTypes.js';
 import type { Airline } from '../scenario/airlines.js';
 import type { SidNav } from './departure.js';
 import type { PendingInstruction } from './pilot.js';
-import type { StarNav } from './star.js';
+import type { RejoinNav, StarNav } from './star.js';
 import { trueAirspeed, type Deg, type Fpm, type Ft, type Kts, type Nm, type Point, type Sec } from './units.js';
 
 /**
@@ -57,6 +57,12 @@ export interface Aircraft {
 
   /** Route being flown on autopilot, or null once vectored off it (§4.5). */
   star: StarNav | null;
+  /**
+   * The route it was vectored off, remembered so `R` can give it back (§4.5a),
+   * and the leg it is intercepting once one is armed. Never set at the same
+   * time as `star`.
+   */
+  rejoin: RejoinNav | null;
   /**
    * The SID being flown, on a departure, and null on every arrival (§4.7).
    * It is also what makes an aircraft a departure: it is set at the take-off
@@ -147,6 +153,7 @@ export function newAircraft(seed: AircraftSeed): Aircraft {
     pending: [],
     turnDirection: null,
     star: seed.star ?? null,
+    rejoin: null,
     sid: seed.sid ?? null,
     phase: seed.phase,
     handedOff: false,
