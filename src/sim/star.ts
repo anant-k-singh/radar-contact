@@ -18,7 +18,7 @@ import type { Star, StarConstraint } from '../scenario/types.js';
 import type { Aircraft } from './aircraft.js';
 import {
   ALT_CAPTURE_FT,
-  MAX_INTERCEPT_ANGLE_DEG,
+  MAX_REJOIN_ANGLE_DEG,
   STAR_FIX_CAPTURE_NM,
   STAR_MAX_ANTICIPATION_NM,
   STAR_REJOIN_XTK_NM,
@@ -81,7 +81,7 @@ export interface StarNav {
 }
 
 /**
- * The STAR an aircraft was vectored off, kept so `R` can give it back (§4.5a).
+ * The arrival an aircraft is being given, kept so `R` can hand it over (§4.5a).
  *
  * At most one of `Aircraft.star` and `Aircraft.rejoin` is ever set: the route is
  * either being flown or being remembered. Parking the whole `StarNav` rather
@@ -89,6 +89,10 @@ export interface StarNav {
  * aircraft delivered above a holding stack is a property of the aircraft, not of
  * the chart — and `index`, which is what "never a leg already flown" is measured
  * against.
+ *
+ * It starts as the route the aircraft was vectored off and is usually still
+ * that, but `armRejoin` replaces it when the heading reaches another STAR
+ * first: the aircraft then flies that one as if it were its own.
  */
 export interface RejoinNav {
   nav: StarNav;
@@ -248,38 +252,107 @@ function rayHitNm(from: Point, dir: Point, a: Point, b: Point): Nm | null {
 }
 
 /**
- * The leg a rejoin would join, or null when the heading reaches none (§4.5a).
- *
- * Extend the heading and take the first leg it crosses — which is where the
- * aircraft is actually going, and so the one question the scope already answers
- * by drawing the heading vector across the route. Aiming across the arc crosses
- * a later leg first, which is how a rejoin doubles as a shortcut; starting the
- * scan at `nav.index` is what makes flying backwards impossible.
- *
- * The heading is passed in rather than read off the aircraft so the *assigned*
- * one can be used — pressing `R` and turning in the same breath must use the
- * turn the player just gave — and so `star.ts` need not import `pilot.ts`, which
- * imports it.
+ * First leg of `route` at or after `fromLeg` that the ray crosses, nearest
+ * first. `headingDeg` is only read for `onlyJoinable`, which drops the legs the
+ * ray crosses too steeply to be joined at all.
  */
-export function rejoinLegIndex(nav: StarNav, ac: Aircraft, headingDeg: Deg): number | null {
-  const from = { x: ac.x, y: ac.y };
-  const dir = headingVector(headingDeg);
-  let best: number | null = null;
-  let bestNm = Infinity;
-  for (let leg = Math.max(nav.index, 1); leg < nav.route.waypoints.length; leg += 1) {
-    const waypoints = nav.route.waypoints;
+function firstLegHit(
+  route: Star,
+  from: Point,
+  dir: Point,
+  fromLeg: number,
+  headingDeg: Deg,
+  onlyJoinable: boolean,
+): { leg: number; hitNm: Nm } | null {
+  let best: { leg: number; hitNm: Nm } | null = null;
+  const waypoints = route.waypoints;
+  for (let leg = Math.max(fromLeg, 1); leg < waypoints.length; leg += 1) {
+    if (onlyJoinable && rejoinAngleDeg(route, leg, headingDeg) > MAX_REJOIN_ANGLE_DEG) continue;
     const hit = rayHitNm(from, dir, waypoints[leg - 1]!.position, waypoints[leg]!.position);
     // Strictly nearer, so a ray aimed at a fix — which hits both of its legs at
     // the same point — keeps the earlier one and its crossing.
-    if (hit !== null && hit < bestNm) {
-      best = leg;
-      bestNm = hit;
-    }
+    if (hit !== null && (best === null || hit < best.hitNm)) best = { leg, hitNm: hit };
   }
   return best;
 }
 
-/** The angle the assigned heading would cross `leg` at; the §6.1a 45° gate uses it. */
+/** The route and leg a rejoin would join. */
+export interface RejoinTarget {
+  route: Star;
+  leg: number;
+}
+
+/**
+ * The route and leg a rejoin would join, or null when the heading reaches none
+ * (§4.5a).
+ *
+ * Extend the assigned heading and take the first leg it crosses — which is
+ * where the aircraft is actually going, and so the one question the scope
+ * already answers by drawing the heading vector across the routes. Aiming
+ * across the arc crosses a later leg first, which is how a rejoin doubles as a
+ * shortcut.
+ *
+ * The heading is passed in rather than read off the aircraft so the *assigned*
+ * one can be used — pressing `R` and turning in the same breath must use the
+ * turn the player just gave — and so `star.ts` need not import `pilot.ts`,
+ * which imports it.
+ *
+ * Every published STAR is a candidate, not just the one the aircraft came off:
+ * a vectored arrival often ends up nearer another route and is going to
+ * sequence behind the traffic already on it, so that is the arrival it joins,
+ * and it then flies it as if it were its own.
+ *
+ * `own` is scanned first and a hit has to be strictly nearer to displace it, so
+ * where two routes share a leg — VABB's do, separated only by level — the
+ * aircraft keeps the one it is already on and the level it was given. On a
+ * foreign route the scan floor is leg 1: "backwards is impossible" is measured
+ * against a leg already flown, and there are none on a route never flown, which
+ * leaves the ray as the whole guard there.
+ *
+ * A foreign leg counts only if the ray crosses it inside `MAX_REJOIN_ANGLE_DEG`
+ * — a leg nobody aimed at, lying square across the heading, is flown through
+ * rather than refused. "Refused, not skipped" is about the route the aircraft
+ * came off, which is why `own` is never filtered: a steep crossing of that one
+ * still has to be heard, with the number in it.
+ */
+export function rejoinTarget(
+  stars: readonly Star[],
+  ac: Aircraft,
+  headingDeg: Deg,
+  own: StarNav | null,
+): RejoinTarget | null {
+  const from = { x: ac.x, y: ac.y };
+  const dir = headingVector(headingDeg);
+  let best: RejoinTarget | null = null;
+  let bestNm = Infinity;
+  const consider = (route: Star, fromLeg: number, onlyJoinable: boolean) => {
+    const hit = firstLegHit(route, from, dir, fromLeg, headingDeg, onlyJoinable);
+    if (hit !== null && hit.hitNm < bestNm) {
+      best = { route, leg: hit.leg };
+      bestNm = hit.hitNm;
+    }
+  };
+  if (own) consider(own.route, own.index, false);
+  for (const route of stars) if (route !== own?.route) consider(route, 1, true);
+  return best;
+}
+
+/**
+ * Arm `rejoin` on a target, adopting the route when it is not the one being
+ * remembered. A foreign route is flown exactly as published: the parked
+ * `altitudes` are the raise over a holding stack on the *old* entry fix (§4.5),
+ * which this aircraft is long past. `index` moves to the joining leg so a later
+ * re-cast cannot pick a leg behind the one already aimed at.
+ */
+export function armRejoin(rejoin: RejoinNav, target: RejoinTarget): void {
+  if (target.route !== rejoin.nav.route) {
+    rejoin.nav = joinStar(target.route);
+    rejoin.nav.index = target.leg;
+  }
+  rejoin.leg = target.leg;
+}
+
+/** The angle the assigned heading would cross `leg` at; `MAX_REJOIN_ANGLE_DEG` gates it. */
 export function rejoinAngleDeg(route: Star, leg: number, headingDeg: Deg): Deg {
   const course = bearing(route.waypoints[leg - 1]!.position, route.waypoints[leg]!.position);
   return headingDiff(headingDeg, course);
@@ -377,7 +450,7 @@ export function stepRejoin(ac: Aircraft, dt: Sec): StarEvent[] {
   // still rolling out of a large turn can reach a nearby leg before it is true.
   // No speed gate — `MAX_INTERCEPT_SPEED_KTS` exists for the localizer roll-out
   // against threshold geometry, and every outer STAR leg is published at 250 kt.
-  if (geo.interceptAngleDeg > MAX_INTERCEPT_ANGLE_DEG) {
+  if (geo.interceptAngleDeg > MAX_REJOIN_ANGLE_DEG) {
     rejoin.leg = null;
     return [
       {
@@ -385,7 +458,7 @@ export function stepRejoin(ac: Aircraft, dt: Sec): StarEvent[] {
         fix: fix.name,
         reason:
           `intercept angle ${Math.round(geo.interceptAngleDeg)}° ` +
-          `exceeds ${MAX_INTERCEPT_ANGLE_DEG}°`,
+          `exceeds ${MAX_REJOIN_ANGLE_DEG}°`,
       },
     ];
   }

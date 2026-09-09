@@ -10,11 +10,11 @@ import {
   CONFIG_RANGE_NM,
   HEADING_HINT_S,
   HEADING_STEP_DEG,
+  MAX_REJOIN_ANGLE_DEG,
   SPEED_FLOOR_CLEAN_KTS,
   SPEED_FLOOR_LOW_KTS,
   SPEED_MAX_KTS,
   SPEED_STEP_KTS,
-  MAX_INTERCEPT_ANGLE_DEG,
 } from './constants.js';
 import type { Runway } from '../scenario/types.js';
 import { evaluateClearance, finalGeometry, rangeToThresholdNm } from './ils.js';
@@ -29,7 +29,7 @@ import {
   activeFix,
   holdFixIndex,
   rejoinAngleDeg,
-  rejoinLegIndex,
+  rejoinTarget,
   starTargetSpeedKts,
 } from './star.js';
 import { clamp, displayHeading, normalizeHeading, quantize } from './units.js';
@@ -171,7 +171,8 @@ export function toggleHold(world: World, ac: Aircraft): void {
 /**
  * Resume the arrival (§4.5a). Three meanings by state, as `H` has: on the route
  * it hands the published profile back, off it and unarmed it arms an intercept
- * of the first leg the assigned heading crosses, and off it and armed it cancels.
+ * of the first leg of any STAR the assigned heading crosses, and off it and
+ * armed it cancels.
  */
 export function resumeArrival(world: World, ac: Aircraft): void {
   if (!guard(world, ac)) return;
@@ -216,13 +217,15 @@ export function resumeArrival(world: World, ac: Aircraft): void {
   // The intercept is settled off the *assigned* heading, so "turn left 210,
   // resume the arrival" joins the leg the turn is aimed at rather than the one
   // the aircraft is still pointing at.
+  // Any published STAR, not just the one it came off (§4.5a): a vectored arrival
+  // sequences behind the traffic on whichever route it now reaches first.
   const headingDeg = assignedHeadingDeg(ac);
-  const leg = rejoinLegIndex(rejoin.nav, ac, headingDeg);
-  if (leg === null) {
+  const target = rejoinTarget(world.scenario.stars, ac, headingDeg, rejoin.nav);
+  if (target === null) {
     log(
       world,
-      `${ac.callsign} unable — heading ${displayHeading(headingDeg)} does not reach the ` +
-        `${rejoin.nav.route.name}.`,
+      `${ac.callsign} unable — heading ${displayHeading(headingDeg)} does not reach an ` +
+        `arrival route.`,
       'alert',
       [ac.id],
     );
@@ -232,22 +235,26 @@ export function resumeArrival(world: World, ac: Aircraft): void {
   // The angle is knowable here because the leg is, so the refusal is heard now
   // rather than two minutes away at the leg (§6.1a takes the other half of this
   // split, for the case that only the aircraft can settle).
-  const angleDeg = rejoinAngleDeg(rejoin.nav.route, leg, headingDeg);
-  if (angleDeg > MAX_INTERCEPT_ANGLE_DEG) {
+  const angleDeg = rejoinAngleDeg(target.route, target.leg, headingDeg);
+  if (angleDeg > MAX_REJOIN_ANGLE_DEG) {
     log(
       world,
       `${ac.callsign} unable — heading ${displayHeading(headingDeg)} crosses the ` +
-        `${rejoin.nav.route.name} at ${Math.round(angleDeg)}°.`,
+        `${target.route.name} at ${Math.round(angleDeg)}°.`,
       'alert',
       [ac.id],
     );
     return;
   }
 
+  // "Resume" only fits the route it came off; another one is a route change and
+  // is read as one.
+  const fixName = target.route.waypoints[target.leg]!.name;
   log(
     world,
-    `${ac.callsign}, resume the ${rejoin.nav.route.name} arrival, join at ` +
-      `${rejoin.nav.route.waypoints[leg]!.name}.`,
+    target.route === rejoin.nav.route
+      ? `${ac.callsign}, resume the ${target.route.name} arrival, join at ${fixName}.`
+      : `${ac.callsign}, join the ${target.route.name} arrival at ${fixName}.`,
     'system',
     [ac.id],
   );

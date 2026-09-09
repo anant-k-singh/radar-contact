@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Aircraft } from '../src/sim/aircraft.js';
 import {
   adjustAltitude,
   adjustHeading,
@@ -10,6 +11,7 @@ import {
 } from '../src/sim/commands.js';
 import {
   HEADING_HINT_S,
+  MAX_REJOIN_ANGLE_DEG,
   PHYSICS_DT,
   SPEED_FLOOR_CLEAN_KTS,
 } from '../src/sim/constants.js';
@@ -18,7 +20,7 @@ import { createRng } from '../src/sim/rng.js';
 import { starTargetSpeedKts } from '../src/sim/star.js';
 import { createArrival, createTrafficState } from '../src/sim/traffic.js';
 import { issue } from '../src/sim/pilot.js';
-import { bearing, displayHeading } from '../src/sim/units.js';
+import { bearing, displayHeading, headingVector, normalizeHeading } from '../src/sim/units.js';
 import { AIRPORT, HEAVY_TYPE, makeAircraft, MEDIUM_TYPE, onFinal, pilotActs, quietWorld, run, RUNWAY, SCENARIO } from './helpers.js';
 
 describe('heading assignment', () => {
@@ -423,7 +425,7 @@ describe('the R key', () => {
     expect(lastMessage(world)).toContain('no arrival to resume');
   });
 
-  it('refuses a heading that never reaches the route, naming it', () => {
+  it('refuses a heading that reaches no arrival route at all', () => {
     const { ac, world } = arrival();
     // Straight back out of the airspace: the ray crosses nothing.
     for (let i = 0; i < 18; i += 1) adjustHeading(world, ac, 1);
@@ -431,7 +433,7 @@ describe('the R key', () => {
     resumeArrival(world, ac);
 
     expect(ac.rejoin!.leg).toBeNull();
-    expect(lastMessage(world)).toContain('does not reach the');
+    expect(lastMessage(world)).toContain('does not reach an arrival route');
     expect(lastMessage(world)).toContain(displayHeading(ac.targetHeadingDeg));
   });
 
@@ -446,6 +448,50 @@ describe('the R key', () => {
 
     expect(ac.rejoin!.leg).toBeNull();
     expect(lastMessage(world)).toMatch(/crosses the .* at \d+°/);
+  });
+
+  /**
+   * Place the aircraft `distNm` back along a heading that crosses its own last
+   * leg at exactly `angleDeg`, so the gate is tested against a known number
+   * rather than whatever the flying happened to produce.
+   */
+  function crossOwnLegAt(
+    world: ReturnType<typeof quietWorld>,
+    ac: Aircraft,
+    angleDeg: number,
+    distNm = 12,
+  ): void {
+    const route = ac.rejoin!.nav.route;
+    const leg = route.waypoints.length - 1;
+    const a = route.waypoints[leg - 1]!.position;
+    const b = route.waypoints[leg]!.position;
+    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const headingDeg = normalizeHeading(bearing(a, b) + angleDeg);
+    const dir = headingVector(headingDeg);
+    ac.x = midpoint.x - dir.x * distNm;
+    ac.y = midpoint.y - dir.y * distNm;
+    issue(world, ac, { kind: 'heading', headingDeg });
+    pilotActs(world, ac);
+  }
+
+  it('arms one degree inside the rejoin gate and refuses one degree outside', () => {
+    // The gate is the rejoin's own 50°, not the localizer's 45°: a rejoin tracks
+    // straight to the joining fix down 10-40 NM of leg (§4.5a).
+    for (const [angleDeg, armed] of [
+      [MAX_REJOIN_ANGLE_DEG - 1, true],
+      [MAX_REJOIN_ANGLE_DEG + 1, false],
+    ] as const) {
+      const { ac, world } = arrival();
+      run(world, 60);
+      for (let i = 0; i < 3; i += 1) adjustHeading(world, ac, 1);
+      pilotActs(world, ac);
+
+      crossOwnLegAt(world, ac, angleDeg);
+      resumeArrival(world, ac);
+      pilotActs(world, ac);
+      expect(ac.rejoin!.leg !== null).toBe(armed);
+      if (!armed) expect(lastMessage(world)).toContain(`at ${angleDeg}°`);
+    }
   });
 
   it('toggles: a second R while armed cancels the rejoin', () => {

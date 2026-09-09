@@ -126,11 +126,15 @@ function aircraftAt(scenario: Scenario, track: Track, frame: number): Aircraft {
     track.starName === null
       ? undefined
       : scenario.stars.find((star) => star.name === track.starName);
+  // `starName` is the route the aircraft was handed over on, and `R` may have
+  // moved it onto another one since (§4.5a) — so an index recorded against that
+  // route is clamped into this one rather than handing a renderer `undefined`.
+  const lastLeg = route ? route.waypoints.length - 1 : 0;
   let star: StarNav | null = null;
   if (flags.onStar && route) {
     star = {
       route,
-      index: Math.max(0, track.starIndex[i]!),
+      index: clamp(Math.max(0, track.starIndex[i]!), 0, lastLeg),
       altitudeManual: flags.altitudeManual,
       speedManual: flags.speedManual,
       hold: null,
@@ -159,7 +163,7 @@ function aircraftAt(scenario: Scenario, track: Track, frame: number): Aircraft {
         rejoining: 0,
         altitudes: route.altitudes,
       },
-      leg: track.starIndex[i]!,
+      leg: clamp(track.starIndex[i]!, 1, Math.max(1, lastLeg)),
     };
   }
 

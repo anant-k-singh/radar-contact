@@ -24,10 +24,10 @@ import { createArrival, createDeparture, createTrafficState } from '../src/sim/t
 import { createRng } from '../src/sim/rng.js';
 import { resumeArrival } from '../src/sim/commands.js';
 import { issue } from '../src/sim/pilot.js';
-import { legGeometry, starOwnsVertical } from '../src/sim/star.js';
+import { distanceToGoNm, legGeometry, starOwnsVertical } from '../src/sim/star.js';
 import { stateTag } from '../src/render/trafficLayer.js';
 import { createWorld, step } from '../src/sim/world.js';
-import { bearing, distance, headingDiff, magnitude, normalizeHeading, rightOf } from '../src/sim/units.js';
+import { bearing, distance, headingDiff, headingVector, magnitude, normalizeHeading, rightOf } from '../src/sim/units.js';
 import { LSGG as LSGG_SPEC } from '../src/scenario/fields/lsgg/index.js';
 import { VABB } from '../src/scenario/fields/vabb/index.js';
 import { ROTATED, ROTATED_SPEC } from './fixtures/rotatedField.js';
@@ -401,6 +401,70 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
           expect(isDeparture(ac)).toBe(true);
         }
       }
+    });
+
+    it('gives a vectored arrival a neighbouring STAR, on that chart\'s own profile', () => {
+      // The other half of §4.5a on a real field's geometry: vectored out of the
+      // sequence, an arrival joins whichever route the heading reaches first and
+      // flies *that* chart from the joining fix in — which is what makes it
+      // sequence behind the traffic already on it.
+      let flown = 0;
+      for (const gate of scenario.gates) {
+        const ac = createArrival(scenario, createRng(11), createTrafficState(), gate, [], 0);
+        if (!ac.star) continue;
+        const own = ac.star.route;
+        const world = createWorld(scenario, 3);
+        world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+        world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
+        world.departureFlowPerHour = 0;
+        world.aircraft = [ac];
+        flyOn(world, 30);
+        issue(world, ac, { kind: 'heading', headingDeg: normalizeHeading(ac.headingDeg + 30) });
+        flyOn(world, 30);
+        if (!ac.rejoin) continue;
+
+        // Placed 8 NM off the far side of another route's last leg and 10 NM
+        // back down it: a 39° crossing, aimed at nothing of its own.
+        const other = scenario.stars.find((star) => star !== own && star.waypoints.length > 1);
+        if (!other) continue;
+        const leg = other.waypoints.length - 1;
+        const a = other.waypoints[leg - 1]!.position;
+        const b = other.waypoints[leg]!.position;
+        const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const along = headingVector(bearing(a, b));
+        const across = rightOf(along);
+        for (const side of [1, -1]) {
+          ac.x = midpoint.x - across.x * 8 * side - along.x * 10;
+          ac.y = midpoint.y - across.y * 8 * side - along.y * 10;
+          const headingDeg = bearing({ x: ac.x, y: ac.y }, midpoint);
+          issue(world, ac, { kind: 'heading', headingDeg });
+          ac.headingDeg = headingDeg;
+          flyOn(world, 4);
+          resumeArrival(world, ac);
+          flyOn(world, 4);
+          if (ac.rejoin?.nav.route === other) break;
+        }
+        if (ac.rejoin?.nav.route !== other) continue; // not reachable at this field
+
+        for (let i = 0; i < 40_000 && !ac.star; i += 1) step(world, PHYSICS_DT);
+        if (!ac.star) continue;
+        expect(ac.star.route).toBe(other);
+        // The joined chart's own profile, not the one it was carrying: the
+        // parked constraints go with the parked route (§4.5a).
+        expect(ac.star.altitudes).toBe(other.altitudes);
+        // Fly on until that profile has the vertical, then it is on the chart.
+        for (let i = 0; i < 40_000 && ac.star && !starOwnsVertical(ac); i += 1) {
+          step(world, PHYSICS_DT);
+        }
+        if (ac.star && starOwnsVertical(ac)) {
+          expect(ac.altitudeFt).toBeCloseTo(
+            starProfileAt(other, distanceToGoNm(ac, ac.star)).altitudeFt,
+            -2,
+          );
+        }
+        flown += 1;
+      }
+      expect(flown).toBeGreaterThan(0);
     });
 
     it('lets a vectored arrival be given its route back, and never climbs it', () => {

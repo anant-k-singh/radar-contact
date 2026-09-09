@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { starForGate, starProfileAt } from '../src/scenario/routes.js';
+import { scenarioById } from '../src/scenario/registry.js';
 import type { Star } from '../src/scenario/types.js';
 import type { Aircraft } from '../src/sim/aircraft.js';
 import { adjustAltitude, adjustHeading, adjustSpeed, resumeArrival } from '../src/sim/commands.js';
 import { PHYSICS_DT, SEP_HORIZ_NM, SPEED_FLOOR_CLEAN_KTS, STAR_REJOIN_XTK_NM } from '../src/sim/constants.js';
 import { createRng } from '../src/sim/rng.js';
 import { createArrival, createTrafficState } from '../src/sim/traffic.js';
-import { joinStar, rejoinLegIndex, starOwnsVertical } from '../src/sim/star.js';
+import { joinStar, rejoinTarget, starOwnsVertical } from '../src/sim/star.js';
 import { bearing, distance, headingVector, normalizeHeading, type Point } from '../src/sim/units.js';
 import { step } from '../src/sim/world.js';
 import { issue } from '../src/sim/pilot.js';
@@ -335,6 +336,7 @@ describe('rejoining a STAR', () => {
   });
 
   it('takes the first leg the assigned heading crosses, and none behind it', () => {
+    // Its own route alone, which is what an empty candidate list asks for.
     const star = SCENARIO.stars[0]!;
     const nav = joinStar(star);
     const a = star.waypoints[1]!.position;
@@ -345,14 +347,76 @@ describe('rejoining a STAR', () => {
     const offset = headingVector(normalizeHeading(course - 90));
     const ac = makeAircraft({ x: midpoint.x + offset.x * 5, y: midpoint.y + offset.y * 5 });
 
-    expect(rejoinLegIndex(nav, ac, normalizeHeading(course + 90))).toBe(2);
+    expect(rejoinTarget([], ac, normalizeHeading(course + 90), nav)!.leg).toBe(2);
     // Away from the route it reaches nothing at all, and a track parallel to a
     // leg never crosses that one however far it runs.
-    expect(rejoinLegIndex(nav, ac, normalizeHeading(course - 90))).toBeNull();
-    expect(rejoinLegIndex(nav, ac, course)).not.toBe(2);
+    expect(rejoinTarget([], ac, normalizeHeading(course - 90), nav)).toBeNull();
+    expect(rejoinTarget([], ac, course, nav)?.leg).not.toBe(2);
     // Legs already flown are not candidates: the scan starts at `nav.index`.
     nav.index = 3;
-    expect(rejoinLegIndex(nav, ac, normalizeHeading(course + 90))).not.toBe(2);
+    expect(rejoinTarget([], ac, normalizeHeading(course + 90), nav)?.leg).not.toBe(2);
+  });
+
+  it('joins a neighbouring STAR when the heading reaches one first', () => {
+    // The other half of the technique: vectored off to be sequenced, the
+    // aircraft ends up nearer another published route and will be following the
+    // traffic on it, so that is the arrival it joins (§4.5a).
+    const { ac, world } = arrival('VANDA');
+    run(world, 60);
+    const own = ac.star!.route;
+    const other = SCENARIO.stars.find((star) => star.gate === 'RIMOL')!;
+
+    vectorAway(world, ac, 1, 0);
+    // Placed off the far side of that route's downwind, 8 NM across and 10 NM
+    // back — a 39° crossing, and a ray that reaches it without crossing a leg
+    // of its own first.
+    const leg = other.waypoints.length - 1;
+    const a = other.waypoints[leg - 1]!.position;
+    const b = other.waypoints[leg]!.position;
+    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const along = headingVector(bearing(a, b));
+    const across = headingVector(bearing(a, b) + 90);
+    ac.x = midpoint.x - across.x * 8 - along.x * 10;
+    ac.y = midpoint.y - across.y * 8 - along.y * 10;
+    steer(world, ac, bearing({ x: ac.x, y: ac.y }, midpoint));
+    resumeArrival(world, ac);
+    pilotActs(world, ac);
+
+    expect(ac.rejoin!.nav.route).toBe(other);
+    // Flown as that chart publishes it, not on the profile parked for its own
+    // route — which was raised for a stack on an entry fix long behind it.
+    expect(ac.rejoin!.nav.altitudes).toBe(other.altitudes);
+
+    flyToEstablished(world, ac);
+    expect(ac.star!.route).toBe(other);
+    expect(ac.star!.route).not.toBe(own);
+    expect(offRouteNm(ac, other)).toBeLessThan(STAR_REJOIN_XTK_NM);
+  });
+
+  it('keeps its own route where two share a leg, since only the level differs', () => {
+    // VABB's IGBAN 2A and POKON 2A both run EMROS → OLGUS, 1000 ft apart. A ray
+    // across that leg hits both at the same point, and taking the other one
+    // would drop the aircraft onto a profile it was never given.
+    const vabb = scenarioById('VABB')!;
+    const own = vabb.stars.find((star) => star.name === 'IGBAN2A')!;
+    const shared = vabb.stars.find((star) => star.name === 'POKON2A')!;
+    const leg = own.waypoints.findIndex((fix) => fix.name === 'OLGUS');
+    const a = own.waypoints[leg - 1]!.position;
+    const b = own.waypoints[leg]!.position;
+    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const course = bearing(a, b);
+    // 3 NM off the leg, aimed square across it.
+    const from = headingVector(course + 90);
+    const ac = makeAircraft({
+      x: midpoint.x - from.x * 3,
+      y: midpoint.y - from.y * 3,
+      headingDeg: normalizeHeading(course + 90),
+    });
+
+    const target = rejoinTarget(vabb.stars, ac, ac.headingDeg, joinStar(own));
+    expect(target!.route).toBe(own);
+    expect(target!.route).not.toBe(shared);
+    expect(own.waypoints[target!.leg]!.name).toBe('OLGUS');
   });
 
   it('joins a later leg when the heading cuts the corner, which is the shortcut', () => {

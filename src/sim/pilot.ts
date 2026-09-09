@@ -9,7 +9,7 @@
  * Only one instruction of each kind can be outstanding: pressing `D` four times
  * in a second is one turn instruction, not four, so it is read back once.
  */
-import type { Runway } from '../scenario/types.js';
+import type { Runway, Star } from '../scenario/types.js';
 import type { Aircraft } from './aircraft.js';
 import {
   HOLD_SPEED_KTS,
@@ -20,10 +20,11 @@ import {
 import { enterHold, requestHoldExit } from './hold.js';
 import { altitudeAheadFt, starProfileAt } from '../scenario/routes.js';
 import {
+  armRejoin,
   distanceToGoNm,
   leaveStar,
   rejoinDistanceToGoNm,
-  rejoinLegIndex,
+  rejoinTarget,
   type StarNav,
 } from './star.js';
 import { displayHeading, headingDelta, type Deg, type Ft, type Kts, type Sec } from './units.js';
@@ -140,7 +141,12 @@ function profileSideOf(ac: Aircraft, nav: StarNav, dtgNm = distanceToGoNm(ac, na
   return Math.sign(ac.altitudeFt - profileFt) as -1 | 0 | 1;
 }
 
-function apply(runway: Runway, ac: Aircraft, instruction: Instruction): Readback[] {
+function apply(
+  runway: Runway,
+  stars: readonly Star[],
+  ac: Aircraft,
+  instruction: Instruction,
+): Readback[] {
   const readbacks: Readback[] = [];
 
   switch (instruction.kind) {
@@ -154,12 +160,15 @@ function apply(runway: Runway, ac: Aircraft, instruction: Instruction): Readback
       // is *for* — but it is the only thing that moves the ray, so this is
       // where the leg is re-chosen rather than in the tick loop (§4.5a).
       if (ac.rejoin?.leg != null) {
-        ac.rejoin.leg = rejoinLegIndex(ac.rejoin.nav, ac, instruction.headingDeg);
-        if (ac.rejoin.leg === null) {
+        const target = rejoinTarget(stars, ac, instruction.headingDeg, ac.rejoin.nav);
+        if (target === null) {
+          ac.rejoin.leg = null;
           readbacks.push({
-            text: `${ac.callsign}, that heading takes us away from the ${ac.rejoin.nav.route.name}.`,
+            text: `${ac.callsign}, that heading takes us away from the arrivals.`,
             kind: 'pilot',
           });
+        } else {
+          armRejoin(ac.rejoin, target);
         }
       }
       const turn = headingDelta(ac.headingDeg, instruction.headingDeg);
@@ -295,15 +304,18 @@ function apply(runway: Runway, ac: Aircraft, instruction: Instruction): Readback
         return readbacks;
       }
 
-      const leg = rejoinLegIndex(rejoin.nav, ac, ac.targetHeadingDeg);
-      if (leg === null) {
+      const target = rejoinTarget(stars, ac, ac.targetHeadingDeg, rejoin.nav);
+      if (target === null) {
         readbacks.push({
-          text: `${ac.callsign}, negative — this heading does not reach the ${rejoin.nav.route.name}.`,
+          text: `${ac.callsign}, negative — this heading does not reach an arrival route.`,
           kind: 'pilot',
         });
         return readbacks;
       }
-      rejoin.leg = leg;
+      // Adopting another STAR replaces the parked nav, so everything below has
+      // to read the route back off `rejoin.nav` rather than from `target`.
+      armRejoin(rejoin, target);
+      const leg = target.leg;
       // Resume means the whole arrival, so the axes the controller took come
       // back now rather than at the capture — `stepRejoin` flies the published
       // profile from here, on the route's own gradient (§4.5a).
@@ -341,7 +353,12 @@ function apply(runway: Runway, ac: Aircraft, instruction: Instruction): Readback
 }
 
 /** Fly everything the crew has had time to act on. Returns what they said. */
-export function applyDueInstructions(runway: Runway, ac: Aircraft, timeS: Sec): Readback[] {
+export function applyDueInstructions(
+  runway: Runway,
+  stars: readonly Star[],
+  ac: Aircraft,
+  timeS: Sec,
+): Readback[] {
   if (ac.pending.length === 0) return [];
   const due = ac.pending.filter((item) => item.atS <= timeS);
   if (due.length === 0) return [];
@@ -349,5 +366,5 @@ export function applyDueInstructions(runway: Runway, ac: Aircraft, timeS: Sec): 
   ac.pending = ac.pending.filter((item) => item.atS > timeS);
   return due
     .sort((a, b) => a.atS - b.atS)
-    .flatMap((item) => apply(runway, ac, item.instruction));
+    .flatMap((item) => apply(runway, stars, ac, item.instruction));
 }

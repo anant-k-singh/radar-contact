@@ -87,7 +87,7 @@ export const LOC_RANGE_NM = 25; // localizer service volume
  * course cancels the clearance, whereas an aircraft that is not yet level under
  * the path simply has not captured it yet.
  */
-export const MAX_INTERCEPT_ANGLE_DEG = 45; // shared with the STAR rejoin (§4.5a)
+export const MAX_INTERCEPT_ANGLE_DEG = 45; // the localizer's own; the rejoin has MAX_REJOIN_ANGLE_DEG
 export const MAX_INTERCEPT_SPEED_KTS = 230; // ceiling for both intercepts
 export const LEVEL_VS_LIMIT_FPM = 200; // "level" test at the glideslope
 export const IDEAL_INTERCEPT_ANGLE_DEG = 30; // preferred angle; soft warning beyond
@@ -248,6 +248,14 @@ export const STAR_MAX_ANTICIPATION_NM = 6;
  * its own constant: a route leg is not a radio facility.
  */
 export const STAR_REJOIN_XTK_NM = 0.5;
+
+/**
+ * Steepest crossing a rejoin accepts — steeper than the localizer's 45° because
+ * nothing here has to roll out on a centreline. Neither capture anticipates the
+ * angle, but the localizer's leaves 5 NM and a ±25° pursuit clamp to settle in,
+ * where a rejoin tracks straight to the joining fix down 10–40 NM of leg.
+ */
+export const MAX_REJOIN_ANGLE_DEG = 50;
 
 // ── Departures and SIDs (§4.7) ──────────────────────────────────────────────
 /**

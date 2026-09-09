@@ -667,7 +667,7 @@ export function step(world: World, dt: Sec): void {
 
     // Instructions the crew has now had time to act on, then the route they
     // fly in the absence of one.
-    for (const readback of applyDueInstructions(world.scenario.runway, ac, world.timeS)) {
+    for (const readback of applyDueInstructions(world.scenario.runway, world.scenario.stars, ac, world.timeS)) {
       log(world, readback.text, readback.kind, [ac.id]);
     }
     logStarEvents(world, ac, stepStar(ac, dt, world.timeS));

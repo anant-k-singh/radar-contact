@@ -570,8 +570,10 @@ accident of refactoring.
 | `C` (cleared ILS) | Off the route; the approach owns it from there |
 | `R` (resume) | **Back onto the route** — the published profile is handed back, and off the route an intercept is armed (§4.5a) |
 
-A vectored aircraft can be given its arrival back, and that is §4.5a. Nothing else rejoins one: there
-are no route changes, and an aircraft cleared for the approach has finished with its arrival.
+A vectored aircraft can be given its arrival back, and that is §4.5a — its own, or whichever
+published STAR the heading reaches first, since a vector to be sequenced often leaves it nearer
+another route and following the traffic on it. Nothing else rejoins one: handover is still one STAR
+per gate, and an aircraft cleared for the approach has finished with its arrival.
 
 **Running out of route.** Reaching the last fix ends the arrival: the aircraft calls
 ("*at ARDIS, end of the arrival — maintaining heading, request further*"), holds its heading, level
@@ -639,11 +641,20 @@ profile takes its axes back. Nothing lateral changes. This is the `W`/`S`/`Q`/`E
 being given back, and it is the common case.
 
 **Off the route**, `R` arms an intercept. The aircraft keeps flying the heading it was given and
-joins a leg of its own STAR when it reaches one, the way the localizer is captured (§6.1a) — the
-capture is `|xtk| < 0.5 NM` while closing, and 45° is the steepest crossing allowed, the same
-`MAX_INTERCEPT_ANGLE_DEG` the localizer uses. There is deliberately **no speed gate**: the 230 kt
-limit exists because the localizer roll-out has to finish before the threshold geometry bites, and a
-STAR leg has 10–40 NM of room where every outer leg is published at 250 kt.
+joins a leg of a STAR when it reaches one, the way the localizer is captured (§6.1a) — the capture is
+`|xtk| < 0.5 NM` while closing, and `MAX_REJOIN_ANGLE_DEG`, 50°, is the steepest crossing allowed.
+That is the rejoin's own number and **not** the localizer's 45°: neither capture anticipates the
+angle, but the localizer's has to roll out on a centreline inside a ±25° pursuit clamp with 5 NM of
+runway left, where a rejoin tracks straight to the joining fix down 10–40 NM of leg. There is
+deliberately **no speed gate** either: the 230 kt limit exists because the localizer roll-out has to
+finish before the threshold geometry bites, and every outer STAR leg is published at 250 kt.
+
+**Any published STAR, not only the one it came off.** Pulling an arrival out of the sequence often
+leaves it nearer a different route, and it is then going to follow the traffic already on that one —
+so that is the arrival it joins, and it flies it as published from the joining fix inwards. The route
+it was handed over on is not privileged, with one exception: where two routes share a leg — VABB's
+IGBAN 2A and POKON 2A run EMROS → OLGUS 1000 ft apart — a ray crosses both at the same point, and the
+aircraft keeps its own rather than being dropped onto a profile nobody gave it.
 
 **Which leg: extend the assigned heading, and take the first leg the ray crosses.** Not the nearest
 leg, and not a scan re-run every tick. Three things follow from the ray, and they are why it is the
@@ -655,19 +666,26 @@ rule:
 - **A shortcut falls out of it.** Aimed across the arc the ray crosses a *later* leg first, so that is
   where the aircraft joins and the fixes between are cut out — which is the other half of what a
   controller uses this for.
-- **Backwards is impossible**, because the scan starts at the fix the aircraft was sequencing to.
+- **Backwards is impossible on its own route**, because the scan starts at the fix the aircraft was
+  sequencing to. On any other route there is no leg already flown to measure that against, so the
+  scan starts at the first leg and the ray is the whole guard — which is the same rule the player is
+  reading, and it cannot select anything the aircraft is not flying towards.
 
 The ray is cast from the **assigned** heading rather than the flown one, so "turn left 210, resume
 the arrival" joins the leg the turn is aimed at rather than the one the aircraft is still pointing
 at. It is re-cast on a later heading instruction and nowhere else: a turn is the only thing that
 moves it, and a turn does not disarm the rejoin — aiming the intercept is what the turn is *for*.
 
-**The 45° gate sits at the press**, unlike the localizer's. The ray makes the crossing angle knowable
+**The 50° gate sits at the press**, unlike the localizer's. The ray makes the crossing angle knowable
 the moment the leg is, so an unflyable intercept is refused immediately with the number in it rather
-than after two minutes of flying. A steep leg is refused, not skipped: skipping would fly the
-aircraft through the very leg it was aimed at. The deferred check remains for the one case the press
-cannot settle — an aircraft still rolling out of a large turn as it arrives at a leg a mile away —
-which is §6.1a's split between a prediction and what actually happened.
+than after two minutes of flying. A steep leg of the aircraft's **own** route is refused, not
+skipped: skipping would fly the aircraft through the very leg it was aimed at. A leg of any *other*
+route is the opposite — nobody aimed at it, so one lying square across the heading is skipped and the
+scan carries on past it, which is what an aircraft vectored across another arrival's route does
+anyway. Refusing on it would mean a rejoin onto the aircraft's own leg could be turned down because
+an unrelated route happened to lie in front of it. The deferred check remains for the one case the
+press cannot settle — an aircraft still rolling out of a large turn as it arrives at a leg a mile
+away — which is §6.1a's split between a prediction and what actually happened.
 
 **The range limit is the leg's own end fix.** Fly past it and the rejoin gives up, so nothing stays
 armed for ever; there is no localizer service volume to borrow and no constant to pick. Both give-ups
@@ -677,8 +695,9 @@ from wherever the aircraft now is.
 **Refusals**, all heard immediately because they are the controller's own check (§7.2): a departure or
 an aircraft with Tower; one cleared for the approach or going around — `R` must not quietly un-clear a
 clearance, only a heading does that (§6.1c); one in the hold, since `H` owns getting out of a pattern;
-one already on its route with nothing assigned; one that never had a STAR; a heading whose ray reaches
-no leg; and a crossing steeper than 45°. A second `R` while armed cancels.
+one already on its route with nothing assigned; one that never had a STAR, which is still refused —
+`R` gives an arrival back, it does not hand one out; a heading whose ray reaches no joinable leg on
+any route; and a crossing of its own route steeper than 50°. A second `R` while armed cancels.
 
 **The vertical and the speed are the route's from the readback**, not from the capture. The aircraft
 flies the published profile — the same `flyProfile` an aircraft on the route uses — evaluated at the
@@ -704,6 +723,13 @@ through the profile means the descent actually reaches it, and the crossing is s
 **Display.** The data block shows `→ALVOR` while the rejoin is armed, against the plain `ALVOR` once
 it is established: the arrow is the whole difference between joining and tracking. The sidebar reads
 `VANDA1A (joining)` in place of `vectors`, and names the leg and how far off it the aircraft still is.
+Both name the route being *joined*, which is how a route change is read: the log says "join the
+RIMOL 1A arrival at PIKON" where it says "resume the VANDA 1A arrival" for the one it came off.
+
+A replay is the one place that still shows the original: `Track.starName` is recorded once, at
+handover, so a switched aircraft plays back labelled with the STAR it arrived on. That is worth
+keeping — it is the only record of where the aircraft came from — and the rebuilt leg index is
+clamped into that route rather than indexing off the end of it.
 
 **What this is not.** The real instruction is "cleared direct ALVOR, resume the arrival" — a
 direct-to. An RNAV leg radiates nothing a crew can arm on, so leg intercepts belong to airways and VOR
@@ -2014,7 +2040,7 @@ where the arrivals are" — it is gone rather than recorded.
 | A8 | Aircraft turn the short way to an assigned heading; long-way-round vectors aren't expressible |
 | A9 | ZZZZ has 4 gates, 90° apart, offset 40° from the cardinals. The gate count is per field |
 | A10 | Endless session, no win/lose state; quality is reported, not enforced |
-| A11 | One STAR per gate, and no route changes: an aircraft is only ever given *its own* arrival back, by `R` (§4.5a) or by leaving a hold it never left the route for (§4.6) |
+| A11 | One STAR per gate **at handover**, and no route change the player did not ask for. `R` may join any published STAR (§4.5a) — the half of this assumption that said "only its own" is gone; leaving a hold still resumes the route it never left (§4.6) |
 | A12 | Departures always fly their SID exactly and are never re-routed, delayed airborne or given a level change by Departure Control. What the player sees is the published route, every time (§4.7) |
 | A13 | A departure's climb rate depends only on type and on whether the flaps are up. No weight, temperature, thrust derate or runway-length effect (§4.7) |
 | A14 | **One active field per session.** Chosen by `?airport=` at load; changing it — the sidebar dropdown included — is a reload. The map cache, the recording and every in-flight route object are bound to the scenario, and nothing needs two at once |
@@ -2066,7 +2092,7 @@ where the arrivals are" — it is gone rather than recorded.
 | Entry procedure | **Direct entry only.** The published parallel and teardrop entries exist to join the inbound leg from an arbitrary direction; an aircraft on its own STAR leg is always arriving in the direct sector, so modelling the other two would add a state machine that never runs (§4.6) |
 | Inbound course | **The reciprocal of the track the aircraft crossed the fix on**, rather than a published course per fix. The pattern aligns itself with the arrival, so no fix needs new chart data and the geometry is identical from every gate |
 | Altitude in the pattern | **Frozen at the fix's published crossing altitude**, flown level as an ordinary target. The STAR profile is keyed to distance-to-go, which stops decreasing in a hold, so the profile cannot own the vertical there (§4.6) |
-| What a hold does to the STAR | **Suspends it, does not end it.** `ac.star` stays set and sequencing stays on the holding fix, so leaving the hold resumes the published profile from that fix — the one route-rejoin in the model, and only because the aircraft never left (§4.5, A11) |
+| What a hold does to the STAR | **Suspends it, does not end it.** `ac.star` stays set and sequencing stays on the holding fix, so leaving the hold resumes the published profile from that fix — the rejoin that needs no intercept, because the aircraft never left (§4.5, A11) |
 | Second `H` before the fix | **Cancels outright.** Nothing has happened yet; making the aircraft fly a full pattern it was never established in to undo a keypress would be a punishment, not a simulation |
 | Second `H` once established | **Completes the loop and leaves at the next crossing of the fix.** A hold exit is a fix-referenced instruction in the real world, and cutting the pattern short mid-leg would put the aircraft somewhere the controller has not planned for |
 | Turn direction | **Always right**, even where the geometry pushes toward the boundary. Standard holds are right-hand; a left-hand pattern is a published exception, and choosing the direction per fix would hide the airspace cost of holding at a corner. Where it runs out of room, that is the controller's problem to see (§3.4) |
@@ -2186,12 +2212,15 @@ where the arrivals are" — it is gone rather than recorded.
 | Question | Decision (2026-09-06, rejoining) |
 | --- | --- |
 | Whether a vectored aircraft can be given its arrival back | **Yes, on `R`** (§4.5a). The technique the model was missing is the ordinary one: vector one of two converging arrivals off, then put it back on and let the track miles do the sequencing. Without the second half every vectored aircraft had to be flown to the ILS by hand, which is not what the player is there to practise. A11 was an assumption, not a principle |
-| How the aircraft finds the route | **Extend the assigned heading; the first leg the ray crosses is the target.** Nearest-by-cross-track and a per-tick scan of every remaining leg were both considered and both lose on the same point: the player cannot see which leg they would pick. The ray is the one rule the scope already draws, so "which leg?" is read off the heading vector against the route. A shortcut down the arrival falls out of it — aimed across the arc the ray reaches a later leg first — and flying backwards is impossible because the scan starts at the fix being sequenced to. Frozen at the press and re-cast only on a heading instruction, since a turn is the only thing that moves it |
-| Where the 45° gate sits | **At the press, not at the leg**, which is the opposite of §6.1a. The ray makes the crossing angle knowable the moment the leg is, so an unflyable intercept is refused immediately with the number in it. A steep leg is refused rather than skipped: skipping would fly the aircraft through the leg it was aimed at. The deferred check survives for the one case the press cannot settle — still rolling out of a large turn onto a leg a mile away — which is exactly §6.1a's prediction-versus-outcome split |
+| How the aircraft finds the route | **Extend the assigned heading; the first leg the ray crosses is the target.** Nearest-by-cross-track and a per-tick scan of every remaining leg were both considered and both lose on the same point: the player cannot see which leg they would pick. The ray is the one rule the scope already draws, so "which leg?" is read off the heading vector against the route. A shortcut down the arrival falls out of it — aimed across the arc the ray reaches a later leg first — and flying backwards on its own route is impossible because the scan starts at the fix being sequenced to. Frozen at the press and re-cast only on a heading instruction, since a turn is the only thing that moves it |
+| Where the angle gate sits | **At the press, not at the leg**, which is the opposite of §6.1a. The ray makes the crossing angle knowable the moment the leg is, so an unflyable intercept is refused immediately with the number in it. A steep leg of the aircraft's own route is refused rather than skipped: skipping would fly the aircraft through the leg it was aimed at. The deferred check survives for the one case the press cannot settle — still rolling out of a large turn onto a leg a mile away — which is exactly §6.1a's prediction-versus-outcome split |
 | The range limit | **The leg's own end fix.** Fly past it and the rejoin gives up, so nothing stays armed for ever and there is no `LOC_RANGE_NM` equivalent to invent. Both give-ups are heard when they happen, and the route is still remembered, so a second `R` re-casts the ray |
 | Whether the intercept has a speed gate | **No.** `MAX_INTERCEPT_SPEED_KTS` exists because the localizer roll-out has to finish before the threshold geometry bites; a STAR leg has 10–40 NM of room and every outer leg is published at 250 kt, so the same limit would refuse the ordinary case |
 | What a rejoining aircraft descends at | **The published gradient, from the readback** — it flies the same profile an aircraft on the route flies, keyed on the distance to the joining fix. Given that fix's level as a plain assignment it dived at 1400 fpm past an untouched arrival doing 650 on the same route, which is exactly the dive-and-drive §4.5 was built to avoid. Above the profile the target leads it by `ALT_CAPTURE_FT`, because the rate taper otherwise stalls the convergence a hundred feet high and the capture never fires |
 | Rejoining from below the profile | **Hold the level and let the profile come down.** An arrival is never climbed back up to a profile it is under — the climb would be both unrealistic and a fresh conflict. `StarNav.rejoining` became signed to say it, which fixed a live bug on the path that already existed: a hold flown *below* its published crossing exited reading "on the profile" and was written onto the chart, an instant climb of thousands of feet (§4.6) |
+| Which STARs are candidates | **All of them** (2026-09-10). A vector to be sequenced usually leaves the aircraft nearer a route other than its own, following the traffic already on that one, so restricting `R` to the route it arrived on modelled half the technique and made the player fly the other half to the ILS by hand. The aircraft adopts the new route wholesale — `armRejoin` replaces the parked `StarNav` with a fresh `joinStar`, so it flies that chart's levels and speeds from the joining fix inwards rather than the profile it was carrying. The parked `altitudes` are dropped with it on purpose: they are the raise over a holding stack on an entry fix long behind it (§4.5). Own-route legs are scanned first and a hit has to be *strictly* nearer to displace them, so VABB's shared EMROS → OLGUS leg keeps the aircraft on the route whose level it was given. This retires half of A11 |
+| Whether a foreign leg can refuse the press | **No — it is skipped, and only the aircraft's own route can refuse** (2026-09-10). "Refused, not skipped" was written about the leg the player aimed at. With every route in the scan, the nearest crossing is often a route nobody was aiming at lying square across the heading, and refusing on it means a perfectly good rejoin onto the aircraft's own leg is turned down because an unrelated route was in front of it. Flying through another arrival's route is what a vectored aircraft does all day, so a leg outside the gate is passed over and the scan continues. Caught by a test that armed at 49° across its own leg and was refused at 102° across TEMBA 1A's downwind |
+| Why the rejoin gate is 50° and the localizer's is still 45° | **Neither capture anticipates the angle, and only one of them has to roll out on something** (2026-09-10). Both fire on a hard cross-track threshold, so a steeper crossing is absorbed by whatever the aircraft does next. On the localizer that is a ±25°-clamped pursuit law with 5 NM of runway left, where 50° overshoots the centreline by ~0.3 NM and then has to beat `isEstablished` and the 5 NM stability gate; on a rejoin it is a direct track to the joining fix with 10–40 NM of leg to settle in, where it costs nothing. So `MAX_REJOIN_ANGLE_DEG` split off from `MAX_INTERCEPT_ANGLE_DEG` rather than the shared number moving |
 | Intercepting a STAR leg at all | **A gameplay device, and recorded as one.** The real instruction is "cleared direct ALVOR, resume the arrival" (FAA 7110.65): an RNAV leg radiates nothing a crew can arm on, so leg intercepts belong to airways and VOR radials. It is kept because it puts setting up the join in the player's hands, and because a direct-to falls out of it — aim at a fix and the ray crosses there. Stated here rather than dressed up as published procedure, as `turnAtOrAboveFt` and the `RC__` fixes are |
 
 ## 15. Still open

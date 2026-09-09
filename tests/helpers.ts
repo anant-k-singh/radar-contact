@@ -115,7 +115,7 @@ export function pilotActs(world: World, ...aircraft: Aircraft[]): void {
     ...targets.flatMap((ac) => ac.pending.map((item) => item.atS)),
   );
   for (const ac of targets) {
-    for (const readback of applyDueInstructions(world.scenario.runway, ac, world.timeS)) {
+    for (const readback of applyDueInstructions(world.scenario.runway, world.scenario.stars, ac, world.timeS)) {
       log(world, readback.text, readback.kind);
     }
   }

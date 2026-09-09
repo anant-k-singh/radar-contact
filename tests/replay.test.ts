@@ -32,7 +32,7 @@ import {
   sample,
   type Recording,
 } from '../src/replay/recorder.js';
-import { bearing } from '../src/sim/units.js';
+import { bearing, headingVector } from '../src/sim/units.js';
 import { stateTag } from '../src/render/trafficLayer.js';
 import { makeAircraft, onFinal, quietWorld, SCENARIO } from './helpers.js';
 
@@ -181,6 +181,47 @@ describe('rebuilding a frame', () => {
     // The leg rides the `starIndex` channel, told apart by the armed flag.
     expect(copy.rejoin!.leg).toBe(ac.rejoin!.leg);
     expect(stateTag(copy)).toBe(stateTag(ac));
+  });
+
+  it('survives a rejoin onto another STAR, which the track name does not follow', () => {
+    // `starName` is the route the aircraft was handed over on and stays that
+    // (§4.5a), so a leg recorded against a route it switched to has to be
+    // clamped into the one being rebuilt rather than indexing off the end.
+    const gate = SCENARIO.gates.find((candidate) => candidate.name === 'VANDA')!;
+    const ac = createArrival(SCENARIO, createRng(5), createTrafficState(), gate, [], 0);
+    const world = quietWorld(ac);
+    const rec = createRecording(SCENARIO);
+    runRecorded(world, rec, 60);
+    const own = ac.star!.route;
+
+    adjustHeading(world, ac, 1);
+    runRecorded(world, rec, 5);
+    // Square onto the far side of another route's downwind, 39° across it.
+    const other = SCENARIO.stars.find((star) => star.gate === 'RIMOL')!;
+    const a = other.waypoints[other.waypoints.length - 2]!.position;
+    const b = other.waypoints[other.waypoints.length - 1]!.position;
+    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const along = headingVector(bearing(a, b));
+    const across = headingVector(bearing(a, b) + 90);
+    ac.x = midpoint.x - across.x * 8 - along.x * 10;
+    ac.y = midpoint.y - across.y * 8 - along.y * 10;
+    issue(world, ac, { kind: 'heading', headingDeg: bearing({ x: ac.x, y: ac.y }, midpoint) });
+    runRecorded(world, rec, 5);
+    resumeArrival(world, ac);
+    runRecorded(world, rec, 5);
+    expect(ac.rejoin!.nav.route).toBe(other);
+    expect(other).not.toBe(own);
+
+    const replayed = worldAtFrame(rec, rec.lastFrame, {
+      selectedId: null,
+      paused: true,
+      timeScale: 1,
+    });
+    const copy = replayed.aircraft.find((candidate) => candidate.id === ac.id)!;
+    // Rebuilt against the route it was handed over on, and still a legal leg of it.
+    expect(copy.rejoin!.nav.route).toBe(own);
+    expect(copy.rejoin!.leg).toBeLessThan(own.waypoints.length);
+    expect(stateTag(copy)).toMatch(/^\u2192/);
   });
 
   it('separates an assigned target from the one being flown', () => {
