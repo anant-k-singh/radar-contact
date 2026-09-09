@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AIRCRAFT_TYPES, type AircraftType } from '../src/scenario/aircraftTypes.js';
+import { SCENARIOS } from '../src/scenario/registry.js';
 import { ceilingAtFt } from '../src/scenario/routes.js';
 import type { Sid } from '../src/scenario/types.js';
 import { starProfileAt } from '../src/scenario/routes.js';
@@ -30,8 +31,11 @@ import {
   type World,
 } from '../src/sim/world.js';
 import { AIRPORT, geo, makeAircraft, MEDIUM_TYPE, onFinal, quietWorld, run, SCENARIO } from './helpers.js';
+import { ROTATED } from './fixtures/rotatedField.js';
 
 const sidNamed = (name: string): Sid => SCENARIO.sids.find((sid) => sid.name === name)!;
+/** Every shipped field plus the single-SID fixture, which is the fallback case. */
+const FIELDS = [...SCENARIOS, ROTATED];
 /**
  * An altitude capture is asymptotic — the rate tapers inside the last 200 ft —
  * so an aircraft levelling at a target sits a foot or two under it indefinitely.
@@ -701,6 +705,33 @@ describe('departure flow', () => {
     run(world, 720);
     // Nothing ever rolled, so there is no gap to read — not a rate of zero.
     expect(departureRatePerHour(world)).toBeNull();
+  });
+
+  it('never releases two departures down the same chart in a row', () => {
+    // An A332 followed by an E190 off one trunk closes its own gap, and neither
+    // can be turned or levelled out of it (§4.7). Checked on every field, since
+    // it is the weighted draw that has to respect it — LSGG's busiest SID
+    // carries four times the quietest.
+    for (const scenario of FIELDS) {
+      const world = createWorld(scenario, 7);
+      world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+      world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
+      world.traffic.departureQueue = 40;
+      const charts: string[] = [];
+      for (let i = 0; i < 40_000 && world.traffic.departureQueue > 0; i += 1) {
+        const before = world.aircraft.length;
+        step(world, PHYSICS_DT);
+        if (world.aircraft.length > before) charts.push(world.aircraft.at(-1)!.sid!.route.chart);
+        // Departures leave the airspace on their own; keep the runway clear.
+        world.aircraft = world.aircraft.filter((ac) => ac.sid!.index === 0);
+      }
+      expect(charts.length, scenario.id).toBeGreaterThan(4);
+      const single = new Set(scenario.sids.map((sid) => sid.chart)).size === 1;
+      for (let i = 1; i < charts.length; i += 1) {
+        // One-chart fields have nowhere else to send it, which is the fallback.
+        expect(charts[i] === charts[i - 1], `${scenario.id} at ${i}`).toBe(single);
+      }
+    }
   });
 
   it('leaves the arrival sequence a seed produces untouched', () => {

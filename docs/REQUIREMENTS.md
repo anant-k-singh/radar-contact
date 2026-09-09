@@ -1131,6 +1131,16 @@ and SID are drawn at the release instead, and the state is exactly as large as i
 also the one *live* number in the stats gutter that no rebuilt replay frame could recompute, so it
 is recorded in the session snapshot alongside the flow settings (§17).
 
+**Which SID: weighted random, and never the same chart twice in a row.** The weights are the field's
+— which way an airport's traffic leaves is a fact about its route network, and LSGG's busiest SID
+carries four times its quietest — and the *chart* is what the constraint is on, not the branch: two
+exits off one SID share its trunk. Consecutive departures down one trunk are separated by climb rate
+alone, so an A332 followed by an E190 closes its own gap, and a departure takes no instructions
+(§4.7), which makes it the only conflict in the model the player cannot solve. The last chart is
+excluded from the candidates *before* the draw, so it stays the single `pickWeighted` call the
+seeded stream expects; a field publishing one SID has nowhere else to send it and keeps departing
+down it.
+
 The head of the queue is held while:
 
 - an arrival is inside **3 NM on final**, or
@@ -2115,6 +2125,7 @@ where the arrivals are" — it is gone rather than recorded.
 | What a SID publishes | **Restrictions, not a profile.** A STAR is a descent profile the aircraft is flown onto; a SID is a set of crossings with the aircraft's own performance in between. Modelling it as a profile would have meant inventing climb gradients that no chart carries (§4.7) |
 | Where the crossing restriction ends | **Five miles past the crossing, not at it.** Releasing the climb at the crossing puts the departure back inside 1000 ft of the arrival route three miles later, which is a violation by our own rule — measured at 980 ft. No crossing altitude fixes it either, since the downwind tops out at 7000: the geometry decides, so the `at or below` is carried by a fix beyond the conflict (§4.7) |
 | Departures and separation | **Full radar separation, and violations count.** Advisory-only alerts were the alternative, on the grounds that the player cannot instruct a departure — but that is exactly why it counts: the arrival is the half they *can* move (§9.4) |
+| Which SID a departure gets | **Weighted by the field, and never the same chart twice running** (2026-09-10). The weights are the route network's. The no-repeat is a conflict fix rather than a realism one: two departures off one trunk separate on climb rate alone, and an A332 followed by an E190 flew into it every time at LSGG on DIPIR 1A — with nothing the player could do, since departures take no instructions. Constrained on the chart rather than the branch, because branches share the trunk that is the problem, and applied by excluding the last chart before the draw so the stream is still drawn on once. Strictly consecutive: a third departure is free to reuse a chart, by which point there are two release intervals of gap |
 | The runway | **Shared, and it holds departures.** Arrival inside 3 NM on final, or a landing rolling out, blocks the release; the departure joins a hold-short queue and goes late rather than not at all. The set flow is therefore an upper bound that a busy final eats into, and the queue length is what shows it (§4.7) |
 | Climb performance | **Per type, from the EUROCONTROL APD.** Everything else in the model is two performance classes, and stays that way — but the whole airspace sits inside the APD's initial-climb band, so for departures there is real per-type data covering exactly the regime flown (§4.7) |
 | A third random stream | **Yes**, alongside traffic and pilot reaction. `?seed=` has to mean the same arrival problem whatever the departure flow is set to (§4.4) |

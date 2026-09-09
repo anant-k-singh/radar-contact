@@ -329,6 +329,7 @@ export function worldAtFrame(
       nextDepartureAtS: Infinity,
       departureQueue,
       lastDepartureS: null,
+      lastDepartureChart: null,
       lastLandingS: null,
     },
     separation: analyzeSeparation(rec.scenario.runway, aircraft, rec.scenario.terrain),

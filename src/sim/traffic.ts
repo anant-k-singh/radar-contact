@@ -42,6 +42,13 @@ export interface TrafficState {
   departureQueue: number;
   /** Sim time the last departure began its roll, for the wake-turbulence interval. */
   lastDepartureS: Sec | null;
+  /**
+   * Chart the last departure was released on, so the next one goes somewhere
+   * else (§4.7). The *chart* and not the branch name: two exits off one SID
+   * share its trunk, which is where the aircraft behind catches the one in
+   * front.
+   */
+  lastDepartureChart: string | null;
   /** Sim time of the last landing, for the runway-vacated interval. */
   lastLandingS: Sec | null;
 }
@@ -54,6 +61,7 @@ export function createTrafficState(): TrafficState {
     nextDepartureAtS: 0,
     departureQueue: 0,
     lastDepartureS: null,
+    lastDepartureChart: null,
     lastLandingS: null,
   };
 }
@@ -372,7 +380,21 @@ export function tryDeparture(
   // the route network, and at LSGG the busiest way out carries four times the
   // quietest. `pickWeighted` draws once and lands where `pick` would when every
   // weight is equal, so ZZZZ and VABB draw the same departures from the same seed.
-  const route = rng.pickWeighted(scenario.sids, (sid) => sid.weight);
+  //
+  // Never twice down the same chart in a row. Two departures on one trunk are
+  // separated by climb rate alone, so an A332 followed by an E190 closes the
+  // gap and neither can be turned or levelled out of it — a departure takes no
+  // instructions (§4.7), which makes it the one conflict the player cannot
+  // solve. Excluding the last chart before the draw keeps this to the single
+  // `pickWeighted` call the seeded stream expects.
+  const elsewhere = scenario.sids.filter((sid) => sid.chart !== state.lastDepartureChart);
+  // A field with one chart has nowhere else to send it, and one departure down
+  // it beats none.
+  const route = rng.pickWeighted(
+    elsewhere.length > 0 ? elsewhere : scenario.sids,
+    (sid) => sid.weight,
+  );
   state.lastDepartureS = timeS;
+  state.lastDepartureChart = route.chart;
   return createDeparture(scenario, rng, state, route, existing, timeS);
 }
