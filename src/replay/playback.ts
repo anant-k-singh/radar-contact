@@ -32,6 +32,7 @@ import {
 import type { HoldNav } from '../sim/hold.js';
 import type { PendingInstruction } from '../sim/pilot.js';
 import { createRng } from '../sim/rng.js';
+import { deliveryPlan } from '../sim/delivery.js';
 import { analyzeSeparation } from '../sim/separation.js';
 import { activeFix, type RejoinNav, type StarNav } from '../sim/star.js';
 import { clamp, type Point, type Sec } from '../sim/units.js';
@@ -60,6 +61,9 @@ const EMPTY_STATS: Stats = {
   violationSeconds: 0,
   goArounds: 0,
   exits: 0,
+  deliveries: 0,
+  deliveryTimesS: new Map(),
+  deliveryFaults: new Map(),
   rejections: new Map(),
   missedIntercepts: new Map(),
   trackMileRatioSum: 0,
@@ -333,6 +337,20 @@ export function worldAtFrame(
       lastLandingS: null,
     },
     separation: analyzeSeparation(rec.scenario.runway, aircraft, rec.scenario.terrain),
+    // Recomputed, never recorded — the same rule the separation report follows.
+    // The gate times come from the recorded `stats`, so a rebuilt frame slots the
+    // stream against the deliveries that had actually been made by then.
+    deliverySlots: deliveryPlan(
+      rec.scenario.delivery,
+      aircraft,
+      new Map(
+        [...stats.deliveryTimesS].flatMap(([gate, times]) => {
+          const at = times[times.length - 1];
+          return at === undefined ? [] : [[gate, at] as const];
+        }),
+      ),
+      timeS,
+    ),
     selectedId: aircraft.some((ac) => ac.id === view.selectedId) ? view.selectedId : null,
     paused: view.paused,
     timeScale: view.timeScale,

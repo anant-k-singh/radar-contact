@@ -6,7 +6,8 @@
 import type { WakeCategory } from '../scenario/aircraftTypes.js';
 import type { Aircraft } from '../sim/aircraft.js';
 import { isDeparture, isDimmed } from '../sim/aircraft.js';
-import { TRAIL_LENGTH } from '../sim/constants.js';
+import { DELIVERY_SHOW_GAIN_S, DELIVERY_SHOW_LOSE_S, TRAIL_LENGTH } from '../sim/constants.js';
+import type { DeliverySlot } from '../sim/delivery.js';
 import { assignedAltitudeFt, assignedHeadingDeg, isPending } from '../sim/pilot.js';
 import { activeFix } from '../sim/star.js';
 import { displayHeading, headingDiff, headingVector } from '../sim/units.js';
@@ -154,7 +155,31 @@ function glyphColor(ac: Aircraft, selected: boolean): string {
   return THEME.glyph;
 }
 
-function blockLines(ac: Aircraft): string[] {
+/**
+ * The metering deficit, as an en-route controller reads it: `L2` is two minutes
+ * to lose, `G3` three in hand (§8.3).
+ *
+ * Deliberately states the deficit and not the remedy. An arrival manager that
+ * printed "SPEED 250" would be a to-do list, and the whole exercise this mode
+ * exists for is choosing between speed, track miles and the hold — so the number
+ * is the problem and the instrument is the player's.
+ *
+ * Silent while the aircraft is inside the tolerances, and silent on slack until
+ * there is enough of it to be worth acting on: a tag that flickers between `L1`
+ * and nothing is worse than no tag.
+ */
+function meteringTag(slot: DeliverySlot | undefined): string {
+  if (!slot) return '';
+  if (slot.deficitS >= DELIVERY_SHOW_LOSE_S) {
+    return `L${Math.max(1, Math.round(slot.deficitS / 60))}`;
+  }
+  if (slot.deficitS <= -DELIVERY_SHOW_GAIN_S) {
+    return `G${Math.max(1, Math.round(-slot.deficitS / 60))}`;
+  }
+  return '';
+}
+
+function blockLines(ac: Aircraft, slot: DeliverySlot | undefined): string[] {
   const hundreds = Math.round(ac.radar.altitudeFt / 100);
   const assignedFt = assignedAltitudeFt(ac);
   const target = Math.round(assignedFt / 100);
@@ -168,6 +193,11 @@ function blockLines(ac: Aircraft): string[] {
   }
 
   const tag = stateTag(ac);
+  // The deficit rides on the speed line rather than the tag line, because it is
+  // answered with speed far more often than with anything else, and because the
+  // tag line already carries the fix the aircraft is tracking to — which is what
+  // says *which* stream the deficit is against.
+  const metering = meteringTag(slot);
   // Two lines, not three: altitude and speed are read together — "how low and
   // how fast" is one question — and a shorter block collides with fewer others.
   //
@@ -177,7 +207,7 @@ function blockLines(ac: Aircraft): string[] {
   // the sidebar for the selected aircraft.
   return [
     tag ? `${ac.callsign} ${tag}` : ac.callsign,
-    `${vertical}  ${Math.round(ac.radar.groundSpeedKts)}${ac.type.wake}`,
+    `${vertical}  ${Math.round(ac.radar.groundSpeedKts)}${ac.type.wake}${metering ? ` ${metering}` : ''}`,
   ];
 }
 
@@ -448,7 +478,7 @@ export function drawTraffic(
       ctx.font = THEME.fontBlock;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
-      const lines = blockLines(ac);
+      const lines = blockLines(ac, world.deliverySlots.get(ac.id));
       const rect = placeBlock(ctx, sx, sy, lines, placed, p);
       placed.push(rect);
       blocks.set(ac.id, rect);

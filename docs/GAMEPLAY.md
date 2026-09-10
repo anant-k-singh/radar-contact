@@ -5,7 +5,12 @@ the radar area, already established on a published STAR. Your job is to sequence
 correctly spaced, at or below the glideslope, slow enough to configure — and hand each one to Tower
 once it is established.
 
-**Two fields ship.** `?airport=ZZZZ` is the default, a trainer landing on **runway 18** inside a
+**There are two jobs.** Everything below is **Approach**, which is what three of the four fields
+are. The fourth, `?airport=VABBS`, is **Area** control — the sector *outside* Mumbai's approach
+airspace — and it is a different job with the same keys. Skip to
+[Area control](#area-control-vabbs) for that one.
+
+**Three approach fields ship.** `?airport=ZZZZ` is the default, a trainer landing on **runway 18** inside a
 50 NM circle: four gates 90° apart, symmetrical routes, and a chart designed to be learnable.
 `?airport=VABB` is **Mumbai, runway 27**, transcribed from the real AAI charts — a 60 NM area, five
 gates weighted by where Mumbai's traffic actually comes from, a second runway it does not use, and
@@ -340,6 +345,122 @@ The gutter on the right keeps a running account:
 | `MISSED INT` | Aircraft that flew through the localizer, by which test failed |
 
 There is no win condition. There's a landing rate, and there's how honestly you got it.
+
+## Area control (`?airport=VABBS`)
+
+Everything above is Approach. **Area** is the position before it: you take Mumbai's inbounds at
+cruise, 160 NM out, and hand them to Approach at the edge of the terminal area — sequenced, at the
+right level, at the right speed, and **properly spaced**. You never see a runway and you never clear
+anyone for an approach. The panel says `AREA RADAR` so you know which job you are doing.
+
+The sector is a **wedge**, not a circle: from 50 to 160 NM, covering the southern half — 125° round
+through south to 285°. That is roughly what one en-route controller owns.
+
+**Eight ways in, two ways out.** Six published transitions funnel onto **KETOR** and two onto
+**MOLGO**, which is the whole problem in one sentence: traffic arrives from eight directions between
+FL280 and FL370 and has to leave down two streams in an orderly queue.
+
+| Way out | Fed by | Approach wants | Which is every |
+| --- | --- | --- | --- |
+| **RCKT**, 10 NM past KETOR | BISET, DARMI, ERVIS, GUNDI, KABSO, SUGID | 8 an hour, at 15,000 / 260 kt | 7½ minutes |
+| **RCMG**, 10 NM past MOLGO | AGELA, EPKOS | 15 an hour, at 14,000 / 260 kt | 4 minutes |
+
+Those two rates are the score, and they are satisfied **separately** — flooding one while starving
+the other is breaking both agreements, not averaging them. The stats gutter reads achieved against
+agreed (`13/15`) for each.
+
+### Reading the two panels
+
+The gutter, top right, is the **scoreboard** — how the session is going:
+
+```
+DELIVERED            12     how many you have handed on
+RCMG /h           13/15     achieved rate / agreed rate, for that gate
+RCKT /h             9/8     amber: this stream is running fast
+TOO CLOSE             3     deliveries inside the agreed interval
+UNSEQUENCED           0     handed on still being vectored
+OFF CROSSING          1     more than 200 ft or 10 kt off
+```
+
+`RCMG /h  13/15` therefore reads: *"you are delivering 13 an hour into RCMG, and Approach asked for
+15."* Two numbers, achieved against agreed. Under is fine — it means a gap, which wastes capacity but
+endangers nobody. **Over is the one that costs you**, and it goes amber.
+
+The left panel is the **worklist** — what to do about the aircraft you have selected:
+
+```
+Route          KETOR2A/DARMI    which of the eight ways in it came down
+Range           92.3 NM to run  to the delivery fix, not to the runway
+Deliver to               RCKT   which stream it belongs to
+Wanted every       7:30 (8/h)   the agreed interval — this is your spacing target
+Arrives in            13:17     when it gets there if you do nothing
+Sequence         lose 11:27     what you have to fix
+```
+
+**`Wanted every` is the answer to "how much spacing?"** — you do not have to work it out from the
+rate. RCKT wants one every 7:30; RCMG one every 4:00. `Sequence` then tells you where this aircraft
+sits against that: `lose 11:27`, `in the slot`, `3:20 in hand`, or `not yet sequenced` while it is
+still outside 120 NM.
+
+### The deficit: `L2` and `G3`
+
+The second line of a data block may end in **`L2`** — this aircraft is two minutes too early for its
+slot and you have to lose two minutes — or **`G3`**, meaning three minutes of slack. It appears once
+the aircraft is inside **120 NM**, at which point its place in the queue is fixed and the time is
+yours to find.
+
+The scope tells you the deficit and never what to do about it. You have three instruments and they
+are very different:
+
+| Tool | What it buys | The catch |
+| --- | --- | --- |
+| **Speed** (`Q`/`E`) | ~1 NM per minute for every 60 kt of difference | Free, but slow — issue it early or it does nothing |
+| **Vectors** (`A`/`D`) | 2 NM of track for every 1 NM off course, immediately | Takes the aircraft off its arrival, and an aircraft delivered on a vector is a fault |
+| **Hold** (`H`) | About **4 minutes a circuit** | All or nothing. You cannot buy ninety seconds this way |
+
+Above 10,000 ft you can assign up to **320 kt**, which is what makes speed usable at all up here.
+
+`R` still means "resume the arrival", and it is what you use after every vector — it hands the
+published profile back and, if the aircraft is off course, flies it back onto the first leg your
+assigned heading crosses. That may be a *different* transition than the one it came in on, which is
+usually the right answer if you have vectored it nearer someone else's track.
+
+### What counts as a bad delivery
+
+- **Too close** — inside the agreed interval behind the last one. This is the one that matters; it
+  is what overwhelms the controller you are handing to.
+- **Unsequenced** — still on a vector at the gate, or it wandered into the terminal area off-route.
+- **Off crossing** — more than 200 ft or 10 kt off what the arrival publishes there.
+
+Being *late* is not a fault. It wastes capacity, and the achieved rate will say so.
+
+Left completely alone, the autopilot breaks the spacing agreement on about **46%** of arrivals. That
+is the baseline you are playing against.
+
+### Your first ten minutes
+
+1. **Turn the flow down** — `Arr −` to 10/h — until the rhythm makes sense. Put it back up later.
+2. **Press `Tab`** and read the panel. `Deliver to` says which of the two queues this aircraft is
+   in; `Wanted every` says the spacing that queue needs; `Sequence` says whether it is a problem.
+3. **Sort the ones that say `lose`, and ignore the rest.** An aircraft `in the slot` needs nothing
+   from you. Most of them are.
+4. **Reach for speed first.** `Q` takes 10 kt off. Sixty knots of difference opens about a mile a
+   minute, so 20 kt off an aircraft 40 minutes out is worth several minutes by the time it gets
+   there — and it costs nothing. This is why the deficit is shown at 120 NM and not at 60: early is
+   the only time speed works.
+5. **Vector when speed will not be enough.** `A`/`D` turn it 10° at a time; every mile off course
+   costs two miles of track. Then press **`R`** to put it back on the arrival — an aircraft still on
+   a vector when it reaches the fix is scored `UNSEQUENCED`, which is worse than being early.
+6. **Hold when you need minutes, not seconds.** `H` at KETOR or MOLGO buys about four minutes a
+   circuit. It is the only tool that works in whole minutes, and it is why the two gates sit ten
+   miles *inside* your boundary — so there is somewhere to put an aircraft that cannot be fixed any
+   other way.
+
+The levels tell you how much room each one has. The gate labels run **280 at DARMI up to 370 at
+KABSO**, in order of how far that route has to run — so a high number on the boundary is an aircraft
+with a long way to go, and a low one is nearly there.
+
+---
 
 ## Watching it back
 

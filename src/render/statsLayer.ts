@@ -12,6 +12,7 @@ import {
   arrivalRatePerHour,
   departureQueueLength,
   departureRatePerHour,
+  deliveryRatePerHour,
   landingRatePerHour,
 } from '../sim/world.js';
 import { STATS_GUTTER_PX, type Projection } from './project.js';
@@ -30,7 +31,78 @@ interface Row {
   tone?: 'warn' | 'bad';
 }
 
-function rows(world: World, msaFt: number | null): Row[] {
+/**
+ * The rows every position wants: what went wrong, and how efficiently.
+ *
+ * Shared rather than repeated because these three are the only statistics that
+ * mean the same thing at both positions — a violation is a violation, an exit is
+ * an aircraft lost off the edge, and the track-mile ratio is how much extra
+ * flying the sequence cost. Everything above them is the job.
+ */
+function commonRows(world: World): Row[] {
+  const stats = world.stats;
+  return [
+    {
+      label: 'VIOLATIONS',
+      value:
+        stats.violations === 0
+          ? '0'
+          : `${stats.violations} (${Math.round(stats.violationSeconds)}s)`,
+      tone: stats.violations > 0 ? 'bad' : undefined,
+    },
+    { label: 'EXITS', value: String(stats.exits), tone: stats.exits > 0 ? 'warn' : undefined },
+    {
+      label: 'TRACK MILES',
+      value:
+        stats.trackMileSamples > 0
+          ? `${(stats.trackMileRatioSum / stats.trackMileSamples).toFixed(2)}×`
+          : '—',
+    },
+  ];
+}
+
+/**
+ * An en-route sector's scoreboard: what it handed on, and whether the receiving
+ * controller got what was agreed (§8.3).
+ *
+ * One row per delivery gate, each reading achieved against asked-for, because
+ * the agreement is per gate and a pooled figure would let a sector hide a starved
+ * stream behind a flooded one. Amber once a stream is running fast — that is the
+ * direction that costs somebody something.
+ */
+function centerRows(world: World, msaFt: number | null): Row[] {
+  const stats = world.stats;
+  const fault = (kind: string): number => stats.deliveryFaults.get(kind) ?? 0;
+  const crossing = fault('level') + fault('speed');
+  return [
+    { label: 'MSA @ pointer', value: msaFt === null ? '—' : String(msaFt) },
+    { label: 'DELIVERED', value: String(stats.deliveries) },
+    ...world.scenario.delivery.map((gate): Row => {
+      const achieved = deliveryRatePerHour(world, gate.fixName);
+      return {
+        // `/h` in the label rather than the value, so the two figures stay a
+        // clean achieved-against-agreed pair in the right-hand column: `13/15`
+        // is a comparison, and `13/15/h` reads as a third number.
+        label: `${gate.fixName} /h`,
+        value: `${achieved === null ? '—' : Math.round(achieved)}/${gate.targetRatePerHour}`,
+        // A tenth over the agreement is inside the noise of a four-minute
+        // interval measured off three gaps; past that the stream is genuinely
+        // running fast.
+        tone: achieved !== null && achieved > gate.targetRatePerHour * 1.1 ? 'warn' : undefined,
+      };
+    }),
+    { label: 'TOO CLOSE', value: String(fault('early')), tone: fault('early') > 0 ? 'bad' : undefined },
+    {
+      label: 'UNSEQUENCED',
+      value: String(fault('unsequenced')),
+      tone: fault('unsequenced') > 0 ? 'bad' : undefined,
+    },
+    { label: 'OFF CROSSING', value: String(crossing), tone: crossing > 0 ? 'warn' : undefined },
+    ...commonRows(world),
+  ];
+}
+
+function approachRows(world: World, msaFt: number | null): Row[] {
   const stats = world.stats;
   const rate = landingRatePerHour(world);
   const depRate = departureRatePerHour(world);
@@ -65,27 +137,19 @@ function rows(world: World, msaFt: number | null): Row[] {
         queued > DEPARTURE_QUEUE_ALERT ? 'bad' : queued > DEPARTURE_QUEUE_WARN ? 'warn' : undefined,
     },
     {
-      label: 'VIOLATIONS',
-      value:
-        stats.violations === 0
-          ? '0'
-          : `${stats.violations} (${Math.round(stats.violationSeconds)}s)`,
-      tone: stats.violations > 0 ? 'bad' : undefined,
-    },
-    {
       label: 'GO-AROUNDS',
       value: String(stats.goArounds),
       tone: stats.goArounds > 0 ? 'warn' : undefined,
     },
-    { label: 'EXITS', value: String(stats.exits), tone: stats.exits > 0 ? 'warn' : undefined },
-    {
-      label: 'TRACK MILES',
-      value:
-        stats.trackMileSamples > 0
-          ? `${(stats.trackMileRatioSum / stats.trackMileSamples).toFixed(2)}×`
-          : '—',
-    },
+    ...commonRows(world),
   ];
+}
+
+/** The scoreboard for whichever job this field is (`Scenario.role`). */
+function rows(world: World, msaFt: number | null): Row[] {
+  return world.scenario.role === 'center'
+    ? centerRows(world, msaFt)
+    : approachRows(world, msaFt);
 }
 
 function toneColor(tone: Row['tone']): string {

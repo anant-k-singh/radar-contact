@@ -355,6 +355,13 @@ function cloneStats(stats: Stats): Stats {
     arrivalTimesS: [...stats.arrivalTimesS],
     rejections: new Map(stats.rejections),
     missedIntercepts: new Map(stats.missedIntercepts),
+    deliveryFaults: new Map(stats.deliveryFaults),
+    // A map of arrays, so both levels have to be copied: `tryDelivery` pushes
+    // onto the array in place, and a shallow copy of the map would leave every
+    // snapshot sharing — and so silently updating — the live one.
+    deliveryTimesS: new Map(
+      [...stats.deliveryTimesS].map(([gate, times]) => [gate, [...times]]),
+    ),
   };
 }
 
@@ -395,6 +402,10 @@ function sessionChanged(last: SessionSnapshot, world: World): boolean {
     a.violations !== b.violations ||
     a.goArounds !== b.goArounds ||
     a.exits !== b.exits ||
+    // Nothing else moves with a delivery time, so the counter is what is
+    // compared — it is stamped on the same tick, which the per-gate arrays are
+    // not cheap to scan for.
+    a.deliveries !== b.deliveries ||
     a.trackMileSamples !== b.trackMileSamples ||
     // Violation seconds tick up continuously while a violation stands, so this
     // is the one field that makes a snapshot per frame — which is exactly when

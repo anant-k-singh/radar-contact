@@ -27,12 +27,13 @@ Inspiration: *Endless ATC* (mobile) for the scope look and control feel.
 
 | Deferred | Why parked |
 | --- | --- |
+| ~~Multiple radar positions~~ | **Now in scope** — `Scenario.role` adds an **area** sector working the airspace *outside* an approach field's boundary (§3.5). Still one position per session: two fields, not two frequencies |
 | ~~Departures / mixed traffic~~ | **Now in scope** — three SIDs off runway 18, flown by Departure Control rather than by the player (§4.7) |
 | ~~Holding patterns~~ | **Now in scope** — added as a simplified direct-entry racetrack on the STAR (§4.6) |
 | Wind (and therefore IAS vs GS divergence from wind) | Big complexity driver in intercept geometry; altitude-based TAS is modelled, wind is not |
 | Terrain / MVA map | Single flat MVA constant instead |
 | Parallel runways & reduced parallel separation | Only meaningful with ≥2 runways |
-| Multiple airports, sector handoffs between radar positions | v2+ |
+| Two radar positions **worked at once**, with live coordination between them | Area and approach now both exist (§3.5), but as separate sessions on separate fields. One player, one frequency |
 | Wake-turbulence spacing categories as a *rule* | Category is displayed, but the range-dependent in-trail minimum of §9.3 is the only spacing rule in v1 |
 | Voice / phraseology audio, pilot "unable" negotiation | Text readback log only |
 | Touch / mobile controls | Desktop keyboard + mouse only |
@@ -277,6 +278,57 @@ hands those two over 2000 ft lower, and their STARs are correspondingly shorter.
 *this field's* geometry, which is why it is stated by the two routes rather than by a constant. The gate marker on
 the scope carries its altitude in hundreds (`KOVAL 100`).
 
+### 3.2a Delivery gates (Center → Approach), and the rate they are wanted at
+
+The mirror of §3.2, and the objective of an **area** field (§3.5). Where an approach field *takes*
+arrivals at a gate, a center field *gives* them at one, and the fix is the same fix read from the
+other side: VABBS delivers to KETOR and MOLGO, which is exactly where VABB spawns its arrivals.
+
+A delivery gate states the fix and the rate the next sector down has asked for:
+
+| Gate | Fed by | Asked for | Interval it implies |
+| --- | --- | --- | --- |
+| `RCMG` | MOLGO 2A ×2 | **15/h** | 240 s |
+| `RCKT` | KETOR 2A ×6 | **8/h** | 450 s |
+
+**A rate is miles-in-trail stated the way the receiving controller thinks of it.** The two are
+satisfied **independently**: a sector that fills one stream while starving the other has not
+delivered 23 an hour, it has broken both agreements at once. That is why the figure is per fix
+rather than per sector.
+
+Both sit **above** the mean rate their stream is offered — MOLGO's gets about 11 an hour and
+KETOR's about 4 — so a sector handed evenly-spaced traffic would never have to touch it. What makes
+the work is that arrivals are a Poisson process (§4.4): the chance an exponential gap falls short of
+the agreed one is around 40% whatever the mean. Flown untouched over nine sector-hours, VABBS
+delivers 138 aircraft and breaks the agreement on **46%** of them. Doing nothing has to score badly
+or there is no exercise.
+
+The rates are deliberately not tighter than that. Against a ten-minute agreement a burst of three
+left the last one owing **eighteen minutes** — four or five turns in the hold before it could be
+delivered, which is a punishment rather than a puzzle. The deficit has to be absorbable with the
+tools the player actually has.
+
+**A delivery is graded on four things** (§8.3), all read at the last fix of the route:
+
+| Condition | Why |
+| --- | --- |
+| Established on its published arrival | The fault this position exists to prevent — an aircraft handed on as a problem rather than as a sequence |
+| At the published crossing altitude, ±200 ft | The altimeter tolerance a level bust is judged on |
+| At the published crossing speed, ±10 kt | The tolerance a pilot is allowed against an assignment |
+| Not inside the gate's own interval behind the last delivery | The agreement itself |
+
+**Early is the fault; late is not.** Delivering into a gap endangers nobody — it wastes capacity,
+which shows in the achieved rate against the agreed one. Delivering too close is what overloads the
+controller downstream, which is the whole premise of the position.
+
+Unlike the handoff to Tower (§10), a delivery is never *withheld*. Approach can keep an aircraft on
+frequency because the runway is still ahead of it; a center sector's boundary is a line the aircraft
+has already crossed by the time it is at the fix, and holding on to it would be flying in someone
+else's airspace. So a bad delivery is made, counted, and told to the player afterwards — which is
+what the real feedback loop is.
+
+---
+
 ### 3.3 Player authority limits
 
 | Parameter | Range | Step |
@@ -348,6 +400,43 @@ defer a sequencing decision. Crossing it outbound is a **scored failure, not a s
 Consequence for the player: absorbing delay means using the full 50 NM with turns and speed, not
 running someone off the edge of the scope. This is the pressure that makes holding patterns worth
 adding in v2.
+
+### 3.5 Two shapes, and two jobs
+
+Everything above describes an **approach** field: a circle centred on the airport with its caps cut
+off, inside which the player sequences arrivals onto one ILS. `Scenario.role` names the other job.
+
+| | `approach` | `center` |
+| --- | --- | --- |
+| Shape | `chordedCircle` — a circle about the ARP, caps cut (§3.1) | `sector` — an annular wedge: an inner arc, an outer arc, two radials |
+| VABB | 60 NM circle | 50–160 NM, 125°–285° |
+| Takes arrivals | at a gate on the boundary, on a STAR (§3.2) | the same, at cruise, much further out |
+| Gives them up | to Tower, established on the localizer (§10) | to Approach, at a delivery gate (§3.2a) |
+| Graded on | what lands, and how it got there (§8) | what it hands on, and whether it was wanted (§8.3) |
+| Runway | flown | drawn only — it anchors the frame |
+
+**Both shapes are measured from the ARP.** `Scenario.arp` stays the origin of the local frame, so
+every `FixAt` closure, every range ring and the airspace geometry itself are unchanged — a range ring
+is DME from the field, which is what a controller reads off it. What a sector moves is where the
+*scope* is centred: a wedge from 50 to 160 NM on one side of the field puts the field itself in a
+corner, so `Airspace.view` is the box the projection fits to, and it is derived from the shape rather
+than declared. At an approach field it is the airport with the radius either side, which is what the
+scope has always fitted.
+
+**A role is a property of the facility, not of the field**, which sits awkwardly beside the rule that
+`constants.ts` holds the job and the `Scenario` holds the field (§11.4). It rides on the scenario for
+two reasons: a field *is* one position at one facility — VABB approach and the sector feeding it are
+two scenarios, not one with a switch — and the layering rules leave no other channel, since nothing
+under `src/sim/` or `src/render/` may import a scenario value.
+
+**The two overlap by ten miles, deliberately.** VABBS delivers at 50 NM; VABB spawns at 60. A
+transfer of control point inside the receiving unit's lateral boundary is ordinary, and what matters
+is that the two agree about the crossing — which is why VABBS hands KETOR over at 15,000/260 and
+MOLGO at 14,000/260, exactly what `fields/vabb/stars.ts` expects. The ten miles are what lets the
+sector **hold at its own entry fixes**: put the boundary on KETOR itself and the last sequencing
+decision has to be made before the fix, with nowhere to put an aircraft that needs to wait.
+
+---
 
 ## 4. Aircraft model
 
@@ -1768,6 +1857,54 @@ anything — nothing scores a departure yet (§15.11) — they are there to be n
 
 ---
 
+### 8.3 What an area sector is scored on
+
+An approach field is scored on what lands. A center sector is scored on what it **hands on**, at a
+boundary it never sees the far side of — which is the whole difference between the two jobs, and the
+reason this is a separate section rather than a row in §8.
+
+`DELIVERED` counts them. One row per delivery gate reads **achieved against agreed** (`13/15`), with
+the same open-interval decay the landing rate uses (§8.2) and for the same reason: a stream that has
+gone quiet is a stream falling behind its agreement, and the number has to say so. `TOO CLOSE`,
+`UNSEQUENCED` and `OFF CROSSING` tally the faults of §3.2a.
+
+#### The deficit, and why it is stated in time
+
+Each inbound carries an estimate at its delivery fix — distance to go over ground speed — and the
+stream is slotted first-come-first-served on that estimate. An aircraft's **deficit** is the gap
+between the earliest time the agreement allows it and the time it will actually arrive:
+
+    deficit = (slot of the aircraft ahead + agreed interval) − own estimate
+
+Positive is time to lose, and the data block says `L2`; negative is slack in hand, and says `G3`.
+It is measured against the slot the aircraft *ahead* was given rather than pairwise, so it
+accumulates down a queue the way the delay actually does — three aircraft two minutes apart in a
+four-minute stream owe two, four and six minutes, not two minutes each.
+
+**The scope states the deficit and never the remedy.** A readout that printed "SPEED 250" would be a
+to-do list, and choosing between speed, track miles and the hold is the entire exercise. Which also
+means delay needs no separate ledger: every instrument the player has moves the estimate — a hold
+parks the distance to go while everyone else's counts down, a vector lengthens it, a speed reduction
+stretches it — so the estimate *is* the ledger, and there is nothing to bank twice. This closes the
+"holding is unmetered" question of §15.9.
+
+#### The freeze horizon
+
+Outside **120 NM** to the delivery fix the deficit is not shown and the order is still provisional;
+inside it the slot is a commitment and the deficit is the player's to absorb. That threshold is what
+makes a sequence a sequence rather than a running guess, and it is the difference between metering
+and merely vectoring. Real traffic-based metering freezes about twenty minutes from the meter fix,
+which at the ground speed of a descending jet is close to the same distance — and here it also falls
+two thirds of the way in from the boundary, so there is sector on both sides of it.
+
+#### Track miles
+
+The ratio (§8) is measured against the **route** at a center field rather than against a straight-in
+to the threshold. The aircraft never goes near the runway — it is handed on 50 NM out — so including
+the run to a field it will not see makes every ratio read under 1 however far it is vectored.
+
+---
+
 ## 9. Separation and conflict detection
 
 - **Violation:** horizontal < **3.0 NM** *and* vertical < **1000 ft** simultaneously (§2.1).
@@ -2238,22 +2375,35 @@ where the arrivals are" — it is gone rather than recorded.
 
 None of these blocks play; each is a small, contained change.
 
-0. **The enroute transitions**, which feed VABB's five entry fixes from 73 to 210 NM out. Modelling
-   them means either an airspace three times the size or a notion of an arrival that is handed over
-   already partway down a route — the second is the interesting one, and neither is needed to fly the
-   field.
+0. **~~The enroute transitions~~** Resolved 2026-09-11, and by the option this entry expected to be
+   the dull one: an airspace three times the size, built as its **own field** rather than as a bigger
+   VABB. `?airport=VABBS` is the sector from 50 to 160 NM south of Mumbai, flying the six published
+   KETOR 2A and two of the three MOLGO 2A transitions (§3.5); the arrival is still handed over on a
+   boundary, and it is the boundary that moved. What made it cheap was that **a center field is an
+   ordinary `Scenario` whose routes end at a delivery fix instead of at a final-approach platform**,
+   so `flyProfile`, the holds, `rejoinTarget` and the merge groups all work unchanged at 160 NM.
+   Still open: the northern sector — EMRAK's, IGBAN's and POKON's transitions.
 0a. **A runway in use that can change.** Both fields hard-wire one: RWY 18 and RWY 27. VABB's 09 is
    the other ILS end and would be a second `ScenarioSpec` (`?airport=VABB09`) long before it is worth
    an `activeRunwayId` — a *selection*, and the wind that would justify it, is a further step again.
    `inactiveRunways` deliberately does not start this: nothing under `src/sim/` reads it.
-0e. **A multi-entry STAR.** Not needed at either shipped field (§14), and the mechanism is the mirror
-   of the SID exits — a trunk with N stubs, each compiling to its own flat `Star`. Worth knowing the
-   shape is already proven.
+0e. **~~A multi-entry STAR.~~** Resolved 2026-09-11, and it was the mirror of the SID exits as
+   predicted: `StarSpec.entries` is a trunk with N stubs, each compiling to its own flat `Star`
+   carrying the trunk again, `Star.chart` shared and `Star.name` unique (`KETOR2A/KABSO`). VABBS
+   needs it — one chart, six ways in. The **one place it is not a mirror** is where the gate goes: a
+   SID's branches share the runway as their origin and diverge, while a STAR's entries have different
+   origins and converge, so each entry names its own gate *and its own entry crossing*. That second
+   half is load-bearing — a 145 NM feed and a 97 NM feed onto one trunk cannot be handed over at the
+   same level.
 0b. **A per-approach glideslope angle.** 3° is a constant (A17). It is a published per-runway figure,
    along with the antenna offset and threshold crossing height, and would move onto `Runway` the day
    a field needs it.
-0c. **A non-horizontal airspace shape** (A16), and **a boundary that is not a chorded circle** — the
-   shape is one function of an `Airspace`, so a general polygon is a contained change.
+0c. **A non-horizontal airspace shape** (A16). The *lateral* half is resolved: `AirspaceShape` is a
+   discriminated union and a `sector` — an annular wedge — is the second member (§3.5). It was the
+   contained change it was predicted to be: one branch each in `boundaryMarginNm`,
+   `isInsideAirspace`, `boundaryRangeAtBearing`, `clipToAirspace`, `drawBoundary` and `isOnScope`.
+   What it cost that was *not* predicted is that the scope could no longer assume the airport is in
+   the middle of its own airspace — hence `Airspace.view`. A general polygon is now a third member.
 0d. **Serialised recordings.** A `Recording` carries its `Scenario`, so it is self-describing, but
    nothing is persisted. If it ever is: a recording whose field is not registered must be *refused*,
    with the reason shown. Never draw a recording against a different chart — the aircraft would be
@@ -2271,9 +2421,12 @@ None of these blocks play; each is a small, contained change.
    intercept of the first leg the assigned heading crosses rather than by the `direct <fix>` this
    entry expected. A direct-to is not modelled as its own instruction — aiming at a fix produces one
    as a special case of the ray — so the phraseology half of the question is still open.
-9. **Holding is unmetered** — nothing scores time spent in a pattern, and nothing stops the whole
-   arrival flow being parked indefinitely. Track miles flown already grow while holding, so the
-   efficiency ratio (§8) absorbs some of it, but a deliberate delay cost would say more.
+9. **~~Holding is unmetered~~** Resolved for an area sector 2026-09-11, and by *not* building the
+   thing this entry asked for. A hold needs no delay ledger of its own, because the **estimate at the
+   delivery fix is the ledger** (§8.3): holding parks an aircraft's distance to go while every other
+   aircraft's counts down, so the cost shows up as a deficit against the slots behind it without
+   anything counting circuits. Still open at an approach field, which has no delivery fix to be late
+   for.
 10. **One hold per fix** — two aircraft told to hold at the same fix fly the same racetrack at the
     same published altitude and will trigger a separation violation. Real holds stack at 1000 ft
     intervals; here the controller has to assign the levels by hand, which is arguably the more

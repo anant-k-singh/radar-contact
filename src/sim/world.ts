@@ -7,6 +7,7 @@ import type { Aircraft } from './aircraft.js';
 import { isDeparture, sampleRadar } from './aircraft.js';
 import { boundaryMarginNm } from '../scenario/airspace.js';
 import {
+  DELIVERY_CAPTURE_NM,
   EXIT_WARN_MARGIN_NM,
   HISTORY_PERIOD_S,
   IN_TRAIL_MIN_NM,
@@ -17,6 +18,14 @@ import {
   RADAR_PERIOD_S,
   TRAIL_LENGTH,
 } from './constants.js';
+import {
+  assessDelivery,
+  deliveryPlan,
+  destinationOf,
+  type Delivery,
+  type DeliveryFault,
+  type DeliverySlot,
+} from './delivery.js';
 import { stepDeparture, type DepartureEvent } from './departure.js';
 import { groundSpeed, stepKinematics } from './dynamics.js';
 import { finalGeometry, isEstablished, stepApproach, type ApproachEvent } from './ils.js';
@@ -78,6 +87,21 @@ export interface Stats {
   violationSeconds: number;
   goArounds: number;
   exits: number;
+  /**
+   * Arrivals handed to the next sector down at a delivery gate (§8.3). Zero at
+   * an approach field, which lands them instead.
+   */
+  deliveries: number;
+  /**
+   * Sim time of each delivery, per gate.
+   *
+   * Per gate and not pooled, because the agreement is per gate: a sector feeding
+   * two streams that delivers twenty an hour into one and none into the other
+   * has satisfied neither. Trimmed to the last few, as the other rate series are.
+   */
+  deliveryTimesS: Map<string, Sec[]>;
+  /** Deliveries that were made but not cleanly, by reason (§8.3). */
+  deliveryFaults: Map<string, number>;
   rejections: Map<string, number>;
   /** Clearances that were accepted but did not intercept, by reason (§6.1a). */
   missedIntercepts: Map<string, number>;
@@ -115,6 +139,14 @@ export interface World {
   departureRng: Rng;
   traffic: TrafficState;
   separation: SeparationReport;
+  /**
+   * Where every inbound sits in its stream, recomputed each tick (§8.3).
+   *
+   * Beside `separation` and for the same reason: it is derived from the aircraft
+   * rather than owned, every renderer wants it, and recomputing it per frame in
+   * three layers would be three chances to disagree. Empty at an approach field.
+   */
+  deliverySlots: Map<number, DeliverySlot>;
   selectedId: number | null;
   paused: boolean;
   timeScale: number;
@@ -151,6 +183,9 @@ export function createWorld(
       violationSeconds: 0,
       goArounds: 0,
       exits: 0,
+      deliveries: 0,
+      deliveryTimesS: new Map(),
+      deliveryFaults: new Map(),
       rejections: new Map(),
       missedIntercepts: new Map(),
       trackMileRatioSum: 0,
@@ -170,6 +205,7 @@ export function createWorld(
       inTrailLeader: new Map(),
       inTrailMinimum: new Map(),
     },
+    deliverySlots: new Map(),
     selectedId: null,
     paused: false,
     timeScale: 1,
@@ -295,6 +331,27 @@ export function arrivalRatePerHour(world: World): number | null {
   return ratePerHour(world.stats.arrivalTimesS, world.timeS);
 }
 
+/** The most recent delivery at each gate, which is what the next slot follows. */
+function lastDeliveryTimes(world: World): Map<string, Sec> {
+  const last = new Map<string, Sec>();
+  for (const [gate, times] of world.stats.deliveryTimesS) {
+    const at = times[times.length - 1];
+    if (at !== undefined) last.set(gate, at);
+  }
+  return last;
+}
+
+/**
+ * Deliveries per hour into one gate, against the rate that gate asked for.
+ *
+ * The same open-interval decay the landing rate uses, and for the same reason: a
+ * stream that has gone quiet is a stream falling behind its agreement, and the
+ * number has to say so rather than standing at whatever it last achieved.
+ */
+export function deliveryRatePerHour(world: World, fixName: string): number | null {
+  return ratePerHour(world.stats.deliveryTimesS.get(fixName) ?? [], world.timeS);
+}
+
 export function departureQueueLength(world: World): number {
   return world.traffic.departureQueue;
 }
@@ -340,6 +397,115 @@ function tryHandoff(world: World, ac: Aircraft): void {
   ac.handedOff = true;
   world.stats.handoffs += 1;
   log(world, `${ac.callsign}, contact Tower on ${world.scenario.facility.towerFrequency}.`, 'system', [ac.id]);
+}
+
+/**
+ * Hand an arrival to the next sector down, and grade what it got (§8.3).
+ *
+ * The mirror of `tryHandoff`, read from the other end of a session: that one
+ * gives an aircraft to Tower once it is established on the localizer, this one
+ * gives it to Approach once it has reached the fix the two sectors share.
+ *
+ * Unlike `tryHandoff` it never *withholds* the transfer. Approach control can
+ * keep an aircraft on frequency until the closure rate is acceptable because the
+ * runway is still ahead of it; a center sector's boundary is a line the aircraft
+ * has already crossed by the time it is at the fix, and holding on to it would
+ * be flying in someone else's airspace. So a bad delivery is made and counted,
+ * which is the honest model — the cost of poor sequencing is paid by the
+ * controller downstream, and being told about it afterwards is exactly what the
+ * real feedback loop is.
+ *
+ * Returns true when the aircraft has been removed.
+ */
+function tryDelivery(world: World, ac: Aircraft): boolean {
+  if (world.scenario.role !== 'center') return false;
+  const destination = destinationOf(ac);
+  const gate = world.scenario.delivery.find((entry) => entry.fixName === destination);
+  if (!gate) return false;
+  // The route is flown to its last fix, so reaching it is the delivery. An
+  // aircraft vectored off and never given back arrives at the boundary instead —
+  // `checkSectorExit` catches that one, and counts it as the loss it is.
+  const route = ac.star?.route ?? null;
+  if (route === null || ac.star!.index < route.waypoints.length - 1) return false;
+  if (distance({ x: ac.x, y: ac.y }, gate.position) > DELIVERY_CAPTURE_NM) return false;
+
+  const times = world.stats.deliveryTimesS.get(gate.fixName) ?? [];
+  const previousS = times[times.length - 1] ?? null;
+  const verdict = assessDelivery(gate, ac, previousS, world.timeS);
+
+  times.push(world.timeS);
+  if (times.length > MOVEMENT_RATE_INTERVALS + 1) times.shift();
+  world.stats.deliveryTimesS.set(gate.fixName, times);
+  world.stats.deliveries += 1;
+  for (const fault of verdict.faults) {
+    world.stats.deliveryFaults.set(fault, (world.stats.deliveryFaults.get(fault) ?? 0) + 1);
+  }
+
+  const frequency = world.scenario.facility.approachFrequency;
+  if (verdict.faults.length === 0) {
+    log(
+      world,
+      `${ac.callsign} at ${gate.fixName}, contact Approach on ${frequency}.`,
+      'system',
+      [ac.id],
+    );
+  } else {
+    log(
+      world,
+      `${ac.callsign} handed to Approach at ${gate.fixName} — ${verdict.faults
+        .map((fault) => deliveryFaultText(fault, verdict))
+        .join(', ')}.`,
+      'alert',
+      [ac.id],
+    );
+  }
+  remove(world, ac);
+  return true;
+}
+
+function deliveryFaultText(fault: DeliveryFault, verdict: Delivery): string {
+  switch (fault) {
+    case 'early':
+      return `${Math.round(verdict.gapS ?? 0)} s behind the last one, against ${Math.round(
+        verdict.requiredGapS,
+      )} s agreed`;
+    case 'level':
+      return 'not at the agreed level';
+    case 'speed':
+      return 'not at the agreed speed';
+    case 'unsequenced':
+      return 'still on a vector, not established on the arrival';
+  }
+}
+
+/**
+ * An arrival that reached the inner boundary without ever being delivered — it
+ * was vectored off its route and left there, so it crosses into the next
+ * sector's airspace unsequenced and unannounced.
+ *
+ * Separate from `checkAirspaceExit` because it is the opposite direction:
+ * everything that check knows about is *outbound*, and this one happens while
+ * the aircraft is tracking straight at the field.
+ *
+ * Returns true when the aircraft has been removed.
+ */
+function checkSectorExit(world: World, ac: Aircraft): boolean {
+  const shape = world.scenario.airspace.shape;
+  if (shape.kind !== 'sector') return false;
+  if (distance({ x: ac.x, y: ac.y }, world.scenario.arp) >= shape.innerNm) return false;
+  world.stats.exits += 1;
+  world.stats.deliveryFaults.set(
+    'unsequenced',
+    (world.stats.deliveryFaults.get('unsequenced') ?? 0) + 1,
+  );
+  log(
+    world,
+    `${ac.callsign} entered the terminal area off the arrival — Approach is taking it unsequenced.`,
+    'alert',
+    [ac.id],
+  );
+  remove(world, ac);
+  return true;
 }
 
 function checkAirspaceExit(world: World, ac: Aircraft): boolean {
@@ -654,6 +820,14 @@ export function step(world: World, dt: Sec): void {
     world.scenario.terrain,
   );
   accountViolations(world, dt);
+  // Where everything sits in its stream, on the same picture the separation was
+  // read off. Empty at an approach field, which delivers to nobody.
+  world.deliverySlots = deliveryPlan(
+    world.scenario.delivery,
+    world.aircraft,
+    lastDeliveryTimes(world),
+    world.timeS,
+  );
 
   // ── Fly ──────────────────────────────────────────────────────────────────
   for (const ac of [...world.aircraft]) {
@@ -691,7 +865,9 @@ export function step(world: World, dt: Sec): void {
     // the very tick it happens.
     stepKinematics(ac, dt, ac.phase !== 'gs' && !starOwnsVertical(ac));
 
+    if (tryDelivery(world, ac)) continue;
     if (checkAirspaceExit(world, ac)) continue;
+    if (checkSectorExit(world, ac)) continue;
     tryHandoff(world, ac);
   }
 

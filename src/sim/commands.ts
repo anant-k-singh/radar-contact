@@ -13,6 +13,8 @@ import {
   MAX_REJOIN_ANGLE_DEG,
   SPEED_FLOOR_CLEAN_KTS,
   SPEED_FLOOR_LOW_KTS,
+  SPEED_HIGH_LEVEL_FT,
+  SPEED_MAX_HIGH_KTS,
   SPEED_MAX_KTS,
   SPEED_STEP_KTS,
 } from './constants.js';
@@ -44,6 +46,19 @@ export type Direction = -1 | 1;
 export function speedFloorKts(runway: Runway, ac: Aircraft): number {
   if (rangeToThresholdNm(runway, ac) <= CONFIG_RANGE_NM) return SPEED_FLOOR_LOW_KTS;
   return Math.max(SPEED_FLOOR_CLEAN_KTS, ac.type.minCleanKts);
+}
+
+/**
+ * Fastest the player may assign, which depends on how high the aircraft is.
+ *
+ * Read off the *assigned* altitude rather than the live one, for the reason the
+ * increments are computed from the assigned value: an aircraft descending
+ * through 10,100 towards an assigned 8000 is already a low-level aircraft as far
+ * as what may be asked of it goes, and stepping its speed should not depend on
+ * which side of the line this tick's altitude happens to fall.
+ */
+export function speedCeilingKts(ac: Aircraft): number {
+  return assignedAltitudeFt(ac) > SPEED_HIGH_LEVEL_FT ? SPEED_MAX_HIGH_KTS : SPEED_MAX_KTS;
 }
 
 function guard(world: World, ac: Aircraft): boolean {
@@ -110,9 +125,10 @@ export function adjustSpeed(world: World, ac: Aircraft, direction: Direction): v
     );
     return;
   }
-  const next = clamp(requested, floor, SPEED_MAX_KTS);
+  const ceiling = speedCeilingKts(ac);
+  const next = clamp(requested, floor, ceiling);
   if (next === base) {
-    log(world, `${ac.callsign} unable — at ${SPEED_MAX_KTS} kt.`, 'system', [ac.id]);
+    log(world, `${ac.callsign} unable — at ${ceiling} kt.`, 'system', [ac.id]);
     return;
   }
 

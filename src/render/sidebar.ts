@@ -5,7 +5,9 @@
  * Plain DOM on purpose — this is six fields and a log (docs §11.2).
  */
 import { speedFloorKts } from '../sim/commands.js';
+import type { Aircraft } from '../sim/aircraft.js';
 import { isDeparture } from '../sim/aircraft.js';
+import { destinationOf, requiredGapS } from '../sim/delivery.js';
 import { activeSidFix } from '../sim/departure.js';
 import {
   DEPARTURE_FLOW_STEP_PER_HOUR,
@@ -13,6 +15,8 @@ import {
   TIME_SCALE_BUTTONS,
   TIME_SCALES,
   VS_DISPLAY_STEP_FPM,
+  DELIVERY_SHOW_GAIN_S,
+  DELIVERY_SHOW_LOSE_S,
 } from '../sim/constants.js';
 import {
   evaluateClearance,
@@ -22,7 +26,7 @@ import {
   rangeToThresholdNm,
 } from '../sim/ils.js';
 import { assignedAltitudeFt, assignedHeadingDeg, assignedIasKts, isPending } from '../sim/pilot.js';
-import { activeFix, legGeometry, starTargetSpeedKts } from '../sim/star.js';
+import { activeFix, distanceToGoNm, legGeometry, starTargetSpeedKts } from '../sim/star.js';
 import { displayHeading, distance, quantize } from '../sim/units.js';
 import type { World } from '../sim/world.js';
 import { selectedAircraft } from '../sim/world.js';
@@ -49,11 +53,21 @@ export interface Sidebar {
   update(world: World, mode?: 'live' | 'replay'): void;
 }
 
-const fieldLabel = (scenario: Scenario): string => `${scenario.icao} · RWY ${scenario.runway.id}`;
+/**
+ * How a field reads in the airport picker.
+ *
+ * A center sector shares its ICAO with the approach field it feeds — VABB and
+ * VABBS are both Mumbai — so the runway is not what tells them apart, and naming
+ * a runway a sector never lands on would be wrong anyway. It gives its own name.
+ */
+const fieldLabel = (scenario: Scenario): string =>
+  scenario.role === 'center'
+    ? `${scenario.icao} · ${scenario.name}`
+    : `${scenario.icao} · RWY ${scenario.runway.id}`;
 
 /** The field list is handed in: nothing under `src/render/` may name one (§11.4). */
 const template = (scenarios: readonly Scenario[]): string => `
-  <div class="brand">APPROACH<span>RADAR</span></div>
+  <div class="brand" data-field="brand">APPROACH<span>RADAR</span></div>
   <div class="field-line">
     <select data-field="airport" aria-label="Airport">
       ${scenarios.map((s) => `<option value="${s.id}">${fieldLabel(s)}</option>`).join('\n      ')}
@@ -77,13 +91,21 @@ const template = (scenarios: readonly Scenario[]): string => `
       <dt>Route</dt><dd data-field="star"></dd>
       <dt>Next fix</dt><dd data-field="nextfix"></dd>
       <dt>Range</dt><dd data-field="range"></dd>
+    </dl>
+    <dl class="detail approach-only">
       <dt>Cross-track</dt><dd data-field="xtk"></dd>
       <dt>G/S here</dt><dd data-field="gs"></dd>
       <dt>Intercept</dt><dd data-field="intercept"></dd>
       <dt>In trail</dt><dd data-field="intrail"></dd>
       <dt>Min speed</dt><dd data-field="minspd"></dd>
     </dl>
-    <div class="ils" data-field="ils"></div>
+    <dl class="detail center-only">
+      <dt>Deliver to</dt><dd data-field="dgate"></dd>
+      <dt>Wanted every</dt><dd data-field="dgap"></dd>
+      <dt>Arrives in</dt><dd data-field="deta"></dd>
+      <dt>Sequence</dt><dd data-field="ddeficit"></dd>
+    </dl>
+    <div class="ils approach-only" data-field="ils"></div>
   </div>
 
   <h2 class="live-only">Controls</h2>
@@ -116,6 +138,12 @@ const template = (scenarios: readonly Scenario[]): string => `
   </div>
 `;
 
+/** `4:15` — a duration in minutes and seconds, which is how a gap is read. */
+function minutesText(seconds: number): string {
+  const whole = Math.max(0, Math.round(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+}
+
 /** `(−700)` / `(+1200)`, blank when the aircraft is holding its level. */
 function verticalRateText(vsFpm: number): string {
   const rounded = quantize(vsFpm, VS_DISPLAY_STEP_FPM);
@@ -131,12 +159,54 @@ export function createSidebar(
   root.innerHTML = template(scenarios);
 
   const fields = new Map<string, HTMLElement>();
+  /**
+   * The classes an element was authored with, kept because `set` rewrites
+   * `className` wholesale and would otherwise strip them on the first update.
+   * That is how the ILS box kept appearing on a center field: it is marked
+   * `approach-only` in the template, and the first `set('ils', …)` deleted the
+   * mark along with everything else.
+   */
+  const authored = new Map<string, string>();
   root.querySelectorAll<HTMLElement>('[data-field]').forEach((element) => {
     fields.set(element.dataset.field!, element);
+    if (element.className) authored.set(element.dataset.field!, element.className);
   });
 
   const airport = fields.get('airport') as HTMLSelectElement;
   airport.addEventListener('change', () => handlers.selectAirport(airport.value));
+
+  /**
+   * The four rows an area controller actually works from (§8.3).
+   *
+   * `Wanted every` is the agreement itself, spelled out per aircraft rather than
+   * left to be inferred from a rate in the gutter — it is the number the whole
+   * job is measured against, and a player who has to divide 3600 by it before
+   * every decision is being asked to do arithmetic instead of control.
+   *
+   * `Time to lose` is the same figure the data block prints as `L2`, at a
+   * resolution worth acting on. It says what is wrong and never what to do about
+   * it: choosing between speed, track miles and the hold is the exercise.
+   */
+  const setDelivery = (world: World, ac: Aircraft): void => {
+    const slot = world.deliverySlots.get(ac.id);
+    const gate = world.scenario.delivery.find((entry) => entry.fixName === destinationOf(ac));
+    set('dgate', gate ? gate.fixName : '—');
+    set('dgap', gate ? `${minutesText(requiredGapS(gate))}  (${gate.targetRatePerHour}/h)` : '—');
+    set('deta', slot ? minutesText(slot.etaS - world.timeS) : '—');
+    if (!slot) {
+      set('ddeficit', '—');
+    } else if (!slot.frozen) {
+      // Outside the freeze horizon the order can still change, so a figure here
+      // would be a guess presented as an instruction.
+      set('ddeficit', 'not yet sequenced');
+    } else if (slot.deficitS >= DELIVERY_SHOW_LOSE_S) {
+      set('ddeficit', `lose ${minutesText(slot.deficitS)}`, 'bad');
+    } else if (slot.deficitS <= -DELIVERY_SHOW_GAIN_S) {
+      set('ddeficit', `${minutesText(-slot.deficitS)} in hand`);
+    } else {
+      set('ddeficit', 'in the slot', 'ok');
+    }
+  };
 
   const set = (name: string, text: string, className?: string): void => {
     const element = fields.get(name);
@@ -145,7 +215,8 @@ export function createSidebar(
     const next = className ?? '';
     if (element.dataset.state !== next) {
       element.dataset.state = next;
-      element.className = next;
+      const base = authored.get(name);
+      element.className = base ? (next ? `${base} ${next}` : base) : next;
     }
   };
 
@@ -185,8 +256,18 @@ export function createSidebar(
   return {
     update(world: World, mode: 'live' | 'replay' = 'live'): void {
       if (root.dataset.mode !== mode) root.dataset.mode = mode;
+      // Which set of readouts the panel shows — see `.center-only` in style.css.
+      if (root.dataset.role !== world.scenario.role) root.dataset.role = world.scenario.role;
       const replay = mode === 'replay';
       if (airport.value !== world.scenario.id) airport.value = world.scenario.id;
+      // Which job the player is doing. The brand is the one piece of the panel
+      // that names the position rather than describing the traffic, so it is
+      // what has to change when the position does.
+      const brand = fields.get('brand');
+      if (brand) {
+        const title = world.scenario.role === 'center' ? 'AREA' : 'APPROACH';
+        if (brand.firstChild?.textContent !== title) brand.firstChild!.textContent = title;
+      }
       set('clock', clockText(world.timeS));
       set('flow', `${world.flowPerHour}/h`);
       set('depflow', world.departureFlowPerHour === 0 ? 'off' : `${world.departureFlowPerHour}/h`);
@@ -292,7 +373,18 @@ export function createSidebar(
           set('nextfix', '—');
         }
 
-        set('range', `${rangeToThresholdNm(world.scenario.runway, ac).toFixed(1)} NM`);
+        // Range to whatever this position is working towards: the threshold at
+        // an approach field, and the fix the aircraft is handed on at in a
+        // sector, which is 50 NM short of a runway it never sees.
+        const nav = ac.star ?? ac.rejoin?.nav ?? null;
+        set(
+          'range',
+          world.scenario.role === 'center'
+            ? nav
+              ? `${distanceToGoNm(ac, nav).toFixed(1)} NM to run`
+              : '—'
+            : `${rangeToThresholdNm(world.scenario.runway, ac).toFixed(1)} NM`,
+        );
         set(
           'xtk',
           geo.alongNm > 0
@@ -316,6 +408,7 @@ export function createSidebar(
           );
         }
         set('minspd', `${speedFloorKts(world.scenario.runway, ac)} kt`);
+        setDelivery(world, ac);
 
         if (ac.handedOff) {
           set('ils', 'With Tower.', 'ils done');

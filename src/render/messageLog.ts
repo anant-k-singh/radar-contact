@@ -111,7 +111,11 @@ export function drawStatusLine(
   ctx.fillStyle = THEME.logSystem;
 
   const parts = [
-    `${world.scenario.icao} RWY ${world.scenario.runway.id} ILS`,
+    // What position this is. A center sector is not working a runway — it never
+    // clears anyone for an approach — so it says which sector it is instead.
+    world.scenario.role === 'center'
+      ? `${world.scenario.icao} ${world.scenario.name}`
+      : `${world.scenario.icao} RWY ${world.scenario.runway.id} ILS`,
     `ARR ${world.flowPerHour}/h`,
     `DEP ${world.departureFlowPerHour === 0 ? 'off' : `${world.departureFlowPerHour}/h`}`,
     `${clockText(world.timeS)}`,

@@ -40,7 +40,29 @@ export const EXIT_WARN_MARGIN_NM = 5;
 export const HEADING_STEP_DEG = 10;
 export const ALTITUDE_STEP_FT = 1000;
 export const SPEED_STEP_KTS = 10;
+/**
+ * Fastest the player may assign below `SPEED_HIGH_LEVEL_FT`.
+ *
+ * The published 250 kt limit below 10,000 ft, which is where it comes from and
+ * why it is a constant of the job rather than of the field.
+ */
 export const SPEED_MAX_KTS = 250;
+/**
+ * Fastest the player may assign above it.
+ *
+ * An en-route sector meets its traffic in the cruise, where a jet is doing
+ * 280-300 KIAS and the whole flow-management instrument is nudging that up and
+ * down — a sector that could only ever say "250 or slower" would have thrown
+ * away its primary tool before the first aircraft arrived. 320 is the clean
+ * structural limit the fleet's own `minCleanKts` figures sit under.
+ *
+ * The break is at 10,000 ft, so nothing an approach controller does below the
+ * transition changes: ZZZZ's whole airspace is under it, and at VABB and LSGG it
+ * restores something that was quietly missing — an arrival handed over at 280 kt
+ * could not previously be given its own handover speed back.
+ */
+export const SPEED_MAX_HIGH_KTS = 320;
+export const SPEED_HIGH_LEVEL_FT = 10_000;
 export const SPEED_FLOOR_CLEAN_KTS = 180; // outside 20 track miles
 export const SPEED_FLOOR_LOW_KTS = 160; // within 20 track miles
 export const CONFIG_RANGE_NM = 20; // the "20 track miles" configuration gate
@@ -256,6 +278,56 @@ export const STAR_REJOIN_XTK_NM = 0.5;
  * where a rejoin tracks straight to the joining fix down 10–40 NM of leg.
  */
 export const MAX_REJOIN_ANGLE_DEG = 50;
+
+// ── Delivering to the next sector (§3.2a, §8.3) ─────────────────────────────
+
+/**
+ * How far off the published crossing a delivery may be and still count as made
+ * good. Two hundred feet is the altimeter tolerance a level bust is judged on;
+ * ten knots is the speed tolerance 7110.65 allows a pilot against an assignment,
+ * so holding the sector to anything tighter would be grading it on something the
+ * crew is not required to fly.
+ */
+export const DELIVERY_LEVEL_TOLERANCE_FT = 200;
+export const DELIVERY_SPEED_TOLERANCE_KTS = 10;
+
+/**
+ * Inside this distance to the delivery fix, an aircraft's slot in the stream
+ * stops being provisional.
+ *
+ * The freeze horizon is what makes a sequence a commitment rather than a running
+ * guess, and it is the difference between metering and vectoring: outside it the
+ * order may still change for free, inside it the deficit is the player's to
+ * absorb. Real traffic-based metering freezes about twenty minutes from the
+ * meter fix, which at the 400 kt ground speed of a descending jet is very close
+ * to this — and here it also lands two thirds of the way in from a 160 NM
+ * boundary, so there is a stretch of sector on both sides of it.
+ */
+export const DELIVERY_FREEZE_HORIZON_NM = 120;
+
+/**
+ * How far off the agreed interval an aircraft has to be before the scope says
+ * so. Under half a minute is inside the noise of a speed assignment, and a
+ * label that flickers between L1 and nothing is worse than no label.
+ */
+export const DELIVERY_SHOW_LOSE_S = 30;
+/**
+ * Slack worth reporting. Larger than the lose threshold on purpose: losing time
+ * is a duty and gaining it is an option, so the gap has to be big enough to be
+ * worth a direct-to before it is worth the ink.
+ */
+export const DELIVERY_SHOW_GAIN_S = 120;
+
+/**
+ * How close to the delivery fix counts as reaching it.
+ *
+ * The same half-mile `STAR_FIX_CAPTURE_NM` uses, and it has to be a radius for
+ * the same reason: the route sequencer flies a fix as a fly-by and cuts the
+ * corner, so an aircraft never passes exactly over one. A delivery fix is the
+ * last on its route and has no corner to cut, but it is still approached at
+ * 450 kt — an eighth of a mile per tick — so a point would be missed.
+ */
+export const DELIVERY_CAPTURE_NM = 0.5;
 
 // ── Departures and SIDs (§4.7) ──────────────────────────────────────────────
 /**

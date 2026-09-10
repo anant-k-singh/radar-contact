@@ -400,3 +400,12 @@ button:hover {
 #sidebar[data-mode='replay'] .live-only {
   display: none;
 }
+
+/* The two positions read different numbers. An area sector has no localizer to
+   be off, no glideslope to be under and no runway to be slow for, so those rows
+   would sit at an em dash for the whole session; an approach controller has
+   nothing to deliver. Each panel shows only the one it is working from. */
+#sidebar:not([data-role='center']) .center-only,
+#sidebar[data-role='center'] .approach-only {
+  display: none;
+}
