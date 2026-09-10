@@ -65,6 +65,22 @@ export const SPEED_MAX_HIGH_KTS = 320;
 export const SPEED_HIGH_LEVEL_FT = 10_000;
 export const SPEED_FLOOR_CLEAN_KTS = 180; // outside 20 track miles
 export const SPEED_FLOOR_LOW_KTS = 160; // within 20 track miles
+/**
+ * Slowest an **area** sector may assign, at any range.
+ *
+ * The two floors above exist to stop an arrival being slowed before it can take
+ * flap, and they are measured from a threshold — which an en-route sector's
+ * traffic never approaches. Applied there they collapse to a flat 180 kt at
+ * FL300, which is not a speed a jet has: it is below clean manoeuvring at that
+ * level for every type in the fleet.
+ *
+ * 250 is a little under the 260 both streams are delivered at, so speed is still
+ * a usable instrument — 30 kt of reduction off the 280 they arrive on — while
+ * staying inside what the aeroplane can actually fly up there. Below the
+ * transition an aircraft is somebody else's problem: this sector hands off at
+ * 14,000 ft.
+ */
+export const SPEED_FLOOR_CENTER_KTS = 250;
 export const CONFIG_RANGE_NM = 20; // the "20 track miles" configuration gate
 
 // ── Flight dynamics (§4.3) ──────────────────────────────────────────────────

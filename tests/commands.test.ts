@@ -113,7 +113,7 @@ describe('speed assignment', () => {
     // silently retune the rule.
     const floorKts = Math.max(SPEED_FLOOR_CLEAN_KTS, MEDIUM_TYPE.minCleanKts);
     const far = makeAircraft({ ...onFinal(30), iasKts: floorKts, targetIasKts: floorKts });
-    expect(speedFloorKts(RUNWAY, far)).toBe(floorKts);
+    expect(speedFloorKts(RUNWAY, far, 'approach')).toBe(floorKts);
 
     const world = quietWorld(far);
     adjustSpeed(world, far, -1);
@@ -149,13 +149,13 @@ describe('speed assignment', () => {
 
   it('gives heavies a higher clean minimum', () => {
     const heavy = makeAircraft({ ...onFinal(30), type: HEAVY_TYPE });
-    expect(speedFloorKts(RUNWAY, heavy)).toBe(HEAVY_TYPE.minCleanKts);
+    expect(speedFloorKts(RUNWAY, heavy, 'approach')).toBe(HEAVY_TYPE.minCleanKts);
     expect(HEAVY_TYPE.minCleanKts).toBeGreaterThan(MEDIUM_TYPE.minCleanKts);
   });
 
   it('allows 160 kt once inside 20 track miles', () => {
     const near = makeAircraft({ ...onFinal(12), iasKts: 170, targetIasKts: 170 });
-    expect(speedFloorKts(RUNWAY, near)).toBe(160);
+    expect(speedFloorKts(RUNWAY, near, 'approach')).toBe(160);
 
     const world = quietWorld(near);
     adjustSpeed(world, near, -1);

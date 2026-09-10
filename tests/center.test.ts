@@ -10,15 +10,23 @@ import { boundaryMarginNm, isInsideAirspace } from '../src/scenario/airspace.js'
 import { SCENARIOS } from '../src/scenario/registry.js';
 import { validateScenario } from '../src/scenario/validate.js';
 import type { DeliveryGate, Scenario } from '../src/scenario/types.js';
-import { PHYSICS_DT } from '../src/sim/constants.js';
+import {
+  PHYSICS_DT,
+  SPEED_FLOOR_CENTER_KTS,
+  SPEED_MAX_HIGH_KTS,
+  SPEED_STEP_KTS,
+} from '../src/sim/constants.js';
+import { adjustSpeed, speedCeilingKts, speedFloorKts } from '../src/sim/commands.js';
 import {
   assessDelivery,
   deliveryPlan,
   destinationOf,
+  gateReadyInS,
   requiredGapS,
   routeOf,
 } from '../src/sim/delivery.js';
 import { createRng } from '../src/sim/rng.js';
+import { pilotActs } from './helpers.js';
 import { joinStar } from '../src/sim/star.js';
 import { createArrival, createTrafficState } from '../src/sim/traffic.js';
 import { headingVector, type Deg, type Nm } from '../src/sim/units.js';
@@ -216,6 +224,84 @@ describe('the delivery contract', () => {
     // Ten seconds after a KETOR delivery is irrelevant to a MOLGO one: the
     // agreement is per gate, and the previous time handed in is that gate's.
     expect(assessDelivery(rcmg, ac, null, 10).faults).toEqual([]);
+  });
+});
+
+describe('the gate countdown', () => {
+  it('counts the agreed interval down from the last delivery, and floors at zero', () => {
+    const gap = requiredGapS(RCKT);
+    // Nothing delivered yet: the stream is empty and will take anyone.
+    expect(gateReadyInS(RCKT, new Map(), 0)).toBeNull();
+
+    const last = new Map([['RCKT', 100]]);
+    // The instant one is delivered, the whole interval is owed.
+    expect(gateReadyInS(RCKT, last, 100)).toBeCloseTo(gap, 5);
+    expect(gateReadyInS(RCKT, last, 100 + gap / 2)).toBeCloseTo(gap / 2, 5);
+    // Open exactly on the interval, and never negative afterwards.
+    expect(gateReadyInS(RCKT, last, 100 + gap)).toBe(0);
+    expect(gateReadyInS(RCKT, last, 100 + gap * 3)).toBe(0);
+  });
+
+  it('counts each gate down against its own agreement', () => {
+    const rcmg = CENTER.delivery.find((g) => g.fixName === 'RCMG')!;
+    // One map of delivery times, two different intervals: RCKT is wanted every
+    // 7:30 and RCMG every 4:00, so 300 s after a delivery at each, one gate is
+    // still closed and the other has been open a minute.
+    const last = new Map([
+      ['RCKT', 0],
+      ['RCMG', 0],
+    ]);
+    expect(gateReadyInS(RCKT, last, 300)).toBeCloseTo(150, 5);
+    expect(gateReadyInS(rcmg, last, 300)).toBe(0);
+  });
+
+  it('opens the gate exactly when a delivery there would stop being early', () => {
+    // The countdown and the fault have to agree, or the scope is telling the
+    // player to do something it then penalises.
+    const { ac } = arrivalOn('KETOR2A/KABSO');
+    const end = ac.star!.route.waypoints[ac.star!.route.waypoints.length - 1]!;
+    ac.altitudeFt = end.altitudeFt!;
+    ac.iasKts = end.speedKts!;
+    const last = new Map([['RCKT', 0]]);
+    for (const atS of [60, 200, requiredGapS(RCKT) - 1, requiredGapS(RCKT) + 1]) {
+      const open = gateReadyInS(RCKT, last, atS) === 0;
+      const early = assessDelivery(RCKT, ac, 0, atS).faults.includes('early');
+      expect(open, `at ${atS} s`).toBe(!early);
+    }
+  });
+});
+
+describe('speed control in the cruise', () => {
+  it('will not slow an aircraft below what it can fly at this level', () => {
+    const { world, ac } = arrivalOn('KETOR2A/KABSO');
+    // The approach floors are measured from a threshold this aircraft is 145 NM
+    // from and will never reach, so they would answer a flat 180 kt at FL370.
+    expect(speedFloorKts(CENTER.runway, ac, CENTER.role)).toBe(SPEED_FLOOR_CENTER_KTS);
+    expect(speedFloorKts(CENTER.runway, ac, 'approach')).toBeLessThan(SPEED_FLOOR_CENTER_KTS);
+
+    // Stepped down from the 280 it enters on, it stops at the floor and says so.
+    ac.targetIasKts = SPEED_FLOOR_CENTER_KTS + SPEED_STEP_KTS;
+    ac.star!.speedManual = true;
+    adjustSpeed(world, ac, -1);
+    pilotActs(world, ac);
+    expect(ac.targetIasKts).toBe(SPEED_FLOOR_CENTER_KTS);
+
+    world.messages = [];
+    adjustSpeed(world, ac, -1);
+    expect(ac.pending.some((p) => p.instruction.kind === 'speed')).toBe(false);
+    expect(world.messages.at(-1)!.text).toContain(`${SPEED_FLOOR_CENTER_KTS} kt is the minimum`);
+  });
+
+  it('lets the cruise speeds it is handed be assigned back', () => {
+    // Every route enters at 280, which the 250 kt terminal ceiling would have
+    // made unassignable — the aircraft could be slowed and never sped up again.
+    const { world, ac } = arrivalOn('MOLGO2A/AGELA');
+    expect(speedCeilingKts(ac)).toBe(SPEED_MAX_HIGH_KTS);
+    ac.targetIasKts = 280;
+    ac.star!.speedManual = true;
+    adjustSpeed(world, ac, 1);
+    pilotActs(world, ac);
+    expect(ac.targetIasKts).toBe(290);
   });
 });
 

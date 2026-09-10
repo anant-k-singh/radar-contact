@@ -7,18 +7,21 @@ import type { WakeCategory } from '../scenario/aircraftTypes.js';
 import type { Aircraft } from '../sim/aircraft.js';
 import { isDeparture, isDimmed } from '../sim/aircraft.js';
 import { DELIVERY_SHOW_GAIN_S, DELIVERY_SHOW_LOSE_S, TRAIL_LENGTH } from '../sim/constants.js';
-import type { DeliverySlot } from '../sim/delivery.js';
+import { gateReadyInS, type DeliverySlot } from '../sim/delivery.js';
 import { assignedAltitudeFt, assignedHeadingDeg, isPending } from '../sim/pilot.js';
 import { activeFix } from '../sim/star.js';
 import { displayHeading, headingDiff, headingVector } from '../sim/units.js';
 import type { World } from '../sim/world.js';
+import { lastDeliveryTimes } from '../sim/world.js';
 import { clipped, unclipped } from './clip.js';
-import { clipToAirspace } from './mapLayer.js';
+import { clipToAirspace, haloText } from './mapLayer.js';
 import { screenX, screenY, type Projection } from './project.js';
 import type { RenderOptions } from './scope.js';
 import { THEME } from './theme.js';
 
 const LINE_HEIGHT = 12;
+/** Clear of the gate's own diamond and its name, which the chart layer draws. */
+const DELIVERY_CLOCK_GAP_PX = 16;
 /** Clear of the 16 px selection ring, so the connector starts outside it. */
 const CONNECTOR_GAP_PX = 18;
 /**
@@ -332,6 +335,48 @@ function drawConnector(
 }
 
 /** Returns where each data block ended up, so clicks can hit the label as well as the blip. */
+/**
+ * A countdown beside each delivery gate: how long before that stream will take
+ * another arrival without breaking its agreement (§8.3).
+ *
+ * Here rather than on the chart layer because it changes every frame and that
+ * layer is an offscreen cache — the same reason `sidHover` is drawn over the top
+ * rather than into it. It is also the one label on the scope that is about a
+ * *place* rather than an aircraft, which is the point: the data blocks say what
+ * each aircraft owes, and this says what the gate is ready for, so choosing
+ * which of two to send first is one glance instead of two subtractions.
+ *
+ * Amber while the gate is still closed and green the moment it opens, because
+ * the useful reading is binary before it is quantitative — `0:00` means send the
+ * next one now.
+ */
+function drawDeliveryClocks(ctx: CanvasRenderingContext2D, world: World, p: Projection): void {
+  if (world.scenario.delivery.length === 0) return;
+  const last = lastDeliveryTimes(world);
+  ctx.font = THEME.fontBlock;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  for (const gate of world.scenario.delivery) {
+    const readyInS = gateReadyInS(gate, last, world.timeS);
+    // No delivery yet: the stream is empty and will take anyone, so a countdown
+    // would be counting down from nothing.
+    if (readyInS === null) continue;
+    ctx.fillStyle = readyInS > 0 ? THEME.logAlert : THEME.gateLabel;
+    haloText(
+      ctx,
+      clockText(readyInS),
+      screenX(p, gate.position.x),
+      screenY(p, gate.position.y) - DELIVERY_CLOCK_GAP_PX,
+    );
+  }
+}
+
+/** `4:10` — the countdown, in the minutes and seconds a gap is read in. */
+function clockText(seconds: number): string {
+  const whole = Math.max(0, Math.round(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+}
+
 export function drawTraffic(
   ctx: CanvasRenderingContext2D,
   world: World,
@@ -341,6 +386,10 @@ export function drawTraffic(
   const placed: Rect[] = [];
   const blocks = new Map<number, Rect>();
   ctx.lineCap = 'round';
+
+  // Before the aircraft, so a data block that lands on a gate covers the clock
+  // rather than the other way round: the traffic is what the scope is for.
+  drawDeliveryClocks(ctx, world, p);
 
   // Everything positioned in the world — trail, leader, hint, blip — is content
   // and is clipped to the fixed circle, so magnifying cannot spill it across the

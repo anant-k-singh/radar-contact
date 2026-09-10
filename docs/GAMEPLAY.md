@@ -397,6 +397,13 @@ Arrives in            13:17     when it gets there if you do nothing
 Sequence         lose 11:27     what you have to fix
 ```
 
+Each gate also carries a **countdown** on the scope — `4:10` above RCMG — which is how long before
+that stream will take another arrival without breaking its agreement. Amber while it is closed,
+green at `0:00`. It is the one label on the scope that is about a *place* rather than an aircraft:
+the data blocks say what each aircraft owes, and this says what the gate is ready for, so deciding
+which of two to send first is one glance rather than two subtractions. A gate that has taken nothing
+yet shows no clock — an empty stream will take anyone.
+
 **`Wanted every` is the answer to "how much spacing?"** — you do not have to work it out from the
 rate. RCKT wants one every 7:30; RCMG one every 4:00. `Sequence` then tells you where this aircraft
 sits against that: `lose 11:27`, `in the slot`, `3:20 in hand`, or `not yet sequenced` while it is
@@ -414,11 +421,15 @@ are very different:
 
 | Tool | What it buys | The catch |
 | --- | --- | --- |
-| **Speed** (`Q`/`E`) | ~1 NM per minute for every 60 kt of difference | Free, but slow — issue it early or it does nothing |
+| **Speed** (`Q`/`E`) | ~1 NM per minute for every 60 kt of difference | Free, but slow — issue it early or it does nothing. **250 kt is the floor** up here |
 | **Vectors** (`A`/`D`) | 2 NM of track for every 1 NM off course, immediately | Takes the aircraft off its arrival, and an aircraft delivered on a vector is a fault |
 | **Hold** (`H`) | About **4 minutes a circuit** | All or nothing. You cannot buy ninety seconds this way |
 
-Above 10,000 ft you can assign up to **320 kt**, which is what makes speed usable at all up here.
+The assignable band is **250 to 320 kt**, not the 180–250 of an approach field. Both ends matter:
+the ceiling is what lets you give an aircraft back the 280 it arrived on, and the floor is there
+because 180 kt at FL300 is not a speed a jet has — the approach minima exist to stop an arrival
+being slowed before it can take flap, and nothing in this sector is configuring to land. So speed
+buys you 30 kt of reduction off the cruise, and no more. Past that it is track miles or the hold.
 
 `R` still means "resume the arrival", and it is what you use after every vector — it hands the
 published profile back and, if the aircraft is off course, flies it back onto the first leg your

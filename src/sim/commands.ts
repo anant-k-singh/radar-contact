@@ -11,6 +11,7 @@ import {
   HEADING_HINT_S,
   HEADING_STEP_DEG,
   MAX_REJOIN_ANGLE_DEG,
+  SPEED_FLOOR_CENTER_KTS,
   SPEED_FLOOR_CLEAN_KTS,
   SPEED_FLOOR_LOW_KTS,
   SPEED_HIGH_LEVEL_FT,
@@ -18,7 +19,7 @@ import {
   SPEED_MAX_KTS,
   SPEED_STEP_KTS,
 } from './constants.js';
-import type { Runway } from '../scenario/types.js';
+import type { FacilityRole, Runway } from '../scenario/types.js';
 import { evaluateClearance, finalGeometry, rangeToThresholdNm } from './ils.js';
 import {
   assignedAltitudeFt,
@@ -43,7 +44,12 @@ export type Direction = -1 | 1;
  * Slowest speed the player may assign.
  * Don't make an aircraft configure until it is within 20 track miles.
  */
-export function speedFloorKts(runway: Runway, ac: Aircraft): number {
+export function speedFloorKts(runway: Runway, ac: Aircraft, role: FacilityRole): number {
+  // The role rather than the runway, because the runway is exactly what does not
+  // apply: both floors below are measured from a threshold, and an en-route
+  // sector's traffic is 50 to 160 NM from one it never reaches — so the range
+  // test always answers "far out" and leaves a flat 180 kt at FL300.
+  if (role === 'center') return SPEED_FLOOR_CENTER_KTS;
   if (rangeToThresholdNm(runway, ac) <= CONFIG_RANGE_NM) return SPEED_FLOOR_LOW_KTS;
   return Math.max(SPEED_FLOOR_CLEAN_KTS, ac.type.minCleanKts);
 }
@@ -103,7 +109,7 @@ export function adjustAltitude(world: World, ac: Aircraft, direction: Direction)
 export function adjustSpeed(world: World, ac: Aircraft, direction: Direction): void {
   if (!guard(world, ac)) return;
 
-  const floor = speedFloorKts(world.scenario.runway, ac);
+  const floor = speedFloorKts(world.scenario.runway, ac, world.scenario.role);
   // Step from the number the player is reading, which on a STAR is the *next
   // fix's* speed and not the autopilot's own target. Those differ the whole time
   // an aircraft is decelerating between two fixes: passing 229 towards BOXAR's
@@ -113,10 +119,15 @@ export function adjustSpeed(world: World, ac: Aircraft, direction: Direction): v
   const requested = base + direction * SPEED_STEP_KTS;
 
   if (requested < floor) {
-    const withinConfigRange = rangeToThresholdNm(world.scenario.runway, ac) <= CONFIG_RANGE_NM;
+    // The reason, not just the number. "Clean minimum until 20 track miles" is a
+    // statement about configuring to land, and there is nothing to configure for
+    // in a sector that hands off at 14,000 ft.
+    const flat =
+      world.scenario.role === 'center' ||
+      rangeToThresholdNm(world.scenario.runway, ac) <= CONFIG_RANGE_NM;
     log(
       world,
-      withinConfigRange
+      flat
         ? `${ac.callsign} unable — ${floor} kt is the minimum.`
         : `${ac.callsign} unable ${requested} kt — ${floor} kt clean minimum until ` +
             `${CONFIG_RANGE_NM} track miles.`,

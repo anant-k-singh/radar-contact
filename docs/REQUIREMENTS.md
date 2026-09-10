@@ -1888,6 +1888,30 @@ parks the distance to go while everyone else's counts down, a vector lengthens i
 stretches it — so the estimate *is* the ledger, and there is nothing to bank twice. This closes the
 "holding is unmetered" question of §15.9.
 
+#### The gate countdown
+
+Each delivery gate carries the time until it will next accept an arrival — the agreed interval less
+the time since the last delivery, floored at zero, and blank before the first one because an empty
+stream will take anyone. It is drawn per frame in `trafficLayer` rather than onto the cached chart
+layer, for the reason `sidHover` is.
+
+It answers a different question from the deficit on a data block: that says what one aircraft owes,
+this says what the *stream* is ready for. `tests/center.test.ts` pins the two to the same instant —
+the gate opens exactly when a delivery there would stop scoring `early` — because a scope that
+invited a delivery and then penalised it would be worse than one that said nothing.
+
+#### The assignable speed band
+
+**250 to 320 kt**, against 180–250 at an approach field, and both ends are role-dependent for the
+same reason: `speedFloorKts` measures from a threshold, and an en-route sector's traffic is 50 to
+160 NM from one it never reaches. The range test therefore always answers "far out" and collapses to
+a flat 180 kt at FL300, which is below clean manoeuvring for every type in the fleet.
+
+`SPEED_FLOOR_CENTER_KTS` is 250 — a little under the 260 both streams are delivered at, so a
+reduction of 30 kt off the 280 they arrive on is available and nothing more. That cap is what makes
+the tool ordering real: speed is free but bounded, so a deficit past a couple of minutes has to be
+paid in track miles or in the hold.
+
 #### The freeze horizon
 
 Outside **120 NM** to the delivery fix the deficit is not shown and the order is still provisional;

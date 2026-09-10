@@ -332,7 +332,7 @@ export function arrivalRatePerHour(world: World): number | null {
 }
 
 /** The most recent delivery at each gate, which is what the next slot follows. */
-function lastDeliveryTimes(world: World): Map<string, Sec> {
+export function lastDeliveryTimes(world: World): Map<string, Sec> {
   const last = new Map<string, Sec>();
   for (const [gate, times] of world.stats.deliveryTimesS) {
     const at = times[times.length - 1];

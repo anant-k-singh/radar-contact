@@ -407,7 +407,7 @@ export function createSidebar(
             spacingNm < minimumNm ? 'bad' : '',
           );
         }
-        set('minspd', `${speedFloorKts(world.scenario.runway, ac)} kt`);
+        set('minspd', `${speedFloorKts(world.scenario.runway, ac, world.scenario.role)} kt`);
         setDelivery(world, ac);
 
         if (ac.handedOff) {

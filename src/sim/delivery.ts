@@ -115,6 +115,29 @@ export function assessDelivery(
   return { gate: gate.fixName, faults, gapS, requiredGapS: required };
 }
 
+/**
+ * How long until the gate will accept another arrival — the countdown drawn
+ * beside it on the scope (§8.3).
+ *
+ * The agreed interval less the time since the last delivery, floored at zero. It
+ * is deliberately about the *gate* rather than about any aircraft: the deficit on
+ * a data block says what one aircraft owes, and this says what the stream itself
+ * is ready for, which is the number a controller glances at while deciding which
+ * of two to send first.
+ *
+ * Null before the first delivery, when the gate is open and there is nothing to
+ * count down from — an empty stream will take anyone.
+ */
+export function gateReadyInS(
+  gate: DeliveryGate,
+  lastDeliveryS: ReadonlyMap<string, Sec>,
+  timeS: Sec,
+): Sec | null {
+  const last = lastDeliveryS.get(gate.fixName);
+  if (last === undefined) return null;
+  return Math.max(0, last + requiredGapS(gate) - timeS);
+}
+
 /** What the scope shows about one aircraft's place in its stream. */
 export interface DeliverySlot {
   gate: string;
