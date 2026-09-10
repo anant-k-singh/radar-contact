@@ -61,6 +61,7 @@ export const DEFAULT_RUNWAY_OPS: RunwayOpsSpec = {
 export const DEFAULT_FACILITY: FacilitySpec = {
   towerFrequency: '119.1',
   departureFrequency: '124.7',
+  approachFrequency: '127.9',
 };
 
 /** Runway furniture the scope draws, and the missed approach the field publishes. */

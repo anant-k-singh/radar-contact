@@ -24,6 +24,19 @@ export interface ScenarioSpec {
   name: string;
   icao: string;
   elevationFt: Ft;
+  /**
+   * Which controller's position this field is. Defaults to `approach`.
+   *
+   * A role is a property of the *facility* rather than of the field, which sits
+   * awkwardly beside the rule that `constants.ts` holds the job and the
+   * `Scenario` holds the field. It rides here because a field is one position at
+   * one facility — VABB approach and the sector feeding it are two scenarios, not
+   * one scenario with a switch — and because the layering rules leave no other
+   * channel: nothing under `src/sim/` or `src/render/` may import a scenario
+   * value, so a mode flag has to arrive on the compiled `Scenario` they are
+   * handed.
+   */
+  role?: FacilityRole;
   runway: RunwaySpec;
   /**
    * Other runways on the field. Drawn on the scope and nothing else — see
@@ -36,6 +49,11 @@ export interface ScenarioSpec {
   terrain?: TerrainSpec;
   airspace: AirspaceSpec;
   gates: readonly EntryGateSpec[];
+  /**
+   * What the next sector down has asked for, per fix a stream is delivered to.
+   * Meaningful only on a `center` field; a `approach` field states none.
+   */
+  delivery?: readonly DeliveryGateSpec[];
   stars: readonly StarSpec[];
   sids: readonly SidSpec[];
   fleet: readonly AircraftType[];
@@ -129,16 +147,75 @@ export interface RunwayOpsSpec {
 export interface FacilitySpec {
   towerFrequency: string;
   departureFrequency: string;
+  /** Who a center sector hands its arrivals to. Unused at an approach field. */
+  approachFrequency: string;
 }
+
+/**
+ * Which job the player is doing at this field.
+ *
+ * `approach` takes arrivals from a gate and puts them on the ILS. `center` takes
+ * them at cruise from much further out and *delivers* them to a gate, which is
+ * the same boundary read from the other side: a center field's routes end where
+ * an approach field's begin.
+ */
+export type FacilityRole = 'approach' | 'center';
+
+/**
+ * A fix a center field delivers a stream to, and the rate the next sector wants
+ * it at (§3.2a).
+ *
+ * The rate is the whole objective. It is miles-in-trail expressed as the thing
+ * the receiving controller actually cares about — 10 an hour is a six-minute
+ * interval — and it is stated per fix because a sector feeding two gates has to
+ * satisfy both independently: filling one and starving the other is not a
+ * sector that delivered 24 an hour.
+ */
+export interface DeliveryGateSpec {
+  /** The fix this stream is delivered to: the last waypoint of its routes. */
+  fixName: string;
+  /** What the next sector down has asked for. */
+  targetRatePerHour: number;
+}
+
+/**
+ * How the boundary is shaped.
+ *
+ * `chordedCircle` is the original and the default: a circle centred on the ARP
+ * with its north and south caps cut off, which is what a terminal area looks
+ * like on a screen. `sector` is an annular wedge — an inner arc, an outer arc
+ * and two radials — which is what one en-route sector actually is, and it is why
+ * a center field can own the ground between 50 and 180 NM on one side of the
+ * field without also owning the other side.
+ *
+ * Both are measured from the ARP, so `Scenario.arp` stays the origin of the
+ * frame and every `FixAt` closure keeps working. What a sector field does move
+ * is where the *scope* is centred — see `Scenario.scopeCentre`.
+ */
+export type AirspaceShape =
+  | { kind: 'chordedCircle' }
+  | {
+      kind: 'sector';
+      /** Inner arc: where the next sector down begins. */
+      innerNm: Nm;
+      /**
+       * The wedge runs clockwise from `fromDeg` to `toDeg`, and may wrap through
+       * north: 300 → 060 is a 120° wedge over the top, not a 240° one under it.
+       */
+      fromDeg: Deg;
+      toDeg: Deg;
+    };
 
 export interface AirspaceSpec {
   radiusNm: Nm;
   /**
    * The circle's caps are cut off by chords this far either side of the airport,
    * measured across the final approach course. Equal to `radiusNm` for an uncut
-   * circle.
+   * circle, and defaulted to it. Ignored by a `sector` shape, which has no caps.
    */
-  halfHeightNm: Nm;
+  halfHeightNm?: Nm;
+  /** Defaults to the chorded circle every approach field uses. */
+  shape?: AirspaceShape;
   /** Minimum vectoring altitude, everywhere inside the boundary. */
   mvaFt: Ft;
   /** The top of what the controller may assign. */
@@ -185,17 +262,57 @@ export interface EntryGateSpec {
 export interface StarSpec {
   /** Chart name, e.g. `VANDA1A`. */
   name: string;
-  /** Entry gate. Its position becomes waypoint 0; at most one STAR per gate. */
-  gate: string;
   /**
-   * The crossing published at the gate — what Center hands the arrival over at.
+   * Entry gate. Its position becomes waypoint 0; at most one route per gate.
+   * Omit on a route with `entries`, where each entry names its own.
+   */
+  gate?: string;
+  /**
+   * The crossing published at the gate — what the previous sector hands the
+   * arrival over at.
    *
    * This lives on the route rather than on the gate because it is a property of
    * the arrival's geometry: a route with a short run to the localizer has to be
-   * given the height off lower, and it is the route that knows that.
+   * given the height off lower, and it is the route that knows that. Omit on a
+   * route with `entries`, for the same reason each entry names its own gate.
    */
+  entryAltitudeFt?: Ft;
+  entrySpeedKts?: Kts;
+  /** The common trunk: the fixes every way *in* to this route flies last. */
+  fixes: readonly StarFixSpec[];
+  /**
+   * Where the route is fed from. Omit for a route with one way in.
+   *
+   * The mirror of `SidSpec.exits`, and it exists for the mirror reason: real
+   * arrivals converge on a common trunk from several airways, and a chart names
+   * the whole funnel once. Each entry is compiled into its own complete `Star`
+   * re-carrying the trunk, so the simulation still only ever sees a flat chain of
+   * waypoints — see `compileStar`.
+   *
+   * The one place it is *not* a mirror is where the gate goes. A SID's branches
+   * share one origin — the runway — and diverge from it; a STAR's entries have
+   * different origins and converge, so each names its own gate and its own entry
+   * crossing rather than inheriting one.
+   */
+  entries?: readonly StarEntrySpec[];
+}
+
+/**
+ * One way in to a route's trunk: an airway feeding it from a gate of its own.
+ *
+ * The entry crossing is per entry and not per trunk because a route's own length
+ * decides what it can be given — the fact `fields/vabb/stars.ts` records about
+ * EMRAK 2A. A 180 NM feed and a 90 NM feed onto one trunk cannot be handed over
+ * at the same level.
+ */
+export interface StarEntrySpec {
+  /** Names the branch, and with it the compiled route: `KETOR2A/PARAR`. */
+  name: string;
+  /** This entry's own gate. */
+  gate: string;
   entryAltitudeFt: Ft;
   entrySpeedKts: Kts;
+  /** Flown before the trunk. */
   fixes: readonly StarFixSpec[];
 }
 
@@ -291,6 +408,8 @@ export interface Scenario {
   name: string;
   icao: string;
   elevationFt: Ft;
+  /** Which job this field is (`ScenarioSpec.role`). */
+  role: FacilityRole;
   /**
    * Airport reference point, and always the origin of the local frame.
    *
@@ -310,6 +429,8 @@ export interface Scenario {
   terrain: readonly TerrainBand[];
   airspace: Airspace;
   gates: readonly EntryGate[];
+  /** Empty at an approach field. */
+  delivery: readonly DeliveryGate[];
   stars: readonly Star[];
   /**
    * Sets of STARs that become one stream before the end, keyed by the fix they
@@ -412,10 +533,45 @@ export interface InactiveRunway {
 }
 
 export interface Airspace extends AirspaceSpec {
+  halfHeightNm: Nm;
+  shape: AirspaceShape;
+  /** The box the scope fits itself to. Derived from the shape; see `ViewBox`. */
+  view: ViewBox;
   /** Half-width of each chord — where it meets the circle. */
   chordHalfWidthNm: Nm;
   /** Half-angle of each surviving arc, measured from due east/west. */
   arcHalfAngleRad: number;
+}
+
+/**
+ * The smallest box containing the airspace — where the scope looks, and how much
+ * of the frame it has to show.
+ *
+ * At an approach field this is the airport with the radius either side, which is
+ * what the scope has always fitted. A sector is the reason it has to be stated:
+ * an annular wedge from 50 to 180 NM on one side of the field puts the field
+ * itself in a corner, and centring on the ARP would spend most of the canvas on
+ * ground nobody controls.
+ *
+ * So the *view* gets its own centre while the *frame* keeps the ARP as its
+ * origin. The airspace shape, every `FixAt` closure and every range ring are
+ * still measured from the field — a range ring is DME from the field, which is
+ * what a controller reads off it.
+ *
+ * Read by `createProjection` and by nothing else.
+ */
+export interface ViewBox {
+  centre: Point;
+  halfWidthNm: Nm;
+  halfHeightNm: Nm;
+}
+
+/** A compiled delivery fix: where a stream leaves, and how fast it is wanted. */
+export interface DeliveryGate extends DeliveryGateSpec {
+  /** The fix's position, taken from the routes that end there. */
+  position: Point;
+  /** The routes delivering to it, by compiled name. */
+  starNames: readonly string[];
 }
 
 export interface EntryGate {
@@ -452,8 +608,16 @@ export interface StarConstraint {
 }
 
 export interface Star {
-  /** Chart name, e.g. `VANDA1A`. */
+  /**
+   * Unique route name, and what a recording stores. `VANDA1A` for a route with
+   * one way in, `KETOR2A/PARAR` for one entry of a route with several.
+   */
   name: string;
+  /**
+   * The published chart name, shared by every entry onto one trunk. What a log
+   * line and a chart label should say; `name` is what identifies the route.
+   */
+  chart: string;
   gate: string;
   waypoints: readonly StarWaypoint[];
   lengthNm: Nm;

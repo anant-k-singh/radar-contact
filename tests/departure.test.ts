@@ -713,6 +713,9 @@ describe('departure flow', () => {
     // it is the weighted draw that has to respect it — LSGG's busiest SID
     // carries four times the quietest.
     for (const scenario of FIELDS) {
+      // An en-route sector publishes no SIDs and owns no runway to release one
+      // from, so there is no draw here to respect the rule.
+      if (scenario.sids.length === 0) continue;
       const world = createWorld(scenario, 7);
       world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
       world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;

@@ -8,9 +8,18 @@
 import { boundaryRangeAtBearing, isInsideAirspace } from '../scenario/airspace.js';
 import type { Scenario, Sid, SidWaypoint } from '../scenario/types.js';
 import { centerlinePoint } from '../sim/ils.js';
-import { bearing, headingDiff, headingVector, magnitude, type Point } from '../sim/units.js';
+import {
+  bearing,
+  headingDiff,
+  headingVector,
+  magnitude,
+  normalizeHeading,
+  toRad,
+  type Deg,
+  type Point,
+} from '../sim/units.js';
 import { clipped, nested, unclipped } from './clip.js';
-import { screenX, screenY, toScreen, type Projection } from './project.js';
+import { baseOrigin, screenX, screenY, toScreen, type Projection } from './project.js';
 import { terrainRamp, THEME } from './theme.js';
 
 /**
@@ -144,16 +153,59 @@ export function clipToAirspace(
   scenario: Scenario,
   p: Projection,
 ): void {
-  // The *base* frame throughout: the circle is the window the content is zoomed
-  // inside, so it keeps its fitted size and position at every zoom.
+  // The *base* frame throughout: the shape is the window the content is zoomed
+  // inside, so it keeps its fitted size and position at every zoom. Measured
+  // from where the airport is on the canvas, which is the middle of it only at a
+  // field whose airspace is centred on itself.
+  const origin = baseOrigin(p);
   const radiusPx = scenario.airspace.radiusNm * p.base.pxPerNm;
+  const shape = scenario.airspace.shape;
+  if (shape.kind === 'sector') {
+    // One path, not two: a wedge is a single region — out along one radial,
+    // round the outer arc, back down the other and home along the inner one —
+    // so there is nothing to intersect and `canvasAngle` does the whole job of
+    // turning a compass bearing into the direction a canvas arc sweeps.
+    const innerPx = shape.innerNm * p.base.pxPerNm;
+    const { from, to } = sectorAngles(shape.fromDeg, shape.toDeg);
+    ctx.beginPath();
+    ctx.arc(origin.x, origin.y, radiusPx, from, to);
+    ctx.arc(origin.x, origin.y, innerPx, to, from, true);
+    ctx.closePath();
+    ctx.clip();
+    return;
+  }
   ctx.beginPath();
-  ctx.arc(p.base.cx, p.base.cy, radiusPx, 0, Math.PI * 2);
+  ctx.arc(origin.x, origin.y, radiusPx, 0, Math.PI * 2);
   ctx.clip();
   const halfHeightPx = scenario.airspace.halfHeightNm * p.base.pxPerNm;
   ctx.beginPath();
-  ctx.rect(p.base.cx - radiusPx, p.base.cy - halfHeightPx, radiusPx * 2, halfHeightPx * 2);
+  ctx.rect(origin.x - radiusPx, origin.y - halfHeightPx, radiusPx * 2, halfHeightPx * 2);
   ctx.clip();
+}
+
+/**
+ * A compass bearing as a canvas arc angle.
+ *
+ * A bearing is clockwise from north with y *up*; a canvas angle is from due east
+ * with y *down*. Screen-space north is therefore −y, which is canvas angle −90°,
+ * and the two clockwises agree once that flip is made — so the offset is
+ * `bearing − 90` and an increasing bearing is an increasing canvas angle. It is
+ * `bearing − 90` and not `90 − bearing`: the latter is the same at due east and
+ * mirrored everywhere else, which draws a southern sector in the north.
+ */
+function canvasAngle(bearingDeg: Deg): number {
+  return toRad(bearingDeg - 90);
+}
+
+/**
+ * The two ends of a wedge as canvas angles, with the far end wound forward past
+ * the near one so an arc between them always sweeps the *short* way round the
+ * compass — including a sector that straddles north, where the raw bearings run
+ * backwards (300° to 060° is 120° clockwise, not 240° anticlockwise).
+ */
+function sectorAngles(fromDeg: Deg, toDeg: Deg): { from: number; to: number } {
+  const from = canvasAngle(fromDeg);
+  return { from, to: from + toRad(normalizeHeading(toDeg - fromDeg)) };
 }
 
 /**
@@ -494,21 +546,36 @@ function atBaseFrame(p: Projection): Projection {
   return { ...p, ...p.base };
 }
 
-/** The 50 NM circle with its northern and southern caps cut off (§3.1). */
+/**
+ * The airspace edge: a circle with its caps cut off (§3.1), or a sector's wedge.
+ */
 function drawBoundary(ctx: CanvasRenderingContext2D, scenario: Scenario, zoomed: Projection): void {
   // The boundary is the scope's own shape rather than content inside it, so the
   // whole of it is drawn in the unzoomed frame — arcs, chords and all.
   const p = atBaseFrame(zoomed);
+  const origin = baseOrigin(zoomed);
   const radiusPx = scenario.airspace.radiusNm * p.pxPerNm;
   const half = scenario.airspace.arcHalfAngleRad;
 
   ctx.strokeStyle = THEME.ringBright;
   ctx.lineWidth = 1.5;
 
+  const shape = scenario.airspace.shape;
+  if (shape.kind === 'sector') {
+    const innerPx = shape.innerNm * p.pxPerNm;
+    const { from, to } = sectorAngles(shape.fromDeg, shape.toDeg);
+    ctx.beginPath();
+    ctx.arc(origin.x, origin.y, radiusPx, from, to);
+    ctx.arc(origin.x, origin.y, innerPx, to, from, true);
+    ctx.closePath();
+    ctx.stroke();
+    return;
+  }
+
   // The two surviving arcs, east and west of the cuts.
   for (const centre of [0, Math.PI]) {
     ctx.beginPath();
-    ctx.arc(p.cx, p.cy, radiusPx, centre - half, centre + half);
+    ctx.arc(origin.x, origin.y, radiusPx, centre - half, centre + half);
     ctx.stroke();
   }
 

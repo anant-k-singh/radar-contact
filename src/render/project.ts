@@ -45,7 +45,28 @@ export interface Viewport {
   focus: Point;
 }
 
+/**
+ * At rest: no zoom, and no pan *away from the airspace's own centre* — which is
+ * what makes `focus` an offset from the view centre rather than an absolute
+ * world point. Stated that way so this constant stays field-independent.
+ */
 export const DEFAULT_VIEWPORT: Viewport = { zoom: 1, focus: { x: 0, y: 0 } };
+
+/**
+ * Where the local frame's origin — the airport — sits on the canvas, unzoomed.
+ *
+ * The scope's own furniture is drawn in the base frame so that it keeps its
+ * fitted size and place while the content magnifies inside it, and all of that
+ * furniture (the boundary, the clip region) is positioned relative to the
+ * *airport* rather than to the middle of the canvas. Those were the same point
+ * until an airspace turned up that is not centred on its field.
+ */
+export function baseOrigin(p: Projection): Point {
+  return {
+    x: p.base.cx - p.base.viewCentre.x * p.base.pxPerNm,
+    y: p.base.cy + p.base.viewCentre.y * p.base.pxPerNm,
+  };
+}
 
 /**
  * Maps the local NM frame to canvas pixels. North is up, so screen y is inverted.
@@ -70,11 +91,21 @@ export interface Projection {
   base: BaseFrame;
 }
 
-/** The fitted, unzoomed frame. Identical to `Projection` at 1x. */
+/**
+ * The fitted, unzoomed frame: where the *canvas centre* is, and at what scale.
+ *
+ * `cx`/`cy` are the middle of the space the scope was given, which is where the
+ * airspace's own `view` centre is placed — not, in general, where the airport is.
+ * At an approach field the two coincide, because the view centre of a circle
+ * around the field is the field. At a sector field they do not, and anything
+ * drawing the scope's fixed furniture in world coordinates wants `baseOrigin`.
+ */
 export interface BaseFrame {
   cx: number;
   cy: number;
   pxPerNm: number;
+  /** The world point held at `cx`/`cy` when the viewport is at rest. */
+  viewCentre: Point;
 }
 
 export function createProjection(
@@ -90,22 +121,36 @@ export function createProjection(
 
   // The chords fill the height — that is the whole reason for cutting them, and
   // it buys ~20 % more scale than fitting a 100 NM diameter into the same
-  // canvas. The circle's full east–west extent still has to fit, so on a narrow
+  // canvas. The shape's full east–west extent still has to fit, so on a narrow
   // window the width takes over.
-  const byHeight = ((height / 2) * FIT) / airspace.halfHeightNm;
-  const byWidth = ((scopeWidth / 2) * FIT) / airspace.radiusNm;
+  //
+  // Both extents come from the compiled `view` box rather than from the radius,
+  // which is what lets a sector-shaped airspace fill the canvas: a wedge from 50
+  // to 180 NM on one side of the field is nowhere near centred on the field, and
+  // fitting a 180 NM radius about the ARP would draw it in a corner at a third of
+  // the usable scale.
+  const view = airspace.view;
+  const byHeight = ((height / 2) * FIT) / view.halfHeightNm;
+  const byWidth = ((scopeWidth / 2) * FIT) / view.halfWidthNm;
   // Zoom is folded in *after* the gutter is reserved, so magnifying the content
   // cannot slide it under the stats panel.
-  const base: BaseFrame = { cx: scopeWidth / 2, cy: height / 2, pxPerNm: Math.min(byHeight, byWidth) };
+  const base: BaseFrame = {
+    cx: scopeWidth / 2,
+    cy: height / 2,
+    pxPerNm: Math.min(byHeight, byWidth),
+    viewCentre: view.centre,
+  };
 
-  // Pan by moving the origin so the focus lands on the fixed centre: at rest the
-  // focus is the arp and this is the identity.
+  // Pan by moving the origin so the focus lands on the fixed centre. The view's
+  // own centre is the resting focus, so at an approach field — where it is the
+  // arp — this is the identity it has always been.
   const pxPerNm = base.pxPerNm * viewport.zoom;
+  const focus = { x: viewport.focus.x + view.centre.x, y: viewport.focus.y + view.centre.y };
   return {
     width,
     height,
-    cx: base.cx - viewport.focus.x * pxPerNm,
-    cy: base.cy + viewport.focus.y * pxPerNm,
+    cx: base.cx - focus.x * pxPerNm,
+    cy: base.cy + focus.y * pxPerNm,
     pxPerNm,
     base,
   };
@@ -124,10 +169,12 @@ export function focusHolding(
 ): Point {
   const at = toWorld(p, sx, sy);
   const pxPerNm = p.base.pxPerNm * zoom;
-  // Where the anchor must sit relative to the centre, at the new scale.
+  // Where the anchor must sit relative to the canvas centre, at the new scale —
+  // less the view centre, since `focus` is an offset from it rather than an
+  // absolute point.
   return {
-    x: at.x - (sx - p.base.cx) / pxPerNm,
-    y: at.y + (sy - p.base.cy) / pxPerNm,
+    x: at.x - p.base.viewCentre.x - (sx - p.base.cx) / pxPerNm,
+    y: at.y - p.base.viewCentre.y + (sy - p.base.cy) / pxPerNm,
   };
 }
 

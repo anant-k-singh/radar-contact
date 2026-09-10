@@ -117,11 +117,16 @@ function checkRunwayAndAirspace(scenario: Scenario, problems: Problem[]): void {
   if (!(scenario.elevationFt < airspace.mvaFt)) {
     add('error', `the MVA of ${airspace.mvaFt} ft is not above the field`);
   }
-  if (!(airspace.mvaFt <= runway.missedApproachAltitudeFt)) {
-    add('error', 'the missed approach altitude is below the MVA');
-  }
-  if (!(runway.missedApproachAltitudeFt <= airspace.ceilingFt)) {
-    add('error', 'the missed approach altitude is above the ceiling');
+  // The missed approach is approach furniture. A center sector's floor is tens of
+  // thousands of feet above any published go-around, and nothing in it ever flies
+  // one — the runway is there to anchor the frame, not to be landed on.
+  if (scenario.role === 'approach') {
+    if (!(airspace.mvaFt <= runway.missedApproachAltitudeFt)) {
+      add('error', 'the missed approach altitude is below the MVA');
+    }
+    if (!(runway.missedApproachAltitudeFt <= airspace.ceilingFt)) {
+      add('error', 'the missed approach altitude is above the ceiling');
+    }
   }
 }
 
@@ -254,6 +259,11 @@ function checkStar(scenario: Scenario, star: Star, problems: Problem[]): void {
 
   const last = star.waypoints[star.waypoints.length - 1]!;
   if (last.dtgNm !== 0) add('error', 'the last fix must have zero distance to go');
+  // Everything past here is about the localizer, and a center route does not end
+  // at one: it ends at the fix the next sector down is handed the aircraft at,
+  // 50 NM from a field it is not yet descending towards. The level it ends on is
+  // checked instead by the delivery gate it feeds — see `checkDelivery`.
+  if (scenario.role === 'center') return;
   // The whole job of the last fix is to be a platform the localizer can be
   // intercepted from — which means under the glideslope where the route ends.
   const gsFt = glideslopeFt(scenario, alongFinalNm(scenario, last.position));
@@ -553,6 +563,68 @@ function checkNames(scenario: Scenario, problems: Problem[]): void {
   }
 }
 
+/**
+ * The delivery gates a center sector is graded on (§3.2a).
+ *
+ * A rate is only meaningful if something can actually be delivered at it, so the
+ * two things checked are that the fix is fed by routes at all — `compileScenario`
+ * has already refused one that is not — and that the routes feeding it agree
+ * about the level and speed they arrive on. They must: the next sector down
+ * spawns its arrivals at one crossing per gate, so two routes delivering the same
+ * fix 2000 ft apart would be two different handovers wearing one name.
+ */
+function checkDelivery(scenario: Scenario, problems: Problem[]): void {
+  if (scenario.role !== 'center') {
+    if (scenario.delivery.length > 0) {
+      problems.push({
+        severity: 'error',
+        where: 'delivery',
+        message: 'only a center field delivers to a gate; an approach field lands',
+      });
+    }
+    return;
+  }
+  if (scenario.delivery.length === 0) {
+    problems.push({
+      severity: 'error',
+      where: 'delivery',
+      message: 'a center field is graded on what it delivers, so it must declare at least one gate',
+    });
+  }
+  for (const gate of scenario.delivery) {
+    const add = (severity: Problem['severity'], message: string) =>
+      problems.push({ severity, where: `delivery ${gate.fixName}`, message });
+    if (!(gate.targetRatePerHour > 0)) {
+      add('error', `asks for ${gate.targetRatePerHour} an hour, which is not a rate`);
+    }
+    const feeding = scenario.stars.filter((star) => gate.starNames.includes(star.name));
+    const crossings = new Set(
+      feeding.map((star) => {
+        const last = star.waypoints[star.waypoints.length - 1]!;
+        return `${last.altitudeFt}/${last.speedKts}`;
+      }),
+    );
+    if (crossings.size > 1) {
+      add(
+        'error',
+        `is delivered at ${crossings.size} different crossings (${[...crossings].join(', ')}); ` +
+          'the sector below takes one handover per gate',
+      );
+    }
+  }
+  // Every route has to end at a gate, or it ends nowhere and is never scored.
+  for (const star of scenario.stars) {
+    const end = star.waypoints[star.waypoints.length - 1]!.name;
+    if (!scenario.delivery.some((gate) => gate.fixName === end)) {
+      problems.push({
+        severity: 'error',
+        where: star.name,
+        message: `ends at ${end}, which is not a delivery gate`,
+      });
+    }
+  }
+}
+
 function checkTraffic(scenario: Scenario, problems: Problem[]): void {
   const { performance, traffic, runwayOps, gates, fleet, airlines } = scenario;
   // A scale, not a rate: above 1 a field would be claiming its air is better than
@@ -610,6 +682,7 @@ export function validateScenario(scenario: Scenario): Problem[] {
   }
   checkStarSeparation(scenario, problems);
   checkSidStarClearance(scenario, problems);
+  checkDelivery(scenario, problems);
   checkTraffic(scenario, problems);
   return problems.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'error' ? -1 : 1));
 }

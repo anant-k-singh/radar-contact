@@ -15,7 +15,7 @@ import { compileScenario } from '../src/scenario/compile.js';
 import { identicalTailLength, starForGate, starProfileAt } from '../src/scenario/routes.js';
 import { MERGE_FUNNEL_NM } from '../src/scenario/validate.js';
 import { SCENARIOS } from '../src/scenario/registry.js';
-import type { Scenario, ScenarioSpec } from '../src/scenario/types.js';
+import type { Scenario, ScenarioSpec, Star } from '../src/scenario/types.js';
 import { validateScenario, VALIDATION_GS_FT_PER_NM } from '../src/scenario/validate.js';
 import { isDeparture } from '../src/sim/aircraft.js';
 import { GS_FT_PER_NM, PHYSICS_DT, SEP_HORIZ_NM, SEP_VERT_FT } from '../src/sim/constants.js';
@@ -252,6 +252,12 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
     });
 
     it('ends every arrival route below the glideslope, on a platform it can hold', () => {
+      // Approach routes only. A center sector's routes end at the fix the next
+      // sector down is handed the aircraft at, 50 NM out and 15,000 ft up —
+      // there is no glideslope there to be under, and `checkDelivery` is what
+      // grades where they end instead. Keyed on the role rather than on a list
+      // of ids, because it is a fact about the field and not an exemption.
+      if (scenario.role === 'center') return;
       for (const star of scenario.stars) {
         const last = star.waypoints[star.waypoints.length - 1]!;
         const alongNm = -(
@@ -425,7 +431,17 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
 
         // Placed 8 NM off the far side of another route's last leg and 10 NM
         // back down it: a 39° crossing, aimed at nothing of its own.
-        const other = scenario.stars.find((star) => star !== own && star.waypoints.length > 1);
+        //
+        // "Another route" has to mean one that ends somewhere else. At a field
+        // where several routes funnel onto one trunk — VABBS has six onto KETOR
+        // — they *share* their last leg, and a ray aimed at it cannot pick one
+        // of them out: the scan takes the aircraft's own route first, so the
+        // assertion below would be testing nothing. Falls back to any other
+        // route at a field where every one ends at its own fix.
+        const endsAt = (star: Star): string => star.waypoints[star.waypoints.length - 1]!.name;
+        const others = scenario.stars.filter((star) => star !== own && star.waypoints.length > 1);
+        const other =
+          others.find((star) => endsAt(star) !== endsAt(own)) ?? others[0];
         if (!other) continue;
         const leg = other.waypoints.length - 1;
         const a = other.waypoints[leg - 1]!.position;

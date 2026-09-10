@@ -18,6 +18,7 @@ import {
 import { lerp, turnOf, type FixContext } from './geometry.js';
 import { identicalTailLength } from './routes.js';
 import type {
+  DeliveryGate,
   EntryGate,
   InactiveRunway,
   MergeGroup,
@@ -31,10 +32,11 @@ import type {
   SidWaypoint,
   Star,
   StarConstraint,
+  StarFixSpec,
   StarSpec,
   StarWaypoint,
 } from './types.js';
-import { bearing, distance, headingVector, type Deg, type Ft, type Point } from '../sim/units.js';
+import { bearing, distance, headingVector, type Deg, type Ft, type Kts, type Point } from '../sim/units.js';
 
 /**
  * Where a departure levels off with every restriction behind it — a cruise level,
@@ -109,25 +111,77 @@ function resolvePositions(
   return out as Point[];
 }
 
-function compileStar(spec: StarSpec, gate: EntryGate, ctx: FixContext): Star {
+/**
+ * One way in to a route: the trunk with one entry's fixes in front of it.
+ *
+ * The mirror of the `{ suffix, fixes }` branch `compileSid` builds, and it
+ * differs in exactly one way: a SID's branches share the runway as their origin,
+ * while a STAR's entries each have a gate and an entry crossing of their own,
+ * because a route's own length decides what it can be handed over at.
+ */
+interface StarBranch {
+  name: string;
+  gate: string;
+  entryAltitudeFt: Ft;
+  entrySpeedKts: Kts;
+  fixes: readonly StarFixSpec[];
+}
+
+/** Every way in to one authored route. One element unless it declares `entries`. */
+function starBranches(spec: StarSpec): StarBranch[] {
+  if (spec.entries === undefined) {
+    if (
+      spec.gate === undefined ||
+      spec.entryAltitudeFt === undefined ||
+      spec.entrySpeedKts === undefined
+    ) {
+      throw new Error(
+        `${spec.name}: a route with no entries must state its own gate, entry altitude and entry speed`,
+      );
+    }
+    // One way in: the route keeps the chart's own name, so a field with no
+    // multi-entry routes is named exactly as it was before entries existed.
+    return [
+      {
+        name: spec.name,
+        gate: spec.gate,
+        entryAltitudeFt: spec.entryAltitudeFt,
+        entrySpeedKts: spec.entrySpeedKts,
+        fixes: spec.fixes,
+      },
+    ];
+  }
+  if (spec.gate !== undefined) {
+    throw new Error(`${spec.name}: a route with entries must not also name a gate of its own`);
+  }
+  return spec.entries.map((entry) => ({
+    name: `${spec.name}/${entry.name}`,
+    gate: entry.gate,
+    entryAltitudeFt: entry.entryAltitudeFt,
+    entrySpeedKts: entry.entrySpeedKts,
+    fixes: [...entry.fixes, ...spec.fixes],
+  }));
+}
+
+function compileStar(chart: string, branch: StarBranch, gate: EntryGate, ctx: FixContext): Star {
   const routeCtx: FixContext = { ...ctx, gate };
   const positions = resolvePositions(
-    // The gate itself is the first fix: Center delivers the aircraft to it at the
-    // published altitude and speed, so the profile starts there.
-    [gate.position, ...spec.fixes.map((fix) => (fix.at ? fix.at(routeCtx) : null))],
-    [undefined, ...spec.fixes.map((fix) => fix.fraction)],
-    spec.name,
+    // The gate itself is the first fix: the previous sector delivers the aircraft
+    // to it at the published altitude and speed, so the profile starts there.
+    [gate.position, ...branch.fixes.map((fix) => (fix.at ? fix.at(routeCtx) : null))],
+    [undefined, ...branch.fixes.map((fix) => fix.fraction)],
+    branch.name,
   );
 
   const waypoints: StarWaypoint[] = [
     {
       name: gate.name,
       position: positions[0]!,
-      altitudeFt: spec.entryAltitudeFt,
-      speedKts: spec.entrySpeedKts,
+      altitudeFt: branch.entryAltitudeFt,
+      speedKts: branch.entrySpeedKts,
       dtgNm: 0,
     },
-    ...spec.fixes.map((fix, i) => ({
+    ...branch.fixes.map((fix, i) => ({
       name: fix.name,
       position: positions[i + 1]!,
       altitudeFt: fix.altitudeFt,
@@ -146,7 +200,8 @@ function compileStar(spec: StarSpec, gate: EntryGate, ctx: FixContext): Star {
       .map((wpt) => ({ dtgNm: wpt.dtgNm, value: read(wpt)! }));
 
   return {
-    name: spec.name,
+    name: branch.name,
+    chart,
     gate: gate.name,
     waypoints,
     lengthNm: waypoints[0]!.dtgNm,
@@ -305,6 +360,15 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
   const airspace = compileAirspace(spec.airspace);
   const ctx: FixContext = { runway, arp };
 
+  // Every way in to every route, flattened before the gates are placed: a gate
+  // takes its handover altitude and speed from the route that lands on it, and
+  // with multi-entry routes that route is a *branch*, so the branches have to
+  // exist first. Pure — no context needed — which is what lets it run this early.
+  const branches = spec.stars.flatMap((starSpec) =>
+    starBranches(starSpec).map((branch) => ({ chart: starSpec.name, branch })),
+  );
+  const branchByGate = new Map(branches.map((entry) => [entry.branch.gate, entry]));
+
   // A gate either states where it is, or is placed on the boundary along its
   // bearing. On the boundary — not at the radius — because past the arcs the
   // boundary is a chord, and using the radius would put a gate outside the drawn
@@ -323,9 +387,9 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     } else {
       throw new Error(`${spec.id}: gate ${gateSpec.name} states neither a bearing nor a position`);
     }
-    const star = spec.stars.find((candidate) => candidate.gate === gateSpec.name);
-    const entryAltitudeFt = star?.entryAltitudeFt ?? gateSpec.entryAltitudeFt;
-    const entrySpeedKts = star?.entrySpeedKts ?? gateSpec.entrySpeedKts;
+    const route = branchByGate.get(gateSpec.name);
+    const entryAltitudeFt = route?.branch.entryAltitudeFt ?? gateSpec.entryAltitudeFt;
+    const entrySpeedKts = route?.branch.entrySpeedKts ?? gateSpec.entrySpeedKts;
     if (entryAltitudeFt === undefined || entrySpeedKts === undefined) {
       throw new Error(
         `${spec.id}: gate ${gateSpec.name} has no STAR, so it must declare its own entry altitude and speed`,
@@ -343,10 +407,30 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
   });
 
   const gateByName = new Map(gates.map((gate) => [gate.name, gate]));
-  const stars = spec.stars.map((starSpec) => {
-    const gate = gateByName.get(starSpec.gate);
-    if (!gate) throw new Error(`${starSpec.name}: no entry gate named ${starSpec.gate}`);
-    return compileStar(starSpec, gate, ctx);
+  const stars = branches.map(({ chart, branch }) => {
+    const gate = gateByName.get(branch.gate);
+    if (!gate) throw new Error(`${branch.name}: no entry gate named ${branch.gate}`);
+    return compileStar(chart, branch, gate, ctx);
+  });
+
+  // A delivery fix is where a stream leaves this sector, so it is the last fix of
+  // the routes that feed it — which is what its position and its membership are
+  // read off, rather than restated. An approach field declares none.
+  const delivery: DeliveryGate[] = (spec.delivery ?? []).map((deliverySpec) => {
+    const serving = stars.filter(
+      (star) => star.waypoints[star.waypoints.length - 1]!.name === deliverySpec.fixName,
+    );
+    if (serving.length === 0) {
+      throw new Error(
+        `${spec.id}: delivery fix ${deliverySpec.fixName} is not the last fix of any arrival route`,
+      );
+    }
+    const last = serving[0]!.waypoints[serving[0]!.waypoints.length - 1]!;
+    return {
+      ...deliverySpec,
+      position: last.position,
+      starNames: serving.map((star) => star.name),
+    };
   });
 
   const defaultTopFt = Math.max(DEPARTURE_TOP_FT, airspace.ceilingFt + 1000);
@@ -357,6 +441,7 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     name: spec.name,
     icao: spec.icao,
     elevationFt: spec.elevationFt,
+    role: spec.role ?? 'approach',
     arp,
     runway,
     inactiveRunways: (spec.inactiveRunways ?? []).map(
@@ -371,6 +456,7 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     })),
     airspace,
     gates,
+    delivery,
     stars,
     sids,
     mergeGroups: findMergeGroups(stars),

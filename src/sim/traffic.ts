@@ -202,12 +202,23 @@ export function createArrival(
   const headingDeg = star
     ? bearing(gate.position, star.route.waypoints[star.index]!.position)
     : gate.inboundHeadingDeg;
-  // The shortest route anyone could reasonably fly, for the track-mile ratio:
-  // the published arrival, then straight in from where it ends.
-  const directDistanceNm = route
-    ? route.lengthNm +
-      distance(route.waypoints[route.waypoints.length - 1]!.position, scenario.runway.threshold)
-    : distance(gate.position, scenario.runway.threshold);
+  // The shortest route anyone could reasonably fly, for the track-mile ratio.
+  //
+  // At an approach field that is the published arrival and then straight in from
+  // where it ends. A center sector's aircraft never goes near the threshold — it
+  // is handed on at the end of the route, 50 NM out — so the route itself is the
+  // whole of what it could reasonably fly, and adding the run to a runway it will
+  // not see makes every ratio read under 1 however far it is vectored.
+  const toEndNm =
+    scenario.role === 'center'
+      ? 0
+      : distance(
+          route
+            ? route.waypoints[route.waypoints.length - 1]!.position
+            : gate.position,
+          scenario.runway.threshold,
+        );
+  const directDistanceNm = route ? route.lengthNm + toEndNm : toEndNm;
 
   return newAircraft({
     id,
@@ -375,6 +386,11 @@ export function tryDeparture(
   existing: readonly Aircraft[],
   timeS: Sec,
 ): Aircraft | null {
+  // A field may publish no SIDs at all — an en-route sector owns no runway to
+  // release one from, whatever its `departuresPerHour` happens to say. Checked
+  // before the runway, since a field with nowhere to go is not a field whose
+  // runway is momentarily busy.
+  if (scenario.sids.length === 0) return null;
   if (runwayBlockedBy(scenario, state, existing, timeS) !== null) return null;
   // Weighted, not uniform: which way an airport's traffic leaves is a fact about
   // the route network, and at LSGG the busiest way out carries four times the

@@ -8,7 +8,9 @@ import { createLogScroll, drawMessages, drawStatusLine, scrollLog } from './mess
 import { drawTrackPath, type TrackPathView } from './pathLayer.js';
 import { drawSidHover, sidUnderPointer } from './sidHover.js';
 import type { Airspace, Sid } from '../scenario/types.js';
+import { normalizeHeading, toDeg } from '../sim/units.js';
 import {
+  baseOrigin,
   clampZoom,
   createProjection,
   DEFAULT_VIEWPORT,
@@ -33,13 +35,26 @@ const HIT_RADIUS_PX = 15;
  * is not on the scope.
  */
 function isOnScope(airspace: Airspace, p: Projection, sx: number, sy: number): boolean {
+  // Measured from where the airport is on the canvas, and in the base frame,
+  // because that is the frame `clipToAirspace` cuts the region in.
+  const origin = baseOrigin(p);
+  const dx = sx - origin.x;
+  const dy = sy - origin.y;
   const radiusPx = airspace.radiusNm * p.base.pxPerNm;
-  const dx = sx - p.base.cx;
-  const dy = sy - p.base.cy;
-  return (
-    dx * dx + dy * dy <= radiusPx * radiusPx &&
-    Math.abs(dy) <= airspace.halfHeightNm * p.base.pxPerNm
-  );
+  if (dx * dx + dy * dy > radiusPx * radiusPx) return false;
+  const shape = airspace.shape;
+  if (shape.kind === 'sector') {
+    const innerPx = shape.innerNm * p.base.pxPerNm;
+    if (dx * dx + dy * dy < innerPx * innerPx) return false;
+    // Screen y is inverted, so the bearing is taken off `-dy` — the same flip
+    // `canvasAngle` makes on the drawing side, and the reason the two agree.
+    const bearingDeg = normalizeHeading(toDeg(Math.atan2(dx, -dy)));
+    return (
+      normalizeHeading(bearingDeg - shape.fromDeg) <=
+      normalizeHeading(shape.toDeg - shape.fromDeg)
+    );
+  }
+  return Math.abs(dy) <= airspace.halfHeightNm * p.base.pxPerNm;
 }
 
 /**
