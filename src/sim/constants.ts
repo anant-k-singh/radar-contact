@@ -335,6 +335,23 @@ export const DELIVERY_SHOW_LOSE_S = 30;
 export const DELIVERY_SHOW_GAIN_S = 120;
 
 /**
+ * The spacing ledger: how far one delivery may run under the agreement, and how
+ * much surplus or shortfall the gate carries forward (§8.3).
+ *
+ * Fractions rather than seconds, because the agreement is per gate — four
+ * minutes at RCMG against seven and a half at RCKT — and forgiveness that did
+ * not scale with it would be a tenth of one agreement and a twentieth of the
+ * other. They are rules of the job rather than field data, which is what keeps
+ * them here and off `DeliveryGateSpec`.
+ *
+ * The tolerance bounds what a single gap may spend; the cap bounds the balance
+ * itself, so a long quiet period is worth something later but never a licence to
+ * empty the stream into the next sector.
+ */
+export const DELIVERY_GAP_TOLERANCE_FRACTION = 0.1;
+export const DELIVERY_BANK_CAP_FRACTION = 0.2;
+
+/**
  * How close to the delivery fix counts as reaching it.
  *
  * The same half-mile `STAR_FIX_CAPTURE_NM` uses, and it has to be a radius for

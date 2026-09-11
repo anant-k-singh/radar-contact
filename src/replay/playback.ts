@@ -63,6 +63,7 @@ const EMPTY_STATS: Stats = {
   exits: 0,
   deliveries: 0,
   deliveryTimesS: new Map(),
+  deliveryBankS: new Map(),
   deliveryFaults: new Map(),
   rejections: new Map(),
   missedIntercepts: new Map(),
@@ -349,6 +350,7 @@ export function worldAtFrame(
           return at === undefined ? [] : [[gate, at] as const];
         }),
       ),
+      stats.deliveryBankS,
       timeS,
     ),
     selectedId: aircraft.some((ac) => ac.id === view.selectedId) ? view.selectedId : null,

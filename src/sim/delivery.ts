@@ -32,7 +32,9 @@ import type { DeliveryGate, Star } from '../scenario/types.js';
 import type { Aircraft } from './aircraft.js';
 import { isDeparture } from './aircraft.js';
 import {
+  DELIVERY_BANK_CAP_FRACTION,
   DELIVERY_FREEZE_HORIZON_NM,
+  DELIVERY_GAP_TOLERANCE_FRACTION,
   DELIVERY_LEVEL_TOLERANCE_FT,
   DELIVERY_SPEED_TOLERANCE_KTS,
 } from './constants.js';
@@ -53,11 +55,64 @@ export interface Delivery {
   /** Gap behind the previous delivery at this gate; null for the first one. */
   gapS: Sec | null;
   requiredGapS: Sec;
+  /** The gate's ledger after this delivery, for the caller to store. */
+  bankAfterS: Sec;
 }
 
 /** The interval the agreed rate implies: 14 an hour is 257 seconds. */
-export function requiredGapS(gate: DeliveryGate): Sec {
+export function agreedGapS(gate: DeliveryGate): Sec {
   return 3600 / gate.targetRatePerHour;
+}
+
+/**
+ * What this gate wants behind the last delivery, given the ledger it is carrying
+ * (§8.3).
+ *
+ * The agreement is a *rate*, and a rate is kept over a stream rather than
+ * between one pair: a gap flown long leaves credit that shortens the next
+ * requirement, and one flown short is borrowed and paid back. So the long-run
+ * rate comes out exactly right while the individual gaps are free to breathe,
+ * which is what a real flow agreement is — and 3:59 into a four-minute stream
+ * stops being the same fault as 2:00.
+ *
+ * Floored at the tolerance, so credit shortens the ask but never past it: a gate
+ * left quiet for an hour is owed some capacity back, not a licence to empty the
+ * stream into the next sector. The balance keeps the rest for later.
+ */
+export function requiredGapS(gate: DeliveryGate, bankS: Sec = 0): Sec {
+  const agreed = agreedGapS(gate);
+  return Math.max(agreed - bankS, agreed * (1 - DELIVERY_GAP_TOLERANCE_FRACTION));
+}
+
+/**
+ * The shortest gap that is not `early` — the requirement less the tolerance, and
+ * never under it.
+ *
+ * The gap between this and `requiredGapS` is the point of the tolerance: the
+ * countdown states what the gate *wants* and this is what it will *take*, so
+ * missing the clock by a few seconds is not the same event as arriving a minute
+ * early. Debt carries the fault line up with the requirement, which is what
+ * stops a sector running permanently at the tolerance and calling it clean.
+ */
+export function acceptableGapS(gate: DeliveryGate, bankS: Sec): Sec {
+  const agreed = agreedGapS(gate);
+  const tolerance = agreed * DELIVERY_GAP_TOLERANCE_FRACTION;
+  return Math.max(requiredGapS(gate, bankS) - tolerance, agreed - tolerance);
+}
+
+/**
+ * The ledger after a gap of `gapS` was flown — measured against the *agreement*
+ * and never against the requirement that was standing.
+ *
+ * That is what makes it a ledger rather than a drift: a gap flown at the
+ * agreement moves the balance not at all, whatever the requirement had been
+ * shortened or lengthened to, so the credit earned by one long gap is spent
+ * exactly once.
+ */
+export function nextBankS(gate: DeliveryGate, bankS: Sec, gapS: Sec): Sec {
+  const agreed = agreedGapS(gate);
+  const cap = agreed * DELIVERY_BANK_CAP_FRACTION;
+  return Math.max(-cap, Math.min(cap, bankS + (gapS - agreed)));
 }
 
 /** The route an aircraft is flying, or the one it was vectored off and remembers. */
@@ -90,6 +145,7 @@ export function assessDelivery(
   gate: DeliveryGate,
   ac: Aircraft,
   previousS: Sec | null,
+  bankS: Sec,
   timeS: Sec,
 ): Delivery {
   const faults: DeliveryFault[] = [];
@@ -108,18 +164,30 @@ export function assessDelivery(
     }
   }
 
-  const required = requiredGapS(gate);
+  const required = requiredGapS(gate, bankS);
   const gapS = previousS === null ? null : timeS - previousS;
-  if (gapS !== null && gapS < required) faults.push('early');
+  if (gapS !== null && gapS < acceptableGapS(gate, bankS)) faults.push('early');
 
-  return { gate: gate.fixName, faults, gapS, requiredGapS: required };
+  return {
+    gate: gate.fixName,
+    faults,
+    gapS,
+    requiredGapS: required,
+    // The first delivery at a gate has no gap to weigh, so it opens the ledger
+    // rather than moving it.
+    bankAfterS: gapS === null ? bankS : nextBankS(gate, bankS, gapS),
+  };
 }
 
 /**
  * How long until the gate will accept another arrival — the countdown drawn
  * beside it on the scope (§8.3).
  *
- * The agreed interval less the time since the last delivery, floored at zero. It
+ * The standing requirement less the time since the last delivery, floored at
+ * zero — the ledger included, so a gate carrying credit opens sooner and one in
+ * debt later. What it counts down to is what the gate *wants*; `acceptableGapS`
+ * is what it will take, and the tolerance between them is why an amber clock is
+ * not yet a fault. It
  * is deliberately about the *gate* rather than about any aircraft: the deficit on
  * a data block says what one aircraft owes, and this says what the stream itself
  * is ready for, which is the number a controller glances at while deciding which
@@ -131,11 +199,13 @@ export function assessDelivery(
 export function gateReadyInS(
   gate: DeliveryGate,
   lastDeliveryS: ReadonlyMap<string, Sec>,
+  bankS: ReadonlyMap<string, Sec>,
   timeS: Sec,
 ): Sec | null {
   const last = lastDeliveryS.get(gate.fixName);
   if (last === undefined) return null;
-  return Math.max(0, last + requiredGapS(gate) - timeS);
+  const required = requiredGapS(gate, bankS.get(gate.fixName) ?? 0);
+  return Math.max(0, last + required - timeS);
 }
 
 /** What the scope shows about one aircraft's place in its stream. */
@@ -172,11 +242,11 @@ export function deliveryPlan(
   delivery: readonly DeliveryGate[],
   aircraft: readonly Aircraft[],
   lastDeliveryS: ReadonlyMap<string, Sec>,
+  bankS: ReadonlyMap<string, Sec>,
   timeS: Sec,
 ): Map<number, DeliverySlot> {
   const slots = new Map<number, DeliverySlot>();
   for (const gate of delivery) {
-    const required = requiredGapS(gate);
     const inbound: { ac: Aircraft; etaS: Sec; distNm: Nm }[] = [];
     for (const ac of aircraft) {
       if (isDeparture(ac) || destinationOf(ac) !== gate.fixName) continue;
@@ -192,8 +262,13 @@ export function deliveryPlan(
     // The chain only ever delays: an aircraft cannot be given a slot before it
     // can physically get there, so its own estimate is the floor.
     let previousSlotS = lastDeliveryS.get(gate.fixName) ?? Number.NEGATIVE_INFINITY;
+    // The ledger is rolled down the chain rather than held at today's balance:
+    // each slot's own gap settles the bank the one behind it is measured
+    // against, so the deficit the player is shown is the one they will be
+    // graded on if they fly the plan (§8.3).
+    let bank = bankS.get(gate.fixName) ?? 0;
     for (const entry of inbound) {
-      const earliestS = previousSlotS + required;
+      const earliestS = previousSlotS + requiredGapS(gate, bank);
       slots.set(entry.ac.id, {
         gate: gate.fixName,
         etaS: entry.etaS,
@@ -203,7 +278,9 @@ export function deliveryPlan(
         deficitS: Number.isFinite(earliestS) ? earliestS - entry.etaS : 0,
         frozen: entry.distNm <= DELIVERY_FREEZE_HORIZON_NM,
       });
-      previousSlotS = Math.max(entry.etaS, earliestS);
+      const slotS = Math.max(entry.etaS, earliestS);
+      if (Number.isFinite(previousSlotS)) bank = nextBankS(gate, bank, slotS - previousSlotS);
+      previousSlotS = slotS;
     }
   }
   return slots;

@@ -18,10 +18,13 @@ import {
 } from '../src/sim/constants.js';
 import { adjustSpeed, speedCeilingKts, speedFloorKts } from '../src/sim/commands.js';
 import {
+  acceptableGapS,
+  agreedGapS,
   assessDelivery,
   deliveryPlan,
   destinationOf,
   gateReadyInS,
+  nextBankS,
   requiredGapS,
   routeOf,
 } from '../src/sim/delivery.js';
@@ -34,6 +37,8 @@ import { createWorld, deliveryRatePerHour, step, type World } from '../src/sim/w
 
 const CENTER: Scenario = SCENARIOS.find((s) => s.id === 'VABBS')!;
 const RCKT: DeliveryGate = CENTER.delivery.find((g) => g.fixName === 'RCKT')!;
+/** Wanted every four minutes, which is the ledger's worked example. */
+const RCMG: DeliveryGate = CENTER.delivery.find((g) => g.fixName === 'RCMG')!;
 
 /** A point at a bearing and range from the field, in the local frame. */
 function at(bearingDeg: Deg, rangeNm: Nm) {
@@ -160,7 +165,7 @@ describe('the delivery contract', () => {
   it('reads a rate as the interval it implies', () => {
     // Eight an hour is seven and a half minutes; fifteen is four.
     expect(requiredGapS(RCKT)).toBeCloseTo(450, 5);
-    expect(requiredGapS(CENTER.delivery.find((g) => g.fixName === 'RCMG')!)).toBeCloseTo(240, 5);
+    expect(requiredGapS(RCMG)).toBeCloseTo(240, 5);
   });
 
   it('passes a delivery on profile, on level, on speed and in interval', () => {
@@ -169,7 +174,7 @@ describe('the delivery contract', () => {
     ac.star!.index = ac.star!.route.waypoints.length - 1;
     ac.altitudeFt = end.altitudeFt!;
     ac.iasKts = end.speedKts!;
-    const verdict = assessDelivery(RCKT, ac, 0, requiredGapS(RCKT) + 1);
+    const verdict = assessDelivery(RCKT, ac, 0, 0, requiredGapS(RCKT) + 1);
     expect(verdict.faults).toEqual([]);
     expect(verdict.gate).toBe('RCKT');
   });
@@ -180,11 +185,11 @@ describe('the delivery contract', () => {
     ac.altitudeFt = end.altitudeFt!;
     ac.iasKts = end.speedKts!;
     // Half the agreed gap behind the one in front: too close.
-    expect(assessDelivery(RCKT, ac, 0, requiredGapS(RCKT) / 2).faults).toContain('early');
+    expect(assessDelivery(RCKT, ac, 0, 0, requiredGapS(RCKT) / 2).faults).toContain('early');
     // A whisker over it: clean.
-    expect(assessDelivery(RCKT, ac, 0, requiredGapS(RCKT) + 1).faults).not.toContain('early');
+    expect(assessDelivery(RCKT, ac, 0, 0, requiredGapS(RCKT) + 1).faults).not.toContain('early');
     // The first delivery at a gate has nothing to be too close to.
-    expect(assessDelivery(RCKT, ac, null, 60).faults).toEqual([]);
+    expect(assessDelivery(RCKT, ac, null, 0, 60).faults).toEqual([]);
   });
 
   it('faults a level, a speed and a vector, each with its own reason', () => {
@@ -197,33 +202,32 @@ describe('the delivery contract', () => {
 
     clean();
     ac.altitudeFt = end.altitudeFt! + 1500;
-    expect(assessDelivery(RCKT, ac, null, 60).faults).toEqual(['level']);
+    expect(assessDelivery(RCKT, ac, null, 0, 60).faults).toEqual(['level']);
 
     clean();
     ac.iasKts = end.speedKts! + 40;
-    expect(assessDelivery(RCKT, ac, null, 60).faults).toEqual(['speed']);
+    expect(assessDelivery(RCKT, ac, null, 0, 60).faults).toEqual(['speed']);
 
     // Tolerances, not equalities: an aircraft 100 ft and 5 kt off is delivered.
     clean();
     ac.altitudeFt = end.altitudeFt! + 100;
     ac.iasKts = end.speedKts! - 5;
-    expect(assessDelivery(RCKT, ac, null, 60).faults).toEqual([]);
+    expect(assessDelivery(RCKT, ac, null, 0, 60).faults).toEqual([]);
 
     // Off the route entirely — the fault this position exists to prevent.
     clean();
     ac.star = null;
-    expect(assessDelivery(RCKT, ac, null, 60).faults).toEqual(['unsequenced']);
+    expect(assessDelivery(RCKT, ac, null, 0, 60).faults).toEqual(['unsequenced']);
   });
 
   it('keeps the two gates independent', () => {
-    const rcmg = CENTER.delivery.find((g) => g.fixName === 'RCMG')!;
     const { ac } = arrivalOn('MOLGO2A/AGELA');
     const end = ac.star!.route.waypoints[ac.star!.route.waypoints.length - 1]!;
     ac.altitudeFt = end.altitudeFt!;
     ac.iasKts = end.speedKts!;
     // Ten seconds after a KETOR delivery is irrelevant to a MOLGO one: the
     // agreement is per gate, and the previous time handed in is that gate's.
-    expect(assessDelivery(rcmg, ac, null, 10).faults).toEqual([]);
+    expect(assessDelivery(RCMG, ac, null, 0, 10).faults).toEqual([]);
   });
 });
 
@@ -231,19 +235,18 @@ describe('the gate countdown', () => {
   it('counts the agreed interval down from the last delivery, and floors at zero', () => {
     const gap = requiredGapS(RCKT);
     // Nothing delivered yet: the stream is empty and will take anyone.
-    expect(gateReadyInS(RCKT, new Map(), 0)).toBeNull();
+    expect(gateReadyInS(RCKT, new Map(), new Map(), 0)).toBeNull();
 
     const last = new Map([['RCKT', 100]]);
     // The instant one is delivered, the whole interval is owed.
-    expect(gateReadyInS(RCKT, last, 100)).toBeCloseTo(gap, 5);
-    expect(gateReadyInS(RCKT, last, 100 + gap / 2)).toBeCloseTo(gap / 2, 5);
+    expect(gateReadyInS(RCKT, last, new Map(), 100)).toBeCloseTo(gap, 5);
+    expect(gateReadyInS(RCKT, last, new Map(), 100 + gap / 2)).toBeCloseTo(gap / 2, 5);
     // Open exactly on the interval, and never negative afterwards.
-    expect(gateReadyInS(RCKT, last, 100 + gap)).toBe(0);
-    expect(gateReadyInS(RCKT, last, 100 + gap * 3)).toBe(0);
+    expect(gateReadyInS(RCKT, last, new Map(), 100 + gap)).toBe(0);
+    expect(gateReadyInS(RCKT, last, new Map(), 100 + gap * 3)).toBe(0);
   });
 
   it('counts each gate down against its own agreement', () => {
-    const rcmg = CENTER.delivery.find((g) => g.fixName === 'RCMG')!;
     // One map of delivery times, two different intervals: RCKT is wanted every
     // 7:30 and RCMG every 4:00, so 300 s after a delivery at each, one gate is
     // still closed and the other has been open a minute.
@@ -251,23 +254,115 @@ describe('the gate countdown', () => {
       ['RCKT', 0],
       ['RCMG', 0],
     ]);
-    expect(gateReadyInS(RCKT, last, 300)).toBeCloseTo(150, 5);
-    expect(gateReadyInS(rcmg, last, 300)).toBe(0);
+    expect(gateReadyInS(RCKT, last, new Map(), 300)).toBeCloseTo(150, 5);
+    expect(gateReadyInS(RCMG, last, new Map(), 300)).toBe(0);
   });
 
-  it('opens the gate exactly when a delivery there would stop being early', () => {
-    // The countdown and the fault have to agree, or the scope is telling the
-    // player to do something it then penalises.
+  it('never invites a delivery it would then penalise, at any balance', () => {
+    // The clock states what the gate wants and the tolerance is what it will
+    // take, so the two are not the same instant — but the open gate has to be
+    // inside the tolerance in both directions, or the scope is telling the
+    // player to do something it faults.
     const { ac } = arrivalOn('KETOR2A/KABSO');
     const end = ac.star!.route.waypoints[ac.star!.route.waypoints.length - 1]!;
     ac.altitudeFt = end.altitudeFt!;
     ac.iasKts = end.speedKts!;
     const last = new Map([['RCKT', 0]]);
-    for (const atS of [60, 200, requiredGapS(RCKT) - 1, requiredGapS(RCKT) + 1]) {
-      const open = gateReadyInS(RCKT, last, atS) === 0;
-      const early = assessDelivery(RCKT, ac, 0, atS).faults.includes('early');
-      expect(open, `at ${atS} s`).toBe(!early);
+    const agreed = agreedGapS(RCKT);
+    for (const bankS of [-agreed * 0.2, -30, 0, 30, agreed * 0.2]) {
+      const banks = new Map([['RCKT', bankS]]);
+      for (const atS of [60, 200, requiredGapS(RCKT, bankS) - 1, requiredGapS(RCKT, bankS) + 1]) {
+        const open = gateReadyInS(RCKT, last, banks, atS) === 0;
+        const early = assessDelivery(RCKT, ac, 0, bankS, atS).faults.includes('early');
+        expect(open && early, `at ${atS} s on a bank of ${bankS}`).toBe(false);
+      }
+      // And the amber tail is exactly the tolerance: a second under the fault
+      // line is a fault, a second over it is not, whatever the clock says.
+      const floor = acceptableGapS(RCKT, bankS);
+      expect(assessDelivery(RCKT, ac, 0, bankS, floor - 1).faults).toContain('early');
+      expect(assessDelivery(RCKT, ac, 0, bankS, floor + 1).faults).not.toContain('early');
     }
+  });
+});
+
+/**
+ * The worked example is RCMG's: wanted every 240 s, so the requirement floors at
+ * 216 and the balance caps at ±48.
+ */
+describe('the spacing ledger', () => {
+  it('shortens the next requirement by what a long gap banked, and lengthens it by a short one', () => {
+    // A gap flown twenty seconds long leaves twenty in hand, and the gate asks
+    // for 3:40 next.
+    const credit = nextBankS(RCMG, 0, 260);
+    expect(credit).toBeCloseTo(20, 5);
+    expect(requiredGapS(RCMG, credit)).toBeCloseTo(220, 5);
+
+    // Ten seconds short is borrowed, and paid back on the next one — 4:10.
+    const debt = nextBankS(RCMG, 0, 230);
+    expect(debt).toBeCloseTo(-10, 5);
+    expect(requiredGapS(RCMG, debt)).toBeCloseTo(250, 5);
+  });
+
+  it('weighs every gap against the agreement, never against the requirement standing', () => {
+    // From twenty in hand, the gate is asking for 220. Each of these is what the
+    // *third* delivery does to that balance, and they are alternatives rather
+    // than a sequence.
+    //
+    // Another long one banks twenty more. The ask floors at 216 while the
+    // balance keeps all forty, which is what stops credit compounding into a
+    // licence to empty the stream.
+    expect(nextBankS(RCMG, 20, 260)).toBeCloseTo(40, 5);
+    expect(requiredGapS(RCMG, 40)).toBeCloseTo(216, 5);
+
+    // One flown at the agreement moves nothing, even though the gate had asked
+    // for less: the ledger is kept against the agreement, so credit is spent
+    // once and not by default.
+    expect(nextBankS(RCMG, 20, 240)).toBeCloseTo(20, 5);
+    expect(requiredGapS(RCMG, 20)).toBeCloseTo(220, 5);
+
+    // And one flown at 218 spends the twenty and borrows two more.
+    expect(nextBankS(RCMG, 20, 218)).toBeCloseTo(-2, 5);
+    expect(requiredGapS(RCMG, -2)).toBeCloseTo(242, 5);
+  });
+
+  it('caps the balance either way, so neither a quiet hour nor a bad one compounds', () => {
+    const cap = agreedGapS(RCMG) * 0.2;
+    // Ten minutes with nothing delivered is worth forty-eight seconds and no
+    // more.
+    expect(nextBankS(RCMG, 0, 600)).toBeCloseTo(cap, 5);
+    expect(nextBankS(RCMG, cap, 600)).toBeCloseTo(cap, 5);
+
+    // Four deliveries at the floor do not dig past the same depth the other way.
+    let bank = 0;
+    for (let i = 0; i < 4; i += 1) bank = nextBankS(RCMG, bank, 216);
+    expect(bank).toBeCloseTo(-cap, 5);
+  });
+
+  it('takes a gap inside the tolerance, and grades the next one against the debt', () => {
+    const { ac } = arrivalOn('MOLGO2A/AGELA');
+    const end = ac.star!.route.waypoints[ac.star!.route.waypoints.length - 1]!;
+    ac.altitudeFt = end.altitudeFt!;
+    ac.iasKts = end.speedKts!;
+
+    // 3:50 into a four-minute stream: ten seconds under the agreement, which is
+    // inside the tolerance and therefore not a fault — it is borrowed.
+    const first = assessDelivery(RCMG, ac, 0, 0, 230);
+    expect(first.faults).not.toContain('early');
+    expect(first.bankAfterS).toBeCloseTo(-10, 5);
+    expect(first.requiredGapS).toBeCloseTo(240, 5);
+
+    // A second under the floor is the fault, from a clean ledger.
+    expect(assessDelivery(RCMG, ac, 0, 0, 215).faults).toContain('early');
+    expect(assessDelivery(RCMG, ac, 0, 0, 216).faults).not.toContain('early');
+
+    // In debt the whole band moves up with the requirement: the same 230 that
+    // was taken from a clean ledger is a fault from a full one, which is what
+    // stops a sector running permanently at the tolerance.
+    expect(assessDelivery(RCMG, ac, 0, -48, 230).faults).toContain('early');
+    expect(acceptableGapS(RCMG, -48)).toBeCloseTo(264, 5);
+
+    // The first delivery at a gate opens the ledger rather than moving it.
+    expect(assessDelivery(RCMG, ac, null, 12, 60).bankAfterS).toBe(12);
   });
 });
 
@@ -332,7 +427,7 @@ describe('the metering deficit', () => {
     }
     world.aircraft = made;
 
-    const slots = deliveryPlan(CENTER.delivery, made, new Map(), 0);
+    const slots = deliveryPlan(CENTER.delivery, made, new Map(), new Map(), 0);
     expect(slots.size).toBe(3);
     const deficits = made.map((ac) => slots.get(ac.id)!.deficitS);
     // The first has nothing ahead of it, so nothing to lose.
@@ -346,14 +441,28 @@ describe('the metering deficit', () => {
     // KABSO's is the longest way in at 145 NM, so it is the one route that
     // actually starts outside the horizon — BISET's whole 120 is inside it.
     const { world, ac } = arrivalOn('KETOR2A/KABSO');
-    const slots = deliveryPlan(CENTER.delivery, world.aircraft, new Map(), 0);
+    const slots = deliveryPlan(CENTER.delivery, world.aircraft, new Map(), new Map(), 0);
     // Just handed over at the boundary, with the whole route still to run.
     expect(slots.get(ac.id)!.frozen).toBe(false);
     ac.star!.index = ac.star!.route.waypoints.length - 1;
     const end = ac.star!.route.waypoints[ac.star!.route.waypoints.length - 1]!;
     ac.x = end.position.x - 10;
     ac.y = end.position.y;
-    expect(deliveryPlan(CENTER.delivery, world.aircraft, new Map(), 0).get(ac.id)!.frozen).toBe(true);
+    expect(deliveryPlan(CENTER.delivery, world.aircraft, new Map(), new Map(), 0).get(ac.id)!.frozen).toBe(true);
+  });
+
+  it('slots the next arrival against the ledger its gate is carrying', () => {
+    const { world, ac } = arrivalOn('KETOR2A/KABSO');
+    const last = new Map([['RCKT', 0]]);
+    const plan = (bankS: number) =>
+      deliveryPlan(CENTER.delivery, world.aircraft, last, new Map([['RCKT', bankS]]), 0).get(
+        ac.id,
+      )!;
+    // The estimate is the aircraft's and does not move; the slot it is measured
+    // against does, by exactly the balance — thirty seconds in hand is thirty
+    // seconds less to lose.
+    expect(plan(30).etaS).toBeCloseTo(plan(0).etaS, 5);
+    expect(plan(0).deficitS - plan(30).deficitS).toBeCloseTo(30, 5);
   });
 
   it('knows which stream an aircraft belongs to, on the route or off it', () => {

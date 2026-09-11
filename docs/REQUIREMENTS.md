@@ -1896,9 +1896,43 @@ stream will take anyone. It is drawn per frame in `trafficLayer` rather than ont
 layer, for the reason `sidHover` is.
 
 It answers a different question from the deficit on a data block: that says what one aircraft owes,
-this says what the *stream* is ready for. `tests/center.test.ts` pins the two to the same instant —
-the gate opens exactly when a delivery there would stop scoring `early` — because a scope that
-invited a delivery and then penalised it would be worse than one that said nothing.
+this says what the *stream* is ready for. The clock is never allowed to invite a delivery it would
+then fault, whatever the ledger below is carrying — `tests/center.test.ts` pins that in both
+directions, because a scope that did would be worse than one that said nothing.
+
+#### The spacing ledger
+
+The agreement is a **rate**, and a rate is kept over a stream rather than between one pair. So each
+gate carries a signed balance of seconds, and the interval it asks for moves with it:
+
+    required   = max(agreed − bank, 0.9 × agreed)
+    acceptable = max(required − 0.1 × agreed, 0.9 × agreed)
+    bank       ← clamp(bank + (gap − agreed), ±0.2 × agreed)
+
+`required` is the countdown on the scope: what the gate wants next. `acceptable` is what it will
+take without scoring `early` — a tenth under, which is what stops 3:59 into a four-minute stream
+being the same event as 2:00. Worked at RCMG, wanted every 15 an hour, so 240 s with a 216 s floor
+and a ±48 s cap. The last three rows are alternatives for the third delivery, not a sequence:
+
+| gap flown | bank after | then asks for |
+| --- | --- | --- |
+| first at the gate | 0 | 4:00 |
+| 4:20 | +20 | 3:40 |
+| 4:20 again | +40 | 3:36 — floored, and the balance still holds all forty |
+| 4:00 | +20 | 3:40 — a gap at the agreement moves the balance not at all |
+| 3:38 | −2 | 4:02 |
+
+Three things are load-bearing. **The balance is weighed against the agreement, never against the
+requirement standing** — otherwise credit is spent by default the moment it is earned, and the
+ledger becomes a drift. **The floor bounds what one gap may spend, not what the balance may hold**,
+so a gate left quiet keeps its credit for later instead of being handed a licence to empty the
+stream downstream. And **debt carries the fault line up with the requirement**: at a full −48 the
+gate wants 4:48 and faults under 4:24, which is what stops a sector running permanently at the
+tolerance and calling every delivery clean.
+
+`deliveryPlan` rolls the balance down the chain rather than holding it at today's figure — each
+slot's own gap settles what the one behind it is measured against — so the deficit on a data block
+is what the player will actually be graded on if they fly the plan.
 
 #### The assignable speed band
 
@@ -2394,6 +2428,13 @@ where the arrivals are" — it is gone rather than recorded.
 | Whether a foreign leg can refuse the press | **No — it is skipped, and only the aircraft's own route can refuse** (2026-09-10). "Refused, not skipped" was written about the leg the player aimed at. With every route in the scan, the nearest crossing is often a route nobody was aiming at lying square across the heading, and refusing on it means a perfectly good rejoin onto the aircraft's own leg is turned down because an unrelated route was in front of it. Flying through another arrival's route is what a vectored aircraft does all day, so a leg outside the gate is passed over and the scan continues. Caught by a test that armed at 49° across its own leg and was refused at 102° across TEMBA 1A's downwind |
 | Why the rejoin gate is 50° and the localizer's is still 45° | **Neither capture anticipates the angle, and only one of them has to roll out on something** (2026-09-10). Both fire on a hard cross-track threshold, so a steeper crossing is absorbed by whatever the aircraft does next. On the localizer that is a ±25°-clamped pursuit law with 5 NM of runway left, where 50° overshoots the centreline by ~0.3 NM and then has to beat `isEstablished` and the 5 NM stability gate; on a rejoin it is a direct track to the joining fix with 10–40 NM of leg to settle in, where it costs nothing. So `MAX_REJOIN_ANGLE_DEG` split off from `MAX_INTERCEPT_ANGLE_DEG` rather than the shared number moving |
 | Intercepting a STAR leg at all | **A gameplay device, and recorded as one.** The real instruction is "cleared direct ALVOR, resume the arrival" (FAA 7110.65): an RNAV leg radiates nothing a crew can arm on, so leg intercepts belong to airways and VOR radials. It is kept because it puts setting up the join in the player's hands, and because a direct-to falls out of it — aim at a fix and the ray crosses there. Stated here rather than dressed up as published procedure, as `turnAtOrAboveFt` and the `RC__` fixes are |
+
+| Question | Decision (2026-09-11, the spacing ledger) |
+| --- | --- |
+| Whether the agreed interval is a floor per pair or a rate over the stream | **A rate, kept in a per-gate ledger.** A flat interval graded 3:59 exactly as it graded 2:00 and gave nothing back for a gap flown long, which makes the agreement a stopwatch: the player is punished for a two-second miss and the capacity a six-minute gap wasted is never recovered. A signed balance of seconds settles both — it shortens the next ask by what was earned and lengthens it by what was borrowed, so the long-run rate comes out exactly right while the individual gaps breathe |
+| The two numbers | **A tenth of the agreement for one gap, a fifth for the balance.** Fractions rather than seconds because the agreement is per gate — four minutes at RCMG against seven and a half at RCKT — and a fixed tolerance would be a tenth of one and a twentieth of the other. They are rules of the job, so they are in `constants.ts` and not on `DeliveryGateSpec` |
+| What the countdown counts to | **What the gate wants, not what it will take.** The requirement and the fault line are a tolerance apart, so an amber clock is not yet a fault — the alternative pinned them together and made every delivery inside the tolerance a fault, which is the behaviour the ledger exists to remove. What is still pinned is the one-way implication: an open gate is never a fault |
+| Where the balance lives | **`Stats.deliveryBankS`, stored rather than derived.** `deliveryTimesS` is trimmed to the few timestamps the rate reads, so folding the ledger back out of it would silently forget it. Being in `Stats` also means the recording carries it for free — `cloneStats` copies the map and `deliveries` already moves with it, so a rebuilt frame slots the stream against the ledger that was actually standing |
 
 ## 15. Still open
 

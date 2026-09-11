@@ -356,6 +356,7 @@ function cloneStats(stats: Stats): Stats {
     rejections: new Map(stats.rejections),
     missedIntercepts: new Map(stats.missedIntercepts),
     deliveryFaults: new Map(stats.deliveryFaults),
+    deliveryBankS: new Map(stats.deliveryBankS),
     // A map of arrays, so both levels have to be copied: `tryDelivery` pushes
     // onto the array in place, and a shallow copy of the map would leave every
     // snapshot sharing — and so silently updating — the live one.

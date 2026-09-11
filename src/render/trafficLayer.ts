@@ -357,7 +357,7 @@ function drawDeliveryClocks(ctx: CanvasRenderingContext2D, world: World, p: Proj
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
   for (const gate of world.scenario.delivery) {
-    const readyInS = gateReadyInS(gate, last, world.timeS);
+    const readyInS = gateReadyInS(gate, last, world.stats.deliveryBankS, world.timeS);
     // No delivery yet: the stream is empty and will take anyone, so a countdown
     // would be counting down from nothing.
     if (readyInS === null) continue;

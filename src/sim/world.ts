@@ -100,6 +100,13 @@ export interface Stats {
    * has satisfied neither. Trimmed to the last few, as the other rate series are.
    */
   deliveryTimesS: Map<string, Sec[]>;
+  /**
+   * Each gate's spacing ledger: seconds in hand, or owed when negative (§8.3).
+   *
+   * Stored rather than folded back out of `deliveryTimesS`, which is trimmed to
+   * the few timestamps the rate reads and would forget the balance.
+   */
+  deliveryBankS: Map<string, Sec>;
   /** Deliveries that were made but not cleanly, by reason (§8.3). */
   deliveryFaults: Map<string, number>;
   rejections: Map<string, number>;
@@ -185,6 +192,7 @@ export function createWorld(
       exits: 0,
       deliveries: 0,
       deliveryTimesS: new Map(),
+      deliveryBankS: new Map(),
       deliveryFaults: new Map(),
       rejections: new Map(),
       missedIntercepts: new Map(),
@@ -431,11 +439,13 @@ function tryDelivery(world: World, ac: Aircraft): boolean {
 
   const times = world.stats.deliveryTimesS.get(gate.fixName) ?? [];
   const previousS = times[times.length - 1] ?? null;
-  const verdict = assessDelivery(gate, ac, previousS, world.timeS);
+  const bankS = world.stats.deliveryBankS.get(gate.fixName) ?? 0;
+  const verdict = assessDelivery(gate, ac, previousS, bankS, world.timeS);
 
   times.push(world.timeS);
   if (times.length > MOVEMENT_RATE_INTERVALS + 1) times.shift();
   world.stats.deliveryTimesS.set(gate.fixName, times);
+  world.stats.deliveryBankS.set(gate.fixName, verdict.bankAfterS);
   world.stats.deliveries += 1;
   for (const fault of verdict.faults) {
     world.stats.deliveryFaults.set(fault, (world.stats.deliveryFaults.get(fault) ?? 0) + 1);
@@ -826,6 +836,7 @@ export function step(world: World, dt: Sec): void {
     world.scenario.delivery,
     world.aircraft,
     lastDeliveryTimes(world),
+    world.stats.deliveryBankS,
     world.timeS,
   );
 
