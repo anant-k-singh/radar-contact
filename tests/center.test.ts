@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { boundaryMarginNm, isInsideAirspace } from '../src/scenario/airspace.js';
 import { SCENARIOS } from '../src/scenario/registry.js';
+import { starForGate } from '../src/scenario/routes.js';
 import { validateScenario } from '../src/scenario/validate.js';
 import type { DeliveryGate, Scenario } from '../src/scenario/types.js';
 import {
@@ -31,14 +32,25 @@ import {
 import { createRng } from '../src/sim/rng.js';
 import { pilotActs } from './helpers.js';
 import { joinStar } from '../src/sim/star.js';
-import { createArrival, createTrafficState } from '../src/sim/traffic.js';
+import {
+  createArrival,
+  createTrafficState,
+  scheduleNextSpawn,
+  trySpawn,
+} from '../src/sim/traffic.js';
 import { headingVector, type Deg, type Nm } from '../src/sim/units.js';
 import { createWorld, deliveryRatePerHour, step, type World } from '../src/sim/world.js';
 
 const CENTER: Scenario = SCENARIOS.find((s) => s.id === 'VABBS')!;
 const RCKT: DeliveryGate = CENTER.delivery.find((g) => g.fixName === 'RCKT')!;
-/** Wanted every four minutes, which is the ledger's worked example. */
 const RCMG: DeliveryGate = CENTER.delivery.find((g) => g.fixName === 'RCMG')!;
+/**
+ * A four-minute agreement, which is the ledger's worked example — 240 s, floored
+ * at 216 and capped at ±48. Synthetic on purpose: the arithmetic is about the
+ * rule and not about what Mumbai currently accepts, so retuning a field's rates
+ * must not rewrite it.
+ */
+const FOUR_MINUTE: DeliveryGate = { ...RCMG, targetRatePerHour: 15 };
 
 /** A point at a bearing and range from the field, in the local frame. */
 function at(bearingDeg: Deg, rangeNm: Nm) {
@@ -163,9 +175,10 @@ describe('the delivery contract', () => {
   });
 
   it('reads a rate as the interval it implies', () => {
-    // Eight an hour is seven and a half minutes; fifteen is four.
-    expect(requiredGapS(RCKT)).toBeCloseTo(450, 5);
-    expect(requiredGapS(RCMG)).toBeCloseTo(240, 5);
+    // Fifteen an hour is four minutes; four an hour is fifteen.
+    expect(requiredGapS(FOUR_MINUTE)).toBeCloseTo(240, 5);
+    expect(requiredGapS(RCKT)).toBeCloseTo(3600 / RCKT.targetRatePerHour, 5);
+    expect(requiredGapS(RCMG)).toBeCloseTo(3600 / RCMG.targetRatePerHour, 5);
   });
 
   it('passes a delivery on profile, on level, on speed and in interval', () => {
@@ -247,15 +260,19 @@ describe('the gate countdown', () => {
   });
 
   it('counts each gate down against its own agreement', () => {
-    // One map of delivery times, two different intervals: RCKT is wanted every
-    // 7:30 and RCMG every 4:00, so 300 s after a delivery at each, one gate is
-    // still closed and the other has been open a minute.
+    // One map of delivery times, two different intervals — KETOR's stream is the
+    // thinner of the two, so some way past a delivery at each the busy gate has
+    // opened and the quiet one has not.
     const last = new Map([
       ['RCKT', 0],
       ['RCMG', 0],
     ]);
-    expect(gateReadyInS(RCKT, last, new Map(), 300)).toBeCloseTo(150, 5);
-    expect(gateReadyInS(RCMG, last, new Map(), 300)).toBe(0);
+    const between = (agreedGapS(RCMG) + agreedGapS(RCKT)) / 2;
+    expect(gateReadyInS(RCKT, last, new Map(), between)).toBeCloseTo(
+      agreedGapS(RCKT) - between,
+      5,
+    );
+    expect(gateReadyInS(RCMG, last, new Map(), between)).toBe(0);
   });
 
   it('never invites a delivery it would then penalise, at any balance', () => {
@@ -286,21 +303,21 @@ describe('the gate countdown', () => {
 });
 
 /**
- * The worked example is RCMG's: wanted every 240 s, so the requirement floors at
- * 216 and the balance caps at ±48.
+ * Worked on a four-minute agreement, so the requirement floors at 216 s and the
+ * balance caps at ±48.
  */
 describe('the spacing ledger', () => {
   it('shortens the next requirement by what a long gap banked, and lengthens it by a short one', () => {
     // A gap flown twenty seconds long leaves twenty in hand, and the gate asks
     // for 3:40 next.
-    const credit = nextBankS(RCMG, 0, 260);
+    const credit = nextBankS(FOUR_MINUTE, 0, 260);
     expect(credit).toBeCloseTo(20, 5);
-    expect(requiredGapS(RCMG, credit)).toBeCloseTo(220, 5);
+    expect(requiredGapS(FOUR_MINUTE, credit)).toBeCloseTo(220, 5);
 
     // Ten seconds short is borrowed, and paid back on the next one — 4:10.
-    const debt = nextBankS(RCMG, 0, 230);
+    const debt = nextBankS(FOUR_MINUTE, 0, 230);
     expect(debt).toBeCloseTo(-10, 5);
-    expect(requiredGapS(RCMG, debt)).toBeCloseTo(250, 5);
+    expect(requiredGapS(FOUR_MINUTE, debt)).toBeCloseTo(250, 5);
   });
 
   it('weighs every gap against the agreement, never against the requirement standing', () => {
@@ -311,30 +328,30 @@ describe('the spacing ledger', () => {
     // Another long one banks twenty more. The ask floors at 216 while the
     // balance keeps all forty, which is what stops credit compounding into a
     // licence to empty the stream.
-    expect(nextBankS(RCMG, 20, 260)).toBeCloseTo(40, 5);
-    expect(requiredGapS(RCMG, 40)).toBeCloseTo(216, 5);
+    expect(nextBankS(FOUR_MINUTE, 20, 260)).toBeCloseTo(40, 5);
+    expect(requiredGapS(FOUR_MINUTE, 40)).toBeCloseTo(216, 5);
 
     // One flown at the agreement moves nothing, even though the gate had asked
     // for less: the ledger is kept against the agreement, so credit is spent
     // once and not by default.
-    expect(nextBankS(RCMG, 20, 240)).toBeCloseTo(20, 5);
-    expect(requiredGapS(RCMG, 20)).toBeCloseTo(220, 5);
+    expect(nextBankS(FOUR_MINUTE, 20, 240)).toBeCloseTo(20, 5);
+    expect(requiredGapS(FOUR_MINUTE, 20)).toBeCloseTo(220, 5);
 
     // And one flown at 218 spends the twenty and borrows two more.
-    expect(nextBankS(RCMG, 20, 218)).toBeCloseTo(-2, 5);
-    expect(requiredGapS(RCMG, -2)).toBeCloseTo(242, 5);
+    expect(nextBankS(FOUR_MINUTE, 20, 218)).toBeCloseTo(-2, 5);
+    expect(requiredGapS(FOUR_MINUTE, -2)).toBeCloseTo(242, 5);
   });
 
   it('caps the balance either way, so neither a quiet hour nor a bad one compounds', () => {
-    const cap = agreedGapS(RCMG) * 0.2;
+    const cap = agreedGapS(FOUR_MINUTE) * 0.2;
     // Ten minutes with nothing delivered is worth forty-eight seconds and no
     // more.
-    expect(nextBankS(RCMG, 0, 600)).toBeCloseTo(cap, 5);
-    expect(nextBankS(RCMG, cap, 600)).toBeCloseTo(cap, 5);
+    expect(nextBankS(FOUR_MINUTE, 0, 600)).toBeCloseTo(cap, 5);
+    expect(nextBankS(FOUR_MINUTE, cap, 600)).toBeCloseTo(cap, 5);
 
     // Four deliveries at the floor do not dig past the same depth the other way.
     let bank = 0;
-    for (let i = 0; i < 4; i += 1) bank = nextBankS(RCMG, bank, 216);
+    for (let i = 0; i < 4; i += 1) bank = nextBankS(FOUR_MINUTE, bank, 216);
     expect(bank).toBeCloseTo(-cap, 5);
   });
 
@@ -346,23 +363,23 @@ describe('the spacing ledger', () => {
 
     // 3:50 into a four-minute stream: ten seconds under the agreement, which is
     // inside the tolerance and therefore not a fault — it is borrowed.
-    const first = assessDelivery(RCMG, ac, 0, 0, 230);
+    const first = assessDelivery(FOUR_MINUTE, ac, 0, 0, 230);
     expect(first.faults).not.toContain('early');
     expect(first.bankAfterS).toBeCloseTo(-10, 5);
     expect(first.requiredGapS).toBeCloseTo(240, 5);
 
     // A second under the floor is the fault, from a clean ledger.
-    expect(assessDelivery(RCMG, ac, 0, 0, 215).faults).toContain('early');
-    expect(assessDelivery(RCMG, ac, 0, 0, 216).faults).not.toContain('early');
+    expect(assessDelivery(FOUR_MINUTE, ac, 0, 0, 215).faults).toContain('early');
+    expect(assessDelivery(FOUR_MINUTE, ac, 0, 0, 216).faults).not.toContain('early');
 
     // In debt the whole band moves up with the requirement: the same 230 that
     // was taken from a clean ledger is a fault from a full one, which is what
     // stops a sector running permanently at the tolerance.
-    expect(assessDelivery(RCMG, ac, 0, -48, 230).faults).toContain('early');
-    expect(acceptableGapS(RCMG, -48)).toBeCloseTo(264, 5);
+    expect(assessDelivery(FOUR_MINUTE, ac, 0, -48, 230).faults).toContain('early');
+    expect(acceptableGapS(FOUR_MINUTE, -48)).toBeCloseTo(264, 5);
 
     // The first delivery at a gate opens the ledger rather than moving it.
-    expect(assessDelivery(RCMG, ac, null, 12, 60).bankAfterS).toBe(12);
+    expect(assessDelivery(FOUR_MINUTE, ac, null, 12, 60).bankAfterS).toBe(12);
   });
 });
 
@@ -495,6 +512,56 @@ describe('flying the sector', () => {
     expect(world.stats.deliveryFaults.get('early') ?? 0).toBeGreaterThan(0);
     // But never off its procedure: nothing vectors an aircraft here but a player.
     expect(world.stats.deliveryFaults.get('unsequenced') ?? 0).toBe(0);
+  });
+
+  it('offers each stream its declared share, whatever the cooldowns are doing', () => {
+    // The stream an arrival belongs to is drawn once and waited for, so a gate
+    // inside its cooldown delays the handover instead of passing it to the other
+    // stream. Redrawing each tick instead flattened a declared 72/28 to 57/43,
+    // because the busiest stream is blocked most often and donates its share to
+    // the quietest — and the sector was then offered KETOR half again what
+    // Approach had agreed to take.
+    const rng = createRng(7);
+    const state = createTrafficState();
+    const tally = new Map<string, number>();
+    const HOURS = 100;
+    let t = 0;
+    scheduleNextSpawn(state, rng, 0, CENTER.traffic.arrivalsPerHour);
+    while (t < HOURS * 3600) {
+      t = Math.max(t, state.nextSpawnAtS);
+      const dueS = state.nextSpawnAtS;
+      // No aircraft in the sector, so the proximity veto and the holding stack
+      // are out of it and this is the weights against the cooldowns alone.
+      let ac = trySpawn(CENTER, rng, state, [], t);
+      for (let waited = 0; ac === null && waited < 3600; waited += 1) {
+        t += 1;
+        ac = trySpawn(CENTER, rng, state, [], t);
+      }
+      if (ac) {
+        const fix = ac.star!.route.waypoints[ac.star!.route.waypoints.length - 1]!.name;
+        tally.set(fix, (tally.get(fix) ?? 0) + 1);
+      }
+      // From the time it was *due*: a held handover is late, not cancelled, or
+      // the flow the player asked for quietly becomes a lower one.
+      scheduleNextSpawn(state, rng, dueS, CENTER.traffic.arrivalsPerHour);
+    }
+
+    const total = [...tally.values()].reduce((sum, n) => sum + n, 0);
+    // The rate asked for is the rate offered, within the spawn floor's rounding.
+    expect(total / HOURS).toBeGreaterThan(CENTER.traffic.arrivalsPerHour * 0.95);
+
+    // And each stream gets the share its gates declare.
+    const declared = new Map<string, number>();
+    for (const gate of CENTER.gates) {
+      const fix = starForGate(CENTER, gate.name)!.waypoints.at(-1)!.name;
+      declared.set(fix, (declared.get(fix) ?? 0) + gate.weight);
+    }
+    const weightTotal = [...declared.values()].reduce((sum, n) => sum + n, 0);
+    // Two points of slack: a hundred sector-hours is fifteen hundred aircraft,
+    // and a 72/28 split sampled that many times has a standard error of one.
+    for (const [fix, weight] of declared) {
+      expect(Math.abs((tally.get(fix) ?? 0) / total - weight / weightTotal), fix).toBeLessThan(0.02);
+    }
   });
 
   it('hands an untouched arrival over at the crossing the approach field expects', () => {

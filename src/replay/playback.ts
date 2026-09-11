@@ -330,6 +330,7 @@ export function worldAtFrame(
     traffic: {
       nextSpawnAtS: Infinity,
       gateLastSpawnS: new Map(),
+      pendingGate: null,
       nextId: 0,
       nextDepartureAtS: Infinity,
       departureQueue,

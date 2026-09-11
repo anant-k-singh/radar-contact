@@ -125,29 +125,35 @@ export const VABB_SOUTH_GATES: readonly EntryGateSpec[] = [
  * What Approach has asked for, per gate (§3.2a) — and the whole objective.
  *
  * A rate is miles-in-trail stated as the receiving controller actually thinks of
- * it: 15 an hour is a four-minute interval, 8 an hour is seven and a half. The
- * two are satisfied **independently**, because filling MOLGO's stream while
- * starving KETOR's is not a sector that delivered twenty an hour — it is one that
- * broke both agreements at once.
+ * it: 10 an hour is a six-minute interval, 4 an hour is fifteen. The two are
+ * satisfied **independently**, because filling MOLGO's stream while starving
+ * KETOR's is not a sector that delivered fourteen an hour — it is one that broke
+ * both agreements at once.
  *
  * ## Where these two numbers come from
  *
- * Both sit comfortably **above** the mean rate their stream is offered — MOLGO
- * gets about 11 an hour and KETOR about 4 — so a sector that was handed its
- * traffic evenly spaced would never have to touch it. What creates the work is
- * that it is not: arrivals are a Poisson process, and the chance an exponential
- * gap falls short of the agreed one is around 40% whatever the mean. Flown
- * untouched over nine sector-hours these deliver 138 aircraft and break the
- * agreement on 46% of them.
+ * They are **Mumbai's arrival capacity cut by Mumbai's own gate weights**, which
+ * is what an acceptance rate is: the receiving field states what it can land, and
+ * each feeder fix is told its share of it. VABB works to about 30 arrivals an
+ * hour, and `fields/vabb/airport.ts` weights MOLGO at 34 % of them and KETOR at
+ * 13 % — derived there from CSMIA's published market share. So 10.2 and 3.9,
+ * rounded to the rates a controller would be given.
  *
- * That is the intended baseline. Doing nothing has to score badly or there is no
- * exercise; and the deficit has to be **absorbable**, which is the reason these
- * are not tighter. Against a ten-minute agreement a burst of three left arrivals
- * owing eighteen minutes — four or five turns in the hold before one could be
- * delivered, which is a punishment rather than a puzzle. At four and seven
- * minutes the same burst is a speed reduction and one orbit.
+ * Deriving them rather than choosing them is what keeps the two fields from
+ * disagreeing about the boundary they share, the same reason KETOR is handed over
+ * at 15,000/260 here because `fields/vabb/stars.ts` expects it. An agreement
+ * picked to feel right at this end would be a number Approach had never asked
+ * for.
+ *
+ * They are also **below** the rate their stream is offered at the default flow —
+ * 13 an hour into MOLGO and 5 into KETOR — which is the exercise rather than a
+ * misconfiguration. A sector handed exactly what the field below can take has
+ * nothing to do; the surplus is what has to go into speed, track miles and the
+ * hold, and the achieved-against-agreed rows are where failing to place it shows
+ * up. Turning the arrival flow down is what makes the sector quiet, and that
+ * control belongs to the player.
  */
 export const VABB_SOUTH_DELIVERY: readonly DeliveryGateSpec[] = [
-  { fixName: 'RCMG', targetRatePerHour: 15 },
-  { fixName: 'RCKT', targetRatePerHour: 8 },
+  { fixName: 'RCMG', targetRatePerHour: 10 },
+  { fixName: 'RCKT', targetRatePerHour: 4 },
 ];

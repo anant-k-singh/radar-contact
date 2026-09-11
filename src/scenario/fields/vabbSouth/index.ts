@@ -31,18 +31,26 @@ export const VABB_SOUTH: ScenarioSpec = {
   airlines: VABB_AIRLINES,
   traffic: {
     /**
-     * Twenty an hour across two streams, split 72/28 by the gate weights — 14.4
-     * into MOLGO against an agreement of 14, and 5.6 into KETOR against 6. The
-     * sector is offered very nearly what it is asked to deliver, so the work is
-     * smoothing the stream rather than absorbing a surplus.
+     * Fifteen an hour, split 72/28 by the gate weights — about 10.7 into MOLGO
+     * against an agreement of 10, and 4.1 into KETOR against 4.
+     *
+     * A few percent over what Approach will take, and deliberately no more. The
+     * work is not a surplus to absorb: it is that arrivals are a Poisson process,
+     * so a stream offered its agreed rate still delivers 40 % of its gaps short
+     * of the interval. Feeding it well above the agreement instead would put the
+     * sector permanently and irrecoverably behind, which is a fail state rather
+     * than an exercise — the player can ask for that with the flow control, and
+     * it is their choice to make.
      */
-    arrivalsPerHour: 20,
+    arrivalsPerHour: 15,
     departuresPerHour: 0,
     /**
-     * Two minutes, against agreements of four and ten. A merge group shares one
-     * cooldown, so this is the interval the six KETOR routes are offered traffic
-     * at between them — and the gap between it and the agreement is the delay the
-     * player has to find somewhere to put.
+     * Two minutes, against agreements of six and fifteen. A merge group shares
+     * one cooldown, so this is the interval the six KETOR routes are offered
+     * traffic at between them — it is in-trail spacing at the boundary rather
+     * than metering, and it delays a handover rather than moving it to the other
+     * stream, so the flow the player asks for arrives in the ratio the gates
+     * declare.
      */
     gateCooldownS: 120,
   },

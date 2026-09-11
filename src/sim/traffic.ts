@@ -28,6 +28,18 @@ import { bearing, distance, type Ft, type Sec } from './units.js';
 export interface TrafficState {
   nextSpawnAtS: Sec;
   gateLastSpawnS: Map<string, Sec>;
+  /**
+   * The gate the next arrival has already been drawn for, held until that gate
+   * can take it (§4.4).
+   *
+   * The draw has to be sticky or the weights stop meaning anything: a stream
+   * inside its cooldown would otherwise hand its turn to whichever stream
+   * happened to be free, and the busiest one — blocked most often, because it is
+   * drawn most often — donates its share to the quietest. At VABBS that flattened
+   * a declared 72/28 to 57/43 and offered KETOR half again what it had agreed to
+   * take.
+   */
+  pendingGate: string | null;
   nextId: number;
   /** When the next departure joins the hold-short queue. */
   nextDepartureAtS: Sec;
@@ -57,6 +69,7 @@ export function createTrafficState(): TrafficState {
   return {
     nextSpawnAtS: 0,
     gateLastSpawnS: new Map(),
+    pendingGate: null,
     nextId: 1,
     nextDepartureAtS: 0,
     departureQueue: 0,
@@ -238,8 +251,19 @@ export function createArrival(
 }
 
 /**
- * Try to hand over one arrival. Returns null when every gate is on cooldown or
- * blocked, in which case the caller retries on the next tick.
+ * Try to hand over one arrival. Returns null when the gate it is for cannot take
+ * it yet, in which case the caller retries on the next tick.
+ *
+ * Which gate that is was drawn once and is then waited for, rather than redrawn
+ * each tick among whatever is free. The spawner's job is to offer the field its
+ * traffic in the proportions the field declares; a stream that is congested
+ * stays congested and the aircraft waits, because moving it to another arrival
+ * is the controller's decision and not the generator's.
+ *
+ * A stack at the ceiling is the one thing that releases the draw: there is no
+ * level left to deliver anyone on there (§4.5), so that gate is out of the
+ * question rather than merely busy, and holding the whole sector behind it would
+ * stop the field instead of the stream.
  */
 export function trySpawn(
   scenario: Scenario,
@@ -248,18 +272,24 @@ export function trySpawn(
   existing: readonly Aircraft[],
   timeS: Sec,
 ): Aircraft | null {
-  const candidates = scenario.gates.filter(
-    (gate) =>
-      gateAvailable(scenario, gate, state, timeS) &&
-      !vetoed(gate, existing) &&
-      !stackFull(scenario, gate, existing),
-  );
-  if (candidates.length === 0) return null;
+  const open = scenario.gates.filter((gate) => !stackFull(scenario, gate, existing));
+  if (open.length === 0) {
+    state.pendingGate = null;
+    return null;
+  }
 
   // Weighted, because which direction traffic comes from is a fact about the
   // field (§4.4). A field that states no weights gets the even split it always
   // had, from the same draw.
-  const gate = rng.pickWeighted(candidates, (candidate) => candidate.weight);
+  let gate = open.find((candidate) => candidate.name === state.pendingGate);
+  if (!gate) {
+    gate = rng.pickWeighted(open, (candidate) => candidate.weight);
+    state.pendingGate = gate.name;
+  }
+
+  if (!gateAvailable(scenario, gate, state, timeS) || vetoed(gate, existing)) return null;
+
+  state.pendingGate = null;
   // Every key this handover occupies, so a merge group goes quiet as a whole.
   for (const key of cooldownKeys(scenario, gate)) state.gateLastSpawnS.set(key, timeS);
   return createArrival(scenario, rng, state, gate, existing, timeS);

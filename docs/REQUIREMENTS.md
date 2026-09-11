@@ -288,25 +288,32 @@ A delivery gate states the fix and the rate the next sector down has asked for:
 
 | Gate | Fed by | Asked for | Interval it implies |
 | --- | --- | --- | --- |
-| `RCMG` | MOLGO 2A ×2 | **15/h** | 240 s |
-| `RCKT` | KETOR 2A ×6 | **8/h** | 450 s |
+| `RCMG` | MOLGO 2A ×2 | **10/h** | 360 s |
+| `RCKT` | KETOR 2A ×6 | **4/h** | 900 s |
 
 **A rate is miles-in-trail stated the way the receiving controller thinks of it.** The two are
 satisfied **independently**: a sector that fills one stream while starving the other has not
-delivered 23 an hour, it has broken both agreements at once. That is why the figure is per fix
+delivered 14 an hour, it has broken both agreements at once. That is why the figure is per fix
 rather than per sector.
 
-Both sit **above** the mean rate their stream is offered — MOLGO's gets about 11 an hour and
-KETOR's about 4 — so a sector handed evenly-spaced traffic would never have to touch it. What makes
-the work is that arrivals are a Poisson process (§4.4): the chance an exponential gap falls short of
-the agreed one is around 40% whatever the mean. Flown untouched over nine sector-hours, VABBS
-delivers 138 aircraft and breaks the agreement on **46%** of them. Doing nothing has to score badly
-or there is no exercise.
+**Both are derived, not chosen: the receiving field's arrival capacity cut by its own gate
+weights.** VABB works to about 30 arrivals an hour, and §4.4's weights put 34 % of them over MOLGO
+and 13 % over KETOR — so 10.2 and 3.9, rounded to the rates a controller would actually be given.
+That is what an acceptance rate *is*, and deriving it is what stops the two fields disagreeing about
+the boundary they share, exactly as KETOR is delivered at 15,000/260 here because VABB spawns it
+there.
 
-The rates are deliberately not tighter than that. Against a ten-minute agreement a burst of three
-left the last one owing **eighteen minutes** — four or five turns in the hold before it could be
-delivered, which is a punishment rather than a puzzle. The deficit has to be absorbable with the
-tools the player actually has.
+The flow the sector is offered is then set against them rather than the other way round: **15/h**,
+which the gate weights split into about 10.7 into MOLGO and 4.1 into KETOR. A few percent over what
+Approach will take, and deliberately no more — the work is not a surplus to absorb but the fact that
+arrivals are a Poisson process (§4.4), so a stream offered exactly its agreed rate still delivers
+around 40 % of its gaps short of the interval whatever the mean. Doing nothing has to score badly or
+there is no exercise.
+
+Feeding it well above the agreement does something different and worse: the sector falls behind by a
+fixed number of aircraft every hour, with no arrangement of speed, track miles and holding that ever
+recovers it. That is a fail state rather than a puzzle. The player can ask for it with the flow
+control, and that is their choice to make.
 
 **A delivery is graded on four things** (§8.3), all read at the last fix of the route:
 
@@ -565,12 +572,23 @@ as either alone; asking for both late in the sequence blows the spacing; and the
 ### 4.4 Traffic generation
 
 - **Flow rate:** arrivals entering the airspace per hour, a property of the field —
-  **25/h** at ZZZZ, **20/h** at VABB. The *range* the player may set is a property of the control
+  **25/h** at ZZZZ, **20/h** at VABB, **15/h** at VABBS, where it is set against what the sector is
+  agreed to deliver (§3.2a). The *range* the player may set is a property of the control
   they are given, so it is a constant: 5–50 arrivals, 0–24 departures.
 - **Spawn timing:** exponential inter-arrival intervals (Poisson process), mean `3600 / flow`
   seconds, clamped to a minimum of 45 s so the queue can't clump absurdly.
 - **Gate choice:** weighted random over the gates, with a constraint: **no two spawns at the
-  same gate within 90 s** (at 290 kt TAS that guarantees ~7 NM initial in-trail separation).
+  same gate within 90 s** (at 290 kt TAS that guarantees ~7 NM initial in-trail separation). The
+  draw is **sticky**: the gate is chosen once and then waited for, so one inside its cooldown delays
+  the handover rather than passing it to whichever gate is free. Redrawing each tick makes the
+  weights mean nothing — the busiest gate is blocked most often *because* it is drawn most often, so
+  it donates its share to the quietest, and VABBS's declared 72/28 came out at 57/43. A field's
+  weights are a statement about where its traffic comes from and the generator may not quietly
+  renegotiate them; a congested stream is the controller's problem, not the spawner's. The one
+  release is a holding stack at the ceiling (§4.5), where the gate is out of the question rather
+  than merely busy and waiting would stop the field instead of the stream. The interval to the next
+  arrival runs from when this one was **due** rather than from when it got away, so a held handover
+  is late and not cancelled: the flow the player asks for is the rate traffic is offered at.
   A gate's `weight` defaults to 1, so a field that says nothing gets the even split. Which direction
   traffic comes from is a fact about the route network around an airport rather than about the job,
   and an even split is badly wrong where the gates are not evenly spread: VABB takes roughly 34 % of
@@ -2434,6 +2452,8 @@ where the arrivals are" — it is gone rather than recorded.
 | Whether the agreed interval is a floor per pair or a rate over the stream | **A rate, kept in a per-gate ledger.** A flat interval graded 3:59 exactly as it graded 2:00 and gave nothing back for a gap flown long, which makes the agreement a stopwatch: the player is punished for a two-second miss and the capacity a six-minute gap wasted is never recovered. A signed balance of seconds settles both — it shortens the next ask by what was earned and lengthens it by what was borrowed, so the long-run rate comes out exactly right while the individual gaps breathe |
 | The two numbers | **A tenth of the agreement for one gap, a fifth for the balance.** Fractions rather than seconds because the agreement is per gate — four minutes at RCMG against seven and a half at RCKT — and a fixed tolerance would be a tenth of one and a twentieth of the other. They are rules of the job, so they are in `constants.ts` and not on `DeliveryGateSpec` |
 | What the countdown counts to | **What the gate wants, not what it will take.** The requirement and the fault line are a tolerance apart, so an amber clock is not yet a fault — the alternative pinned them together and made every delivery inside the tolerance a fault, which is the behaviour the ledger exists to remove. What is still pinned is the one-way implication: an open gate is never a fault |
+| Whether the delivery agreements are chosen or derived | **Derived: the receiving field's capacity cut by its own gate weights** (2026-09-11). They had been picked to sit just above the rate each stream was offered, which made them a difficulty dial wearing an agreement's clothes — and put them in a ratio, 15:8, that matched neither VABB's traffic nor anything else. VABB works to ~30 arrivals an hour and weights MOLGO at 34 % and KETOR at 13 %, so the agreements are 10 and 4. The arrival flow is then set against *them* — 15/h, a few percent over — rather than the agreements being set against the flow. This is the same rule that makes VABBS deliver KETOR at 15,000/260: a number the boundary is shared on is read off the other field, never invented at this one |
+| What happens when the drawn gate is busy | **The arrival waits for it** (2026-09-11). Redrawing among whatever is free sounds harmless and is not: the busiest stream is blocked most often precisely because it is drawn most often, so it donates its share to the quietest, and a declared 72/28 was offered as 57/43 — KETOR half again what Approach had agreed to take. The weights are a statement about where the traffic comes from and the generator may not renegotiate them. The next arrival is also scheduled from when this one was *due* rather than from when it got away, so the flow control states the rate traffic is offered at rather than an optimistic ceiling on it |
 | Where the balance lives | **`Stats.deliveryBankS`, stored rather than derived.** `deliveryTimesS` is trimmed to the few timestamps the rate reads, so folding the ledger back out of it would silently forget it. Being in `Stats` also means the recording carries it for free — `cloneStats` copies the map and `deliveries` already moves with it, so a rebuilt frame slots the stream against the ledger that was actually standing |
 
 ## 15. Still open

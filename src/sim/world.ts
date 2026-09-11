@@ -746,12 +746,18 @@ function sampleHistory(world: World): void {
 /** Center hands over one arrival, if a gate is free to take it (§4.4). */
 function spawnArrival(world: World): void {
   if (world.timeS < world.traffic.nextSpawnAtS) return;
+  // The time this one was *due*, which is what the one behind it is scheduled
+  // from: the flow the player asks for is the rate traffic is offered at, and a
+  // handover held back by a gate's cooldown is delayed rather than cancelled.
+  // Scheduling from the actual spawn instead silently lowered the whole flow by
+  // however long the field's gates had been busy.
+  const dueS = world.traffic.nextSpawnAtS;
   const arrival = trySpawn(world.scenario, world.rng, world.traffic, world.aircraft, world.timeS);
   if (!arrival) return;
 
   world.aircraft.push(arrival);
   recordMovement(world.stats.arrivalTimesS, world.timeS);
-  scheduleNextSpawn(world.traffic, world.rng, world.timeS, world.flowPerHour);
+  scheduleNextSpawn(world.traffic, world.rng, dueS, world.flowPerHour);
   const routing = arrival.star
     ? `on the ${arrival.star.route.name} arrival`
     : `inbound ${arrival.entryGate}`;
