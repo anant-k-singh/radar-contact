@@ -17,7 +17,12 @@ import {
   SPEED_MAX_HIGH_KTS,
   SPEED_STEP_KTS,
 } from '../src/sim/constants.js';
-import { adjustSpeed, speedCeilingKts, speedFloorKts } from '../src/sim/commands.js';
+import {
+  adjustSpeed,
+  speedCeilingKts,
+  speedFloorKts,
+  toggleHold,
+} from '../src/sim/commands.js';
 import {
   acceptableGapS,
   agreedGapS,
@@ -38,7 +43,7 @@ import {
   scheduleNextSpawn,
   trySpawn,
 } from '../src/sim/traffic.js';
-import { headingVector, type Deg, type Nm } from '../src/sim/units.js';
+import { distance, headingVector, type Deg, type Nm } from '../src/sim/units.js';
 import { createWorld, deliveryRatePerHour, step, type World } from '../src/sim/world.js';
 
 const CENTER: Scenario = SCENARIOS.find((s) => s.id === 'VABBS')!;
@@ -512,6 +517,60 @@ describe('flying the sector', () => {
     expect(world.stats.deliveryFaults.get('early') ?? 0).toBeGreaterThan(0);
     // But never off its procedure: nothing vectors an aircraft here but a player.
     expect(world.stats.deliveryFaults.get('unsequenced') ?? 0).toBe(0);
+  });
+
+  it('gives every entry a holding fix 50 NM before its merge fix', () => {
+    // A transition runs from the boundary to the merge fix, and without one of
+    // these there is nothing publishing a level in between — KABSO's leg alone
+    // is 135 NM. The level is the profile's own interpolated value there rounded
+    // up to a thousand, re-derived here rather than restated, so moving a gate or
+    // a fix fails loudly instead of drifting the fix off its own profile.
+    for (const star of CENTER.stars) {
+      const merge = star.waypoints[star.waypoints.length - 2]!;
+      const held = star.waypoints.filter(
+        (w) => w.name.startsWith('RC') && w.name !== merge.name && w !== star.waypoints.at(-1),
+      );
+      // AGELA is the exception: BEDOL is a published fix on its long leg already,
+      // which is what the other seven are imitating.
+      if (star.name === 'MOLGO2A/AGELA') {
+        expect(held).toHaveLength(0);
+        continue;
+      }
+      expect(held, star.name).toHaveLength(1);
+
+      const fix = held[0]!;
+      const index = star.waypoints.indexOf(fix);
+      const before = star.waypoints[index - 1]!;
+      expect(distance(fix.position, merge.position), star.name).toBeCloseTo(50, 1);
+
+      const legNm = distance(before.position, merge.position);
+      const alongNm = distance(before.position, fix.position);
+      const interpolated =
+        before.altitudeFt! + ((merge.altitudeFt! - before.altitudeFt!) * alongNm) / legNm;
+      expect(fix.altitudeFt, star.name).toBe(Math.ceil(interpolated / 1000) * 1000);
+      // And it still descends through it: rounding up must not lift the fix above
+      // the level the aircraft arrives on.
+      expect(fix.altitudeFt!, star.name).toBeLessThanOrEqual(before.altitudeFt!);
+      expect(fix.altitudeFt!, star.name).toBeGreaterThanOrEqual(merge.altitudeFt!);
+    }
+  });
+
+  it('can hold an arrival that has only just been handed over', () => {
+    // The point of the seven: `toggleHold` anchors the pattern on the next fix
+    // publishing a level, so before they existed an aircraft at the boundary
+    // owing two minutes had to fly most of the sector before it could be held —
+    // by which time the hold is the wrong tool.
+    for (const star of CENTER.stars) {
+      const { world, ac } = arrivalOn(star.name);
+      toggleHold(world, ac);
+      pilotActs(world, ac);
+      expect(ac.star!.hold, star.name).not.toBeNull();
+
+      // And it holds well out, not at the merge fix the whole sector converges on.
+      const at = ac.star!.route.waypoints.find((w) => w.name === ac.star!.hold!.fix)!;
+      expect(distance(at.position, ac.star!.route.waypoints.at(-1)!.position), star.name)
+        .toBeGreaterThan(30);
+    }
   });
 
   it('offers each stream its declared share, whatever the cooldowns are doing', () => {

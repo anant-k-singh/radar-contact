@@ -4,8 +4,10 @@
  * The runway, the fleet and the airlines are Mumbai's, because this is Mumbai's
  * traffic one sector earlier. The runway in particular is never landed on here:
  * it anchors the local frame — `Scenario.arp` is the origin and `FixAt` closures
- * resolve against the runway — and it is drawn as a mark on the scope at the far
- * end of the arrivals, which is exactly what it is to an en-route controller.
+ * resolve against the runway — and it is drawn with its final track 50 NM inside
+ * the sector's inner arc, which is exactly what the field is to an en-route
+ * controller: the place everything is pointed at and nobody's to work. That it is
+ * outside the airspace is why `mapLayer` draws the airport outside the clip.
  */
 import { VABB_AIRLINES } from '../vabb/airlines.js';
 import { VABB_RUNWAY } from '../vabb/airport.js';

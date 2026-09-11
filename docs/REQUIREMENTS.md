@@ -868,6 +868,17 @@ invented can be mistaken for the chart. Each crossing is that leg's own profile 
 fix and rounded **up** to the next 1000 ft — a level the controller can hold at, with the route still
 descending monotonically through it.
 
+VABBS needs the same thing more badly and measures it from the other end. Its eight transitions run
+97 to 135 NM from the boundary to the merge fix with nothing published in between, so before this the
+only fix an arrival could be held at was KETOR or MOLGO itself — most of the sector flown before the
+hold became available, by which time it is the wrong tool and only speed and track miles are left.
+Seven of the eight get one `RC__` fix **50 NM back from the merge fix along their own leg**, by the
+same interpolate-and-round-up rule. Measured from the merge rather than from the gate, because the
+merge is where the sector's problem is: every stream then gets its last chance to hold at the same
+distance out, whatever the length of the leg it came down, and the pattern is far enough from the fix
+not to sit on the traffic still running in to it. AGELA is the eighth and needs nothing — BEDOL is a
+published fix on its long leg already, which is what the other seven are imitating.
+
 **The pattern.** Standard (right-hand) turns, flown as a direct entry from wherever the aircraft is:
 
 ```
@@ -2385,6 +2396,7 @@ where the arrivals are" — it is gone rather than recorded.
 | Whether a crossing restriction may separate from below | **Yes, and the validator checks both senses.** Every ZZZZ crossing holds the departure under the arrival, which is why the check only looked at the ceiling. VABB's XOPAL and OMGIX publish "at or above" because those branches cross an arrival 25–50 NM out, where the departure is far above it. The test is the band the chart guarantees — `ceilingAtFt` and a new `floorAtFt` — and either edge clearing 1000 ft is enough (§4.7) |
 | The second runway | **Drawn, and nothing else.** VABB's 14/32 comes from the aerodrome chart's own thresholds and is read only by `mapLayer`. Stated as its two ends rather than a course and a length: it is never flown, so there is no frame to stay consistent with and no derivation to get wrong. Exactly one runway is ever active (A2) |
 | Whether the scope should be square | **No — a circle with its caps cut, at 60 NM.** A square was the first idea, for screen real estate; but a literal square is limited by canvas height in a normal window and wastes the width. The existing circle-with-chords already expresses what was wanted, so no airspace code changed at all. The size is not a choice: VABB's five TMA entry fixes lie on a 60 NM arc, so that is the boundary and the outermost range ring is it |
+| Drawing a field's own airport | **Outside the airspace clip, with the gates and the boundary** (2026-09-11). The clip stops zoomed chart content spilling across the scope; an airport is not content but the thing the picture is oriented by, and a center sector's own field lies 50 NM outside the airspace it works. Drawn clipped, VABBS discarded the runway and its final track and kept only the labels — which escape through `haloText` by design — leaving a bare `27` and the 10/20/30 tick figures floating over nothing. A no-op at every approach field, whose runway and centreline are inside the boundary either way |
 | Where a transcribed field holds its arrivals | **On invented fixes, named so they cannot be mistaken for published ones.** A hold anchors on the fix the aircraft is tracking to, and three of VABB's five routes run 42–44 NM from the boundary to their first published fix with nothing in between — the real delay is absorbed enroute, outside this airspace. So the three routes with no fix in their outer half get one `RC__` fix 20 NM inside the boundary, on the leg between two published points so the track is untouched, crossing at the leg's own interpolated profile rounded up to the next 1000 ft (§4.6) |
 | Whether a SID's fix names are drawn | **No, only its restrictions.** A departure takes no instructions, so its fixes are never spoken to or read back; the amber layer's whole job is where the traffic you do not control goes and how low it is held, and seven names crowding the STAR chart bought neither (§4.7) |
 | Whether to draw the coast | **Yes, as a line, and from OSM rather than by hand.** A scope with nothing on it but rings gives no sense of where Mumbai is, and both arrival streams turn inside the bay. Drawn as one hairline with no fill: land and water are identical to this simulator, so shading either would assert something the model does not know. Traced by eye it would have been the one position on the field not from a published source, so it is `natural=coastline` from OpenStreetMap (ODbL, attributed in the file and the README), joined, projected with the ARP and 56.6998 NM/°lon, and simplified to 0.1 NM (§3.1) |

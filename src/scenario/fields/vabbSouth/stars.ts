@@ -52,9 +52,24 @@
  * — KETOR → MB393, MOLGO → DUGED — so the track is the chart's and only the fix
  * is ours. They exist because a sector has to be graded somewhere, and the place
  * to grade it is the handoff line rather than the last published fix before it.
+ *
+ * The other seven are there so the sector has somewhere to hold. A hold is
+ * anchored on a fix publishing a level — `holdAt` walks the route forward to the
+ * next one — and a transition runs from the boundary to the merge fix with
+ * nothing in between: KABSO's leg is 135 NM of empty line. An aircraft handed
+ * over two minutes down could not be held until it had flown most of the sector,
+ * by which time the hold is the wrong tool and only speed and track miles are
+ * left. So each entry gets one, 50 NM back from the merge fix along its own leg.
+ *
+ * Measured from KETOR and MOLGO rather than from the gate on purpose: the merge
+ * is where the sector's problem is, so every stream gets its last chance to hold
+ * at the same distance out, whatever the length of the leg it came down. AGELA is
+ * the exception and needs nothing — BEDOL is already a published fix on its long
+ * leg, which is what the other seven are imitating.
  */
-import { alongLeg } from '../../geometry.js';
+import { alongLeg, type FixAt } from '../../geometry.js';
 import type { StarSpec } from '../../types.js';
+import type { Ft } from '../../../sim/units.js';
 import { VABB_SOUTH_FIXES as F } from './fixes.js';
 
 /**
@@ -63,9 +78,35 @@ import { VABB_SOUTH_FIXES as F } from './fixes.js';
  */
 const HANDOFF_INSET_NM = 10;
 
+/**
+ * How far back from the merge fix each invented holding fix sits.
+ *
+ * Fifty miles leaves an aircraft that has just entered 50-85 NM of leg to be
+ * given a hold in, and puts the pattern far enough from KETOR that holding one
+ * aircraft does not sit on top of the stream still running in to the fix. The
+ * shortest leg it has to fit on is EPKOS → MOLGO at 96.9 NM.
+ */
+const HOLDING_FIX_INSET_NM = 50;
+
 /** What `fields/vabb/stars.ts` hands KETOR 2A and MOLGO 2A over at. */
 const KETOR_CROSSING = { altitudeFt: 15_000, speedKts: 260 } as const;
 const MOLGO_CROSSING = { altitudeFt: 14_000, speedKts: 260 } as const;
+
+/**
+ * One holding fix, 50 NM back up the leg the entry arrives down.
+ *
+ * The level is the profile's own interpolated value there rounded **up** to the
+ * next 1000 ft, so it is a level a controller can hold at and the route still
+ * descends monotonically through it; the speed is the same interpolation to the
+ * nearest 10 kt, which comes out at 270 on every one of them. That is the rule
+ * `fields/vabb/stars.ts` states for RCPO, RCKE and RCEM, applied unchanged.
+ */
+const holdingFix = (name: string, from: FixAt, to: FixAt, altitudeFt: Ft) => ({
+  name,
+  at: alongLeg(HOLDING_FIX_INSET_NM, to, from),
+  altitudeFt,
+  speedKts: 270,
+});
 
 export const VABB_SOUTH_STARS: readonly StarSpec[] = [
   {
@@ -87,10 +128,34 @@ export const VABB_SOUTH_STARS: readonly StarSpec[] = [
     // profile — so the level a controller sees at the boundary reads directly as
     // how much room that aircraft has, rather than as an arbitrary number.
     entries: [
-      { name: 'DARMI', gate: 'DARMI', entryAltitudeFt: 28_000, entrySpeedKts: 280, fixes: [] },
-      { name: 'GUNDI', gate: 'GUNDI', entryAltitudeFt: 29_000, entrySpeedKts: 280, fixes: [] },
-      { name: 'BISET', gate: 'BISET', entryAltitudeFt: 31_000, entrySpeedKts: 280, fixes: [] },
-      { name: 'ERVIS', gate: 'ERVIS', entryAltitudeFt: 33_000, entrySpeedKts: 280, fixes: [] },
+      {
+        name: 'DARMI',
+        gate: 'DARMI',
+        entryAltitudeFt: 28_000,
+        entrySpeedKts: 280,
+        fixes: [holdingFix('RCDA', F.DARMI, F.KETOR, 22_000)],
+      },
+      {
+        name: 'GUNDI',
+        gate: 'GUNDI',
+        entryAltitudeFt: 29_000,
+        entrySpeedKts: 280,
+        fixes: [holdingFix('RCGU', F.GUNDI, F.KETOR, 22_000)],
+      },
+      {
+        name: 'BISET',
+        gate: 'BISET',
+        entryAltitudeFt: 31_000,
+        entrySpeedKts: 280,
+        fixes: [holdingFix('RCBI', F.BISET, F.KETOR, 23_000)],
+      },
+      {
+        name: 'ERVIS',
+        gate: 'ERVIS',
+        entryAltitudeFt: 33_000,
+        entrySpeedKts: 280,
+        fixes: [holdingFix('RCER', F.ERVIS, F.KETOR, 23_000)],
+      },
       {
         // The only two-leg transition into KETOR. AROTA is 10.8 NM inside the
         // boundary, so its level is barely off the cruise it entered on.
@@ -98,10 +163,19 @@ export const VABB_SOUTH_STARS: readonly StarSpec[] = [
         gate: 'SUGID',
         entryAltitudeFt: 35_000,
         entrySpeedKts: 280,
-        fixes: [{ name: 'AROTA', at: F.AROTA, altitudeFt: 33_000, speedKts: 280 }],
+        fixes: [
+          { name: 'AROTA', at: F.AROTA, altitudeFt: 33_000, speedKts: 280 },
+          holdingFix('RCSU', F.AROTA, F.KETOR, 23_000),
+        ],
       },
       // The longest way in — 145 NM — and therefore the highest.
-      { name: 'KABSO', gate: 'KABSO', entryAltitudeFt: 37_000, entrySpeedKts: 280, fixes: [] },
+      {
+        name: 'KABSO',
+        gate: 'KABSO',
+        entryAltitudeFt: 37_000,
+        entrySpeedKts: 280,
+        fixes: [holdingFix('RCKA', F.KABSO, F.KETOR, 24_000)],
+      },
     ],
   },
   {
@@ -114,7 +188,13 @@ export const VABB_SOUTH_STARS: readonly StarSpec[] = [
     // of each other in length, so they are 2000 ft apart to keep them separated
     // where they converge rather than because one needs the extra room.
     entries: [
-      { name: 'EPKOS', gate: 'EPKOS', entryAltitudeFt: 30_000, entrySpeedKts: 280, fixes: [] },
+      {
+        name: 'EPKOS',
+        gate: 'EPKOS',
+        entryAltitudeFt: 30_000,
+        entrySpeedKts: 280,
+        fixes: [holdingFix('RCEP', F.EPKOS, F.MOLGO, 23_000)],
+      },
       {
         // AGELA joins at BEDOL, 61 NM in, and is 2000 ft above EPKOS all the way
         // down to the fix they share.

@@ -20,6 +20,7 @@ import {
   type Viewport,
 } from '../src/render/project.js';
 import { SCENARIOS } from '../src/scenario/registry.js';
+import { THEME } from '../src/render/theme.js';
 import type { Scenario } from '../src/scenario/types.js';
 import { makeAircraft, quietWorld } from './helpers.js';
 
@@ -31,6 +32,12 @@ interface TextDraw {
   x: number;
   y: number;
   /** Whether a clip was in force when this was drawn, and to what. */
+  clip: Clip | null;
+}
+
+/** A stroked path and the clip it was stroked under, which is all the airport test needs. */
+interface StrokeDraw {
+  style: string;
   clip: Clip | null;
 }
 
@@ -53,9 +60,11 @@ function recordingContext(): {
   ctx: CanvasRenderingContext2D;
   texts: TextDraw[];
   clips: Clip[];
+  strokes: StrokeDraw[];
 } {
   const texts: TextDraw[] = [];
   const clips: Clip[] = [];
+  const strokes: StrokeDraw[] = [];
   let arc: { cx: number; cy: number; r: number } | null = null;
   let rect: { y: number; halfHeight: number } | null = null;
   let clip: Clip | null = null;
@@ -80,6 +89,7 @@ function recordingContext(): {
       if (clip) clips.push(clip);
     },
     fillText: (text: string, x: number, y: number) => texts.push({ text, x, y, clip }),
+    stroke: () => strokes.push({ style: String(api.strokeStyle ?? ''), clip }),
     measureText: (text: string) => ({ width: text.length * 6 }),
     canvas: { width: W, height: H },
   };
@@ -95,7 +105,7 @@ function recordingContext(): {
     },
   }) as unknown as CanvasRenderingContext2D;
 
-  return { ctx, texts, clips };
+  return { ctx, texts, clips, strokes };
 }
 
 /** Whether a point survives the clip that was in force — the visibility test. */
@@ -111,6 +121,37 @@ const render = (scenario: Scenario, viewport: Viewport = DEFAULT_VIEWPORT): Text
   draw(ctx, scenario, createProjection(scenario.airspace, W, H, viewport));
   return texts;
 };
+
+/**
+ * The airport is furniture, not content: it is what the picture is oriented by,
+ * and a center sector's own field lies outside the airspace it works. Drawn inside
+ * the clip, VABBS discarded the runway and its final track and kept only their
+ * labels — which escape through `haloText` by design — so the scope showed a bare
+ * `27` and the 10/20/30 tick figures over nothing at all.
+ */
+describe.each(SCENARIOS.map((s) => [s.id, s] as const))('the %s airport', (id, scenario) => {
+  it('is drawn outside the airspace clip, while the chart stays inside it', () => {
+    const { ctx, strokes } = recordingContext();
+    draw(ctx, scenario, createProjection(scenario.airspace, W, H));
+
+    for (const [what, style] of [
+      ['runway', THEME.runway],
+      ['centreline', THEME.centerline],
+    ] as const) {
+      const drawn = strokes.filter((s) => s.style === style);
+      expect(drawn.length, `${id} ${what} drawn`).toBeGreaterThan(0);
+      expect(
+        drawn.every((s) => s.clip === null),
+        `${id} ${what} unclipped`,
+      ).toBe(true);
+    }
+
+    // And the chart itself is still clipped, or the assertion above proves nothing.
+    const routes = strokes.filter((s) => s.style === THEME.starPath);
+    expect(routes.length, `${id} STAR tracks drawn`).toBeGreaterThan(0);
+    expect(routes.every((s) => s.clip !== null), `${id} STAR tracks clipped`).toBe(true);
+  });
+});
 
 describe.each(SCENARIOS.map((s) => [s.id, s] as const))('the %s chart', (_id, scenario) => {
   // The rule, swept rather than sampled: no label anywhere on the layer may be

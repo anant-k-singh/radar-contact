@@ -125,9 +125,17 @@ export function draw(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Proje
     // After the STARs, so where a SID passes under one the departure track is
     // the line drawn on top — which carries the restriction that matters.
     drawSids(ctx, scenario, p);
-    drawCenterline(ctx, scenario, p);
-    drawRunway(ctx, scenario, p);
   });
+
+  // The airport is furniture rather than content, and outside the clip for the
+  // same reason the gates are: it is what the controller orients the picture by,
+  // and a center sector's own field is 50 NM outside the airspace it works. Drawn
+  // clipped, VABBS threw the runway and its final track away and kept only the
+  // labels — which escape through `haloText` — leaving a bare `27` and the 10/20/30
+  // tick figures over empty space. At an approach field the geometry is inside the
+  // boundary either way, so this draws the same pixels it always did.
+  drawCenterline(ctx, scenario, p);
+  drawRunway(ctx, scenario, p);
 
   // The boundary itself is the frame, not content: it is drawn from the base
   // frame at its fitted size and does not move. Drawn last so the clipped
