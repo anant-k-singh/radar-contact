@@ -1798,7 +1798,7 @@ The session is endless; the score is a running quality report, not a life counte
 | Metric | Definition |
 | --- | --- |
 | Landings | Aircraft that touched down |
-| Landing rate | Landings per hour from the gaps between the last **4** landings (§8.2) |
+| Landing rate | Landings per hour from the gaps between the last **4** landings (§8.2) — deliveries use **3**, §8.2 |
 | Arrival rate | Arrivals handed over on a STAR per hour, from the same gap measure (§8.2) |
 | Separation violations | Count, plus total seconds in violation |
 | Go-arounds | Automatic go-arounds triggered |
@@ -1845,6 +1845,15 @@ absence of one, and the time elapsed since the last landing is averaged in as an
 one still running. The window stays four wide, so the open interval displaces the oldest recorded
 gap rather than widening the average, and the rate decays from there instead of standing
 indefinitely.
+
+#### The delivery rate averages one gap fewer
+
+A delivery agreement is six minutes at RCMG and fifteen at RCKT (§3.2a), where a runway movement is
+one every couple of minutes. Four gaps on the thinner stream is therefore most of an hour of
+history: the rate would answer for what the sector was doing when the session started rather than
+for what it is doing now, and would barely exist before the scope had filled. Deliveries average
+**3**, which still smooths a single tight pair and reacts inside a stream's own timescale. Everything
+else about the measure — the open interval, the two-gap minimum, the decay — is the same.
 
 The open interval is **computed on read and never recorded**. The next landing therefore replaces it
 with the real interval it turned out to be, and a landing arriving soon after the threshold discards

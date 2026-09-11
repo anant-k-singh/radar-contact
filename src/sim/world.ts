@@ -11,6 +11,7 @@ import {
   EXIT_WARN_MARGIN_NM,
   HISTORY_PERIOD_S,
   IN_TRAIL_MIN_NM,
+  DELIVERY_RATE_INTERVALS,
   MOVEMENT_RATE_INTERVALS,
   MOVEMENT_RATE_MIN_INTERVALS,
   MOVEMENT_RATE_STALE_S,
@@ -97,7 +98,9 @@ export interface Stats {
    *
    * Per gate and not pooled, because the agreement is per gate: a sector feeding
    * two streams that delivers twenty an hour into one and none into the other
-   * has satisfied neither. Trimmed to the last few, as the other rate series are.
+   * has satisfied neither. Trimmed to the last few, as the other rate series are,
+   * but to one gap fewer: a delivery agreement is minutes wide where a runway
+   * movement is not (`DELIVERY_RATE_INTERVALS`).
    */
   deliveryTimesS: Map<string, Sec[]>;
   /**
@@ -289,14 +292,18 @@ function remove(world: World, ac: Aircraft): void {
  * with the real interval it turned out to be — a landing arriving straight after
  * discards the decay rather than compounding it.
  */
-function ratePerHour(timesS: readonly Sec[], nowS: Sec): number | null {
+function ratePerHour(
+  timesS: readonly Sec[],
+  nowS: Sec,
+  window: number = MOVEMENT_RATE_INTERVALS,
+): number | null {
   const last = timesS[timesS.length - 1];
   if (last === undefined) return null;
   const openS = nowS - last;
   const open = openS > MOVEMENT_RATE_STALE_S;
   // The window is the same width either way: an open interval pushes the oldest
   // recorded gap out rather than widening the average.
-  const closed = Math.min(MOVEMENT_RATE_INTERVALS - (open ? 1 : 0), timesS.length - 1);
+  const closed = Math.min(window - (open ? 1 : 0), timesS.length - 1);
   const intervals = closed + (open ? 1 : 0);
   // Counted against the *recorded* gaps: an open interval decays a rate that
   // already meant something, and must never be what first conjures one out of a
@@ -357,7 +364,11 @@ export function lastDeliveryTimes(world: World): Map<string, Sec> {
  * number has to say so rather than standing at whatever it last achieved.
  */
 export function deliveryRatePerHour(world: World, fixName: string): number | null {
-  return ratePerHour(world.stats.deliveryTimesS.get(fixName) ?? [], world.timeS);
+  return ratePerHour(
+    world.stats.deliveryTimesS.get(fixName) ?? [],
+    world.timeS,
+    DELIVERY_RATE_INTERVALS,
+  );
 }
 
 export function departureQueueLength(world: World): number {
@@ -443,7 +454,7 @@ function tryDelivery(world: World, ac: Aircraft): boolean {
   const verdict = assessDelivery(gate, ac, previousS, bankS, world.timeS);
 
   times.push(world.timeS);
-  if (times.length > MOVEMENT_RATE_INTERVALS + 1) times.shift();
+  if (times.length > DELIVERY_RATE_INTERVALS + 1) times.shift();
   world.stats.deliveryTimesS.set(gate.fixName, times);
   world.stats.deliveryBankS.set(gate.fixName, verdict.bankAfterS);
   world.stats.deliveries += 1;

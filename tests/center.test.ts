@@ -564,6 +564,26 @@ describe('flying the sector', () => {
     }
   });
 
+  it('reads each gate\'s achieved rate off three gaps, not four', () => {
+    // A runway takes a movement every couple of minutes; RCKT is agreed at one
+    // every fifteen. Four gaps there is most of an hour, so the number would be
+    // answering for the start of the session — and on the thin stream it would
+    // barely exist before the scope filled.
+    const world = createWorld(CENTER, 5);
+    const times = [0, 600, 1200, 1800, 2400];
+    world.stats.deliveryTimesS.set('RCKT', [...times]);
+    world.timeS = 2400;
+    // Ten-minute gaps are six an hour however many of them are averaged; what
+    // the window decides is how far back the answer reaches.
+    expect(deliveryRatePerHour(world, 'RCKT')).toBeCloseTo(6, 5);
+
+    // Three of those gaps then halve, and a three-gap window has forgotten the
+    // ten-minute ones entirely where a four-gap one would still be carrying one.
+    world.stats.deliveryTimesS.set('RCKT', [0, 600, 1200, 1500, 1800, 2100]);
+    world.timeS = 2100;
+    expect(deliveryRatePerHour(world, 'RCKT')).toBeCloseTo(12, 5);
+  });
+
   it('hands an untouched arrival over at the crossing the approach field expects', () => {
     // The two fields overlap between 50 and 60 NM and must not disagree about
     // it: VABB spawns KETOR at 15,000/260, so VABBS has to deliver that.

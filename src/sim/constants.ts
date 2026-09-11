@@ -509,6 +509,17 @@ export const PILOT_ORDER_GAP_S = 0.05;
  */
 export const MOVEMENT_RATE_INTERVALS = 4;
 /**
+ * Deliveries are averaged over three gaps instead of four (§8.3).
+ *
+ * A movement rate is read off a runway taking one every couple of minutes, where
+ * four gaps is a few minutes of history. A delivery agreement is six minutes at
+ * RCMG and fifteen at RCKT, so four gaps there is most of an hour — the rate
+ * would answer for what the sector was doing at the start of the session rather
+ * than for what it is doing now, and on the thinner stream it would barely exist
+ * before the scope filled. Three still averages, and reacts.
+ */
+export const DELIVERY_RATE_INTERVALS = 3;
+/**
  * Fewer gaps than this and a single tight or loose pair sets the whole number,
  * so the rate is withheld until at least three movements have been seen.
  */
