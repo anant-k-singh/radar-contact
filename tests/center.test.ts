@@ -35,12 +35,14 @@ import {
   routeOf,
 } from '../src/sim/delivery.js';
 import { createRng } from '../src/sim/rng.js';
-import { pilotActs } from './helpers.js';
+import { pilotActs, silenceArrivals } from './helpers.js';
 import { joinStar } from '../src/sim/star.js';
 import {
   createArrival,
   createTrafficState,
   scheduleNextSpawn,
+  streamFlowPerHour,
+  streamStateFor,
   trySpawn,
 } from '../src/sim/traffic.js';
 import { distance, headingVector, type Deg, type Nm } from '../src/sim/units.js';
@@ -68,7 +70,7 @@ function arrivalOn(routeName: string): { world: World; ac: ReturnType<typeof cre
   const route = CENTER.stars.find((s) => s.name === routeName)!;
   const gate = CENTER.gates.find((g) => g.name === route.gate)!;
   const world = createWorld(CENTER, 11);
-  world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+  silenceArrivals(world);
   world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
   world.departureFlowPerHour = 0;
   const ac = createArrival(CENTER, createRng(3), createTrafficState(), gate, [], 0);
@@ -427,7 +429,7 @@ describe('the metering deficit', () => {
     // Three aircraft two minutes apart in a ten-minute stream owe eight, sixteen
     // and twenty-four minutes, not eight minutes each.
     const world = createWorld(CENTER, 5);
-    world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+    silenceArrivals(world);
     world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
     const route = CENTER.stars.find((s) => s.name === 'KETOR2A/KABSO')!;
     const gate = CENTER.gates.find((g) => g.name === 'KABSO')!;
@@ -573,53 +575,104 @@ describe('flying the sector', () => {
     }
   });
 
-  it('offers each stream its declared share, whatever the cooldowns are doing', () => {
-    // The stream an arrival belongs to is drawn once and waited for, so a gate
-    // inside its cooldown delays the handover instead of passing it to the other
-    // stream. Redrawing each tick instead flattened a declared 72/28 to 57/43,
-    // because the busiest stream is blocked most often and donates its share to
-    // the quietest — and the sector was then offered KETOR half again what
-    // Approach had agreed to take.
+  it('never lets one stream starve another, however the draws fall', () => {
+    // The failure this replaced, and the reason streams exist: a single weighted
+    // draw over every gate stalled the sector whenever it picked a gate inside
+    // its cooldown, so KETOR's six gates could go 35 minutes without an arrival
+    // while MOLGO's two took ten. Measured, that was 12 sessions in 200; per
+    // stream it is none, because a stream can only ever block itself.
+    const MOLGO = new Set(['AGELA', 'EPKOS']);
+    let starved = 0;
+    const SESSIONS = 40;
+    for (let seed = 0; seed < SESSIONS; seed += 1) {
+      const world = createWorld(CENTER, seed * 7919 + 13);
+      world.flowPerHour = CENTER.traffic.arrivalsPerHour;
+      world.departureFlowPerHour = 0;
+      const seen = new Set<number>();
+      let ketor = 0;
+      let molgo = 0;
+      for (let i = 0; i < 35 * 60 * 20; i += 1) {
+        step(world, 0.05);
+        for (const ac of world.aircraft) {
+          if (!ac.star || seen.has(ac.id)) continue;
+          seen.add(ac.id);
+          if (MOLGO.has(ac.entryGate!)) molgo += 1;
+          else ketor += 1;
+        }
+      }
+      if (ketor === 0 || molgo === 0) starved += 1;
+    }
+    expect(starved).toBe(0);
+  });
+
+  it('meters each stream on its own clock, at the share its agreement declares', () => {
+    // One clock per stream, so a gate inside its cooldown delays its own stream
+    // and nobody else's. A single clock over every gate let the busiest stream
+    // stall the sector: KETOR's six gates went 35 minutes without an arrival
+    // while MOLGO's two took ten, because every draw MOLGO won held the whole
+    // sector until MOLGO was free again.
     const rng = createRng(7);
     const state = createTrafficState();
     const tally = new Map<string, number>();
+    const gateTally = new Map<string, number>();
     const HOURS = 100;
-    let t = 0;
-    scheduleNextSpawn(state, rng, 0, CENTER.traffic.arrivalsPerHour);
-    while (t < HOURS * 3600) {
-      t = Math.max(t, state.nextSpawnAtS);
-      const dueS = state.nextSpawnAtS;
-      // No aircraft in the sector, so the proximity veto and the holding stack
-      // are out of it and this is the weights against the cooldowns alone.
-      let ac = trySpawn(CENTER, rng, state, [], t);
-      for (let waited = 0; ac === null && waited < 3600; waited += 1) {
-        t += 1;
-        ac = trySpawn(CENTER, rng, state, [], t);
+    const flow = CENTER.traffic.arrivalsPerHour;
+
+    // Each stream runs its own loop, which is exactly how `spawnArrivals` drives
+    // them: they share only the cooldown map and the id counter.
+    for (const stream of CENTER.arrivalStreams) {
+      const clock = streamStateFor(state, stream);
+      const streamFlow = streamFlowPerHour(CENTER, stream, flow);
+      let t = 0;
+      scheduleNextSpawn(clock, rng, 0, t, streamFlow);
+      while (t < HOURS * 3600) {
+        t = Math.max(t, clock.nextSpawnAtS);
+        const dueS = clock.nextSpawnAtS;
+        // No aircraft in the sector, so the proximity veto and the holding stack
+        // are out of it and this is the weights against the cooldowns alone.
+        let ac = trySpawn(CENTER, stream, rng, state, [], t);
+        for (let waited = 0; ac === null && waited < 3600; waited += 1) {
+          t += 1;
+          ac = trySpawn(CENTER, stream, rng, state, [], t);
+        }
+        if (ac) {
+          const fix = ac.star!.route.waypoints[ac.star!.route.waypoints.length - 1]!.name;
+          tally.set(fix, (tally.get(fix) ?? 0) + 1);
+          gateTally.set(ac.entryGate!, (gateTally.get(ac.entryGate!) ?? 0) + 1);
+        }
+        // From the time it was *due*: a held handover is late, not cancelled, or
+        // the flow the player asked for quietly becomes a lower one.
+        scheduleNextSpawn(clock, rng, dueS, t, streamFlow);
       }
-      if (ac) {
-        const fix = ac.star!.route.waypoints[ac.star!.route.waypoints.length - 1]!.name;
-        tally.set(fix, (tally.get(fix) ?? 0) + 1);
-      }
-      // From the time it was *due*: a held handover is late, not cancelled, or
-      // the flow the player asked for quietly becomes a lower one.
-      scheduleNextSpawn(state, rng, dueS, CENTER.traffic.arrivalsPerHour);
     }
 
     const total = [...tally.values()].reduce((sum, n) => sum + n, 0);
     // The rate asked for is the rate offered, within the spawn floor's rounding.
-    expect(total / HOURS).toBeGreaterThan(CENTER.traffic.arrivalsPerHour * 0.95);
+    expect(total / HOURS).toBeGreaterThan(flow * 0.95);
 
-    // And each stream gets the share its gates declare.
-    const declared = new Map<string, number>();
-    for (const gate of CENTER.gates) {
-      const fix = starForGate(CENTER, gate.name)!.waypoints.at(-1)!.name;
-      declared.set(fix, (declared.get(fix) ?? 0) + gate.weight);
+    // Each stream is offered its agreement's share of the flow, which is the
+    // whole point of metering per stream: a sector fed in proportions other than
+    // the ones it has promised to hand on cannot satisfy both agreements.
+    const shareTotal = CENTER.arrivalStreams.reduce((sum, st) => sum + st.share, 0);
+    for (const stream of CENTER.arrivalStreams) {
+      const fix = starForGate(CENTER, stream.gateNames[0]!)!.waypoints.at(-1)!.name;
+      expect(Math.abs((tally.get(fix) ?? 0) / total - stream.share / shareTotal), fix)
+        .toBeLessThan(0.02);
     }
-    const weightTotal = [...declared.values()].reduce((sum, n) => sum + n, 0);
-    // Two points of slack: a hundred sector-hours is fifteen hundred aircraft,
-    // and a 72/28 split sampled that many times has a standard error of one.
-    for (const [fix, weight] of declared) {
-      expect(Math.abs((tally.get(fix) ?? 0) / total - weight / weightTotal), fix).toBeLessThan(0.02);
+
+    // And *within* a stream the gates keep the ratios the field declares —
+    // splitting the draw in two must not have changed a single published weight.
+    for (const stream of CENTER.arrivalStreams) {
+      const inStream = stream.gateNames.reduce((sum, name) => sum + (gateTally.get(name) ?? 0), 0);
+      const weightTotal = stream.gateNames.reduce(
+        (sum, name) => sum + CENTER.gates.find((g) => g.name === name)!.weight,
+        0,
+      );
+      for (const name of stream.gateNames) {
+        const weight = CENTER.gates.find((g) => g.name === name)!.weight;
+        expect(Math.abs((gateTally.get(name) ?? 0) / inStream - weight / weightTotal), name)
+          .toBeLessThan(0.03);
+      }
     }
   });
 

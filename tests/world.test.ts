@@ -23,7 +23,7 @@ import {
   projectedSpacingNm,
   step,
 } from '../src/sim/world.js';
-import { AIRPORT, makeAircraft, onFinal, quietWorld, RUNWAY, SCENARIO } from './helpers.js';
+import { AIRPORT, makeAircraft, onFinal, quietWorld, releaseArrivals, RUNWAY, SCENARIO } from './helpers.js';
 
 /** Run the world forward by `seconds` of sim time. */
 function run(world: ReturnType<typeof createWorld>, seconds: number): void {
@@ -34,13 +34,15 @@ function run(world: ReturnType<typeof createWorld>, seconds: number): void {
 describe('traffic generation', () => {
   it('schedules arrivals at the configured mean interval', () => {
     const rng = createRng(99);
-    const state = createTrafficState();
+    const clock = { nextSpawnAtS: 0, pendingGate: null };
     let time = 0;
     const intervals: number[] = [];
     for (let i = 0; i < 4000; i += 1) {
-      scheduleNextSpawn(state, rng, time, 25);
-      intervals.push(state.nextSpawnAtS - time);
-      time = state.nextSpawnAtS;
+      // `fromS` and `timeS` together, which is the un-delayed case: nothing was
+      // held back, so the catch-up clamp never bites and this is the raw draw.
+      scheduleNextSpawn(clock, rng, time, time, 25);
+      intervals.push(clock.nextSpawnAtS - time);
+      time = clock.nextSpawnAtS;
     }
 
     const mean = intervals.reduce((sum, v) => sum + v, 0) / intervals.length;
@@ -396,10 +398,33 @@ describe('landing rate', () => {
   });
 });
 
+describe('source and sink', () => {
+  it('counts an arrival in at its gate and out at the far side, never at an exit', () => {
+    const world = quietWorld();
+    // A landing is the sink at an approach field; an airspace exit is not, since
+    // it left uncontrolled and is a fault in its own right.
+    expect(world.stats.sinkTimesS).toHaveLength(0);
+    const before = world.stats.sinkTimesS.length;
+    world.stats.exits += 1;
+    expect(world.stats.sinkTimesS).toHaveLength(before);
+  });
+
+  it('stamps the sink at a landing', () => {
+    const world = quietWorld(
+      makeAircraft({ ...onFinal(1, 0), altitudeFt: 350, iasKts: 140, headingDeg: RUNWAY.courseDeg }),
+    );
+    const ac = world.aircraft[0]!;
+    ac.phase = 'gs';
+    run(world, 60);
+    expect(world.stats.landings).toBeGreaterThan(0);
+    expect(world.stats.sinkTimesS.length).toBe(world.stats.landings);
+  });
+});
+
 describe('arrival rate', () => {
   it('is stamped at the hand-over, so it reads long before anything has landed', () => {
     const world = quietWorld();
-    world.traffic.nextSpawnAtS = 0;
+    releaseArrivals(world);
 
     // One hand-over is no interval, and two is a single gap — below the minimum.
     run(world, 60);

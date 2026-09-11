@@ -56,6 +56,7 @@ const EMPTY_STATS: Stats = {
   departures: 0,
   departureTimesS: [],
   arrivalTimesS: [],
+  sinkTimesS: [],
   handoffs: 0,
   violations: 0,
   violationSeconds: 0,
@@ -328,9 +329,8 @@ export function worldAtFrame(
     pilotRng: createRng(0),
     departureRng: createRng(0),
     traffic: {
-      nextSpawnAtS: Infinity,
+      streams: new Map(),
       gateLastSpawnS: new Map(),
-      pendingGate: null,
       nextId: 0,
       nextDepartureAtS: Infinity,
       departureQueue,

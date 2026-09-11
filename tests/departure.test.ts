@@ -30,7 +30,7 @@ import {
   step,
   type World,
 } from '../src/sim/world.js';
-import { AIRPORT, geo, makeAircraft, MEDIUM_TYPE, onFinal, quietWorld, run, SCENARIO } from './helpers.js';
+import { AIRPORT, MEDIUM_TYPE, SCENARIO, geo, makeAircraft, onFinal, quietWorld, releaseArrivals, run, silenceArrivals } from './helpers.js';
 import { ROTATED } from './fixtures/rotatedField.js';
 
 const sidNamed = (name: string): Sid => SCENARIO.sids.find((sid) => sid.name === name)!;
@@ -717,7 +717,7 @@ describe('departure flow', () => {
       // from, so there is no draw here to respect the rule.
       if (scenario.sids.length === 0) continue;
       const world = createWorld(scenario, 7);
-      world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+      silenceArrivals(world);
       world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
       world.traffic.departureQueue = 40;
       const charts: string[] = [];
@@ -743,7 +743,7 @@ describe('departure flow', () => {
     const gatesFor = (departureFlowPerHour: number): string[] => {
       const world = quietWorld();
       world.departureFlowPerHour = departureFlowPerHour;
-      world.traffic.nextSpawnAtS = 0;
+      releaseArrivals(world);
       world.traffic.nextDepartureAtS = 0;
       run(world, 1800);
       return world.aircraft.filter((ac) => !isDeparture(ac)).map((ac) => ac.entryGate);

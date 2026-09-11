@@ -18,6 +18,7 @@ import {
 import { lerp, turnOf, type FixContext } from './geometry.js';
 import { identicalTailLength } from './routes.js';
 import type {
+  ArrivalStream,
   DeliveryGate,
   EntryGate,
   InactiveRunway,
@@ -353,6 +354,67 @@ function findMergeGroups(stars: readonly Star[]): MergeGroup[] {
   return kept.map(({ fixName, starNames }) => ({ fixName, starNames }));
 }
 
+/**
+ * The streams the arrival spawner meters: every merge group, plus a singleton
+ * for each gate that joins none (§4.4).
+ *
+ * Derived rather than declared, for the reason `findMergeGroups` is — a field
+ * cannot claim a stream it does not fly. Every gate lands in exactly one stream,
+ * which is what lets the spawner run one clock each and know the clocks together
+ * account for the whole flow.
+ *
+ * The share is the delivery agreement where there is one, because a sector's
+ * traffic should arrive in the proportions it has promised to hand on, and the
+ * sum of the gates' weights otherwise — the same statement, made the only way an
+ * approach field can make it.
+ */
+function findArrivalStreams(
+  gates: readonly EntryGate[],
+  stars: readonly Star[],
+  mergeGroups: readonly MergeGroup[],
+  delivery: readonly DeliveryGate[],
+): ArrivalStream[] {
+  const starByName = new Map(stars.map((star) => [star.name, star]));
+  const weightOf = (names: readonly string[]): number =>
+    names.reduce((sum, name) => sum + (gates.find((gate) => gate.name === name)?.weight ?? 0), 0);
+
+  const streams: ArrivalStream[] = [];
+  const claimed = new Set<string>();
+  for (const group of mergeGroups) {
+    // A group is named by its STARs; the spawner needs the gates those enter on.
+    const gateNames = group.starNames
+      .map((name) => starByName.get(name)?.gate)
+      .filter((name): name is string => name !== undefined && !claimed.has(name));
+    if (gateNames.length === 0) continue;
+    for (const name of gateNames) claimed.add(name);
+    // The agreement this stream feeds, if the field publishes one. Matched by
+    // STAR rather than by fix, since a delivery gate already knows which routes
+    // serve it and a merge fix is not always the delivery fix.
+    const agreed = delivery.find((gate) =>
+      gate.starNames.some((name) => group.starNames.includes(name)),
+    );
+    streams.push({
+      key: group.fixName,
+      gateNames,
+      share: agreed?.targetRatePerHour ?? weightOf(gateNames),
+    });
+  }
+
+  for (const gate of gates) {
+    if (claimed.has(gate.name)) continue;
+    const star = stars.find((candidate) => candidate.gate === gate.name);
+    const agreed = star
+      ? delivery.find((other) => other.starNames.includes(star.name))
+      : undefined;
+    streams.push({
+      key: gate.name,
+      gateNames: [gate.name],
+      share: agreed?.targetRatePerHour ?? gate.weight,
+    });
+  }
+  return streams;
+}
+
 export function compileScenario(spec: ScenarioSpec): Scenario {
   // The local frame is the field's own, so its reference point is the origin.
   const arp: Point = { x: 0, y: 0 };
@@ -433,6 +495,7 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     };
   });
 
+  const mergeGroups = findMergeGroups(stars);
   const defaultTopFt = Math.max(DEPARTURE_TOP_FT, airspace.ceilingFt + 1000);
   const sids = spec.sids.flatMap((sidSpec) => compileSid(sidSpec, ctx, defaultTopFt));
 
@@ -459,7 +522,8 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     delivery,
     stars,
     sids,
-    mergeGroups: findMergeGroups(stars),
+    mergeGroups,
+    arrivalStreams: findArrivalStreams(gates, stars, mergeGroups, delivery),
     fleet: spec.fleet,
     airlines: spec.airlines,
     performance: { ...DEFAULT_PERFORMANCE, ...definedOnly(spec.performance ?? {}) },

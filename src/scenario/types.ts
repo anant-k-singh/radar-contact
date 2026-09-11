@@ -447,6 +447,8 @@ export interface Scenario {
    * rate one route would be. Empty for a field with no shared trunks.
    */
   mergeGroups: readonly MergeGroup[];
+  /** The streams the arrival spawner meters, one clock each (§4.4). */
+  arrivalStreams: readonly ArrivalStream[];
   sids: readonly Sid[];
   fleet: readonly AircraftType[];
   airlines: readonly Airline[];
@@ -519,6 +521,38 @@ export interface MergeGroup {
   fixName: string;
   /** The STAR names sharing it, in the order the field declares them. */
   starNames: readonly string[];
+}
+
+/**
+ * One stream of arriving traffic, and the unit the spawner meters (§4.4).
+ *
+ * A stream is a merge group where the field has one, and a lone gate where it
+ * does not, so every gate belongs to exactly one. That is the whole point: the
+ * spawner runs a clock per stream rather than one for the sector, and a stream
+ * that is blocked can no longer starve the others — which is what a single
+ * weighted draw over every gate did, since a draw for a busy gate stalled the
+ * sector instead of feeding whoever was free.
+ *
+ * `share` is what the stream is owed out of the flow, and `gates` are weighted
+ * *within* it. Splitting the draw in two that way leaves every declared ratio
+ * untouched: VABBS still offers AGELA twice what it offers EPKOS, and KABSO five
+ * times what it offers SUGID.
+ */
+export interface ArrivalStream {
+  /** The merge fix, or the gate's own name where the stream is a single gate. */
+  key: string;
+  /** The gates feeding it, each keeping the weight the field declared. */
+  gateNames: readonly string[];
+  /**
+   * This stream's portion of the arrival flow.
+   *
+   * A center field reads it from the delivery agreement the stream feeds, so the
+   * sector is offered traffic in the proportions it has promised to hand on. Any
+   * other field sums its gates' weights, which is the same statement made by the
+   * only means an approach field has. Shares are relative — `flowPerHour` is
+   * divided among them — so they need not sum to anything in particular.
+   */
+  share: number;
 }
 
 /** A compiled terrain band: one minimum safe altitude and the rings needing it. */

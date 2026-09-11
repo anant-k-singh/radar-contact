@@ -31,6 +31,7 @@ import { bearing, distance, headingDiff, headingVector, magnitude, normalizeHead
 import { LSGG as LSGG_SPEC } from '../src/scenario/fields/lsgg/index.js';
 import { VABB } from '../src/scenario/fields/vabb/index.js';
 import { ROTATED, ROTATED_SPEC } from './fixtures/rotatedField.js';
+import { silenceArrivals } from './helpers.js';
 
 const FIELDS: Scenario[] = [...SCENARIOS, ROTATED];
 
@@ -136,7 +137,7 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
         const inboundDeg = bearing(sid.waypoints[index - 1]!.position, wpt.position);
         for (const type of scenario.fleet) {
           const world = createWorld(scenario, 9);
-          world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+          silenceArrivals(world);
           world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
           world.departureFlowPerHour = 0;
           const ac = createDeparture(scenario, world.departureRng, createTrafficState(), sid, [], 0);
@@ -191,7 +192,7 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
       for (const sid of scenario.sids) {
         for (const type of scenario.fleet) {
           const world = createWorld(scenario, 9);
-          world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+          silenceArrivals(world);
           world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
           world.departureFlowPerHour = 0;
           const ac = createDeparture(scenario, world.departureRng, createTrafficState(), sid, [], 0);
@@ -325,7 +326,7 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
         const star = starForGate(scenario, gate.name);
         if (!star) continue;
         const world = createWorld(scenario, 5);
-        world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+        silenceArrivals(world);
         world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
         world.departureFlowPerHour = 0;
 
@@ -366,7 +367,7 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
       for (const sid of scenario.sids) {
         for (const type of scenario.fleet) {
           const world = createWorld(scenario, 9);
-          world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+          silenceArrivals(world);
           world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
           world.departureFlowPerHour = 0;
 
@@ -420,7 +421,7 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
         if (!ac.star) continue;
         const own = ac.star.route;
         const world = createWorld(scenario, 3);
-        world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+        silenceArrivals(world);
         world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
         world.departureFlowPerHour = 0;
         world.aircraft = [ac];
@@ -493,7 +494,7 @@ describe.each(FIELDS.map((scenario) => [scenario.id, scenario] as const))(
         const ac = createArrival(scenario, createRng(11), createTrafficState(), gate, [], 0);
         if (!ac.star) continue; // a gate with no STAR has nothing to resume
         const world = createWorld(scenario, 3);
-        world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+        silenceArrivals(world);
         world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
         world.departureFlowPerHour = 0;
         world.aircraft = [ac];

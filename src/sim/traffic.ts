@@ -9,7 +9,7 @@ import type { Airline } from '../scenario/airlines.js';
 
 
 import { entryFix, starForGate } from '../scenario/routes.js';
-import type { EntryGate, Scenario, Sid, Star } from '../scenario/types.js';
+import type { ArrivalStream, EntryGate, Scenario, Sid, Star } from '../scenario/types.js';
 import { newAircraft, type Aircraft } from './aircraft.js';
 import {
   ALTITUDE_STEP_FT,
@@ -25,21 +25,37 @@ import type { Rng } from './rng.js';
 import { joinStar } from './star.js';
 import { bearing, distance, type Ft, type Sec } from './units.js';
 
-export interface TrafficState {
+/** One arrival stream's own clock and its held draw (§4.4). */
+export interface StreamState {
   nextSpawnAtS: Sec;
-  gateLastSpawnS: Map<string, Sec>;
   /**
-   * The gate the next arrival has already been drawn for, held until that gate
-   * can take it (§4.4).
+   * The gate this stream's next arrival is already drawn for, held until that
+   * gate can take it.
    *
-   * The draw has to be sticky or the weights stop meaning anything: a stream
-   * inside its cooldown would otherwise hand its turn to whichever stream
-   * happened to be free, and the busiest one — blocked most often, because it is
-   * drawn most often — donates its share to the quietest. At VABBS that flattened
-   * a declared 72/28 to 57/43 and offered KETOR half again what it had agreed to
-   * take.
+   * Sticky within the stream for the reason the draw was sticky globally: a gate
+   * inside its cooldown must not hand its turn to whichever of its neighbours is
+   * free, or the busiest gate — blocked most often, because it is drawn most
+   * often — donates its share to the quietest. Holding it costs nothing now that
+   * a stream can only block itself.
    */
   pendingGate: string | null;
+}
+
+export interface TrafficState {
+  /**
+   * One clock per arrival stream, keyed by `ArrivalStream.key` (§4.4).
+   *
+   * Per stream and not one for the sector, because a single clock feeding a
+   * single weighted draw lets a blocked stream stall every other one: the draw
+   * lands on a gate inside its cooldown, the handover waits, and nobody else is
+   * offered anything meanwhile. VABBS showed it plainest — KETOR's six gates
+   * went 35 minutes without an arrival while MOLGO's two took ten, because every
+   * draw MOLGO won held the sector until MOLGO was free again.
+   *
+   * Each stream now meters itself and can only ever starve itself.
+   */
+  streams: Map<string, StreamState>;
+  gateLastSpawnS: Map<string, Sec>;
   nextId: number;
   /** When the next departure joins the hold-short queue. */
   nextDepartureAtS: Sec;
@@ -67,9 +83,8 @@ export interface TrafficState {
 
 export function createTrafficState(): TrafficState {
   return {
-    nextSpawnAtS: 0,
+    streams: new Map(),
     gateLastSpawnS: new Map(),
-    pendingGate: null,
     nextId: 1,
     nextDepartureAtS: 0,
     departureQueue: 0,
@@ -79,15 +94,53 @@ export function createTrafficState(): TrafficState {
   };
 }
 
-/** Exponential inter-arrival interval, floored so the queue cannot clump absurdly. */
+/**
+ * This stream's share of the arrival flow.
+ *
+ * Shares are relative, so the flow the player asks for is divided among the
+ * streams in the proportions the field declares and every ratio holds at any
+ * rate — which is the point of scaling here rather than baking a rate into the
+ * field. At VABBS 15/h is RCMG 10.7 and RCKT 4.3; at 30/h it is 21.4 and 8.6.
+ */
+export function streamFlowPerHour(
+  scenario: Scenario,
+  stream: ArrivalStream,
+  flowPerHour: number,
+): number {
+  const total = scenario.arrivalStreams.reduce((sum, other) => sum + Math.max(0, other.share), 0);
+  if (!(total > 0)) return flowPerHour / Math.max(1, scenario.arrivalStreams.length);
+  return (flowPerHour * Math.max(0, stream.share)) / total;
+}
+
+/** The stream's clock, created on first use so a field needs no set-up call. */
+export function streamStateFor(state: TrafficState, stream: ArrivalStream): StreamState {
+  let existing = state.streams.get(stream.key);
+  if (!existing) {
+    existing = { nextSpawnAtS: 0, pendingGate: null };
+    state.streams.set(stream.key, existing);
+  }
+  return existing;
+}
+
+/**
+ * Exponential inter-arrival interval for one stream, floored so the queue cannot
+ * clump absurdly.
+ *
+ * `fromS` is the time the last arrival was *due* rather than when it appeared, so
+ * a handover a cooldown held back is delayed and not cancelled — but never more
+ * than one interval's worth, or a stream that was blocked for minutes repays the
+ * whole debt on consecutive ticks and arrives as a burst.
+ */
 export function scheduleNextSpawn(
-  state: TrafficState,
+  stream: StreamState,
   rng: Rng,
+  fromS: Sec,
   timeS: Sec,
   flowPerHour: number,
 ): void {
   const mean = 3600 / Math.max(1, flowPerHour);
-  state.nextSpawnAtS = timeS + Math.max(MIN_SPAWN_INTERVAL_S, rng.exponential(mean));
+  const base = Math.max(fromS, timeS - MIN_SPAWN_INTERVAL_S);
+  stream.nextSpawnAtS = base + Math.max(MIN_SPAWN_INTERVAL_S, rng.exponential(mean));
 }
 
 function callsign(
@@ -251,45 +304,54 @@ export function createArrival(
 }
 
 /**
- * Try to hand over one arrival. Returns null when the gate it is for cannot take
- * it yet, in which case the caller retries on the next tick.
+ * Try to hand over one arrival on this stream. Returns null when the gate it is
+ * for cannot take it yet, in which case the caller retries on the next tick.
  *
- * Which gate that is was drawn once and is then waited for, rather than redrawn
- * each tick among whatever is free. The spawner's job is to offer the field its
- * traffic in the proportions the field declares; a stream that is congested
- * stays congested and the aircraft waits, because moving it to another arrival
- * is the controller's decision and not the generator's.
+ * Which gate that is was drawn once from the stream's own gates and is then
+ * waited for, rather than redrawn each tick among whatever is free. The
+ * spawner's job is to offer the field its traffic in the proportions the field
+ * declares; a gate that is congested stays congested and the aircraft waits,
+ * because moving it to another arrival is the controller's decision and not the
+ * generator's.
+ *
+ * Waiting is cheap now that it is scoped to one stream: the other streams keep
+ * their own clocks and are unaffected, where a single global draw meant one busy
+ * gate stalled every arrival in the sector.
  *
  * A stack at the ceiling is the one thing that releases the draw: there is no
  * level left to deliver anyone on there (§4.5), so that gate is out of the
- * question rather than merely busy, and holding the whole sector behind it would
- * stop the field instead of the stream.
+ * question rather than merely busy, and holding the stream behind it would stop
+ * the stream instead of the gate.
  */
 export function trySpawn(
   scenario: Scenario,
+  stream: ArrivalStream,
   rng: Rng,
   state: TrafficState,
   existing: readonly Aircraft[],
   timeS: Sec,
 ): Aircraft | null {
-  const open = scenario.gates.filter((gate) => !stackFull(scenario, gate, existing));
+  const clock = streamStateFor(state, stream);
+  const inStream = scenario.gates.filter((gate) => stream.gateNames.includes(gate.name));
+  const open = inStream.filter((gate) => !stackFull(scenario, gate, existing));
   if (open.length === 0) {
-    state.pendingGate = null;
+    clock.pendingGate = null;
     return null;
   }
 
   // Weighted, because which direction traffic comes from is a fact about the
-  // field (§4.4). A field that states no weights gets the even split it always
-  // had, from the same draw.
-  let gate = open.find((candidate) => candidate.name === state.pendingGate);
+  // field (§4.4). The weights are the field's own and are read *within* the
+  // stream, so splitting the draw in two changed no declared ratio. A field that
+  // states no weights gets the even split it always had, from the same draw.
+  let gate = open.find((candidate) => candidate.name === clock.pendingGate);
   if (!gate) {
     gate = rng.pickWeighted(open, (candidate) => candidate.weight);
-    state.pendingGate = gate.name;
+    clock.pendingGate = gate.name;
   }
 
   if (!gateAvailable(scenario, gate, state, timeS) || vetoed(gate, existing)) return null;
 
-  state.pendingGate = null;
+  clock.pendingGate = null;
   // Every key this handover occupies, so a merge group goes quiet as a whole.
   for (const key of cooldownKeys(scenario, gate)) state.gateLastSpawnS.set(key, timeS);
   return createArrival(scenario, rng, state, gate, existing, timeS);

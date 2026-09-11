@@ -4,7 +4,7 @@ import { PHYSICS_DT, PILOT_DELAY_MAX_S } from '../src/sim/constants.js';
 import { finalGeometry, glideslopeAltitudeFt, type FinalGeometry } from '../src/sim/ils.js';
 import { applyDueInstructions } from '../src/sim/pilot.js';
 import { createRng } from '../src/sim/rng.js';
-import { createArrival, createTrafficState } from '../src/sim/traffic.js';
+import { createArrival, createTrafficState, streamStateFor } from '../src/sim/traffic.js';
 import { normalizeHeading, rightOf, type Deg, type Ft, type Nm, type Point } from '../src/sim/units.js';
 import { createWorld, log, step, type World } from '../src/sim/world.js';
 
@@ -86,9 +86,28 @@ export function geo(ac: Aircraft): FinalGeometry {
  * Both streams are off: several tests detect a landing by the scope going empty,
  * which a departure rolling in the background would quietly break.
  */
+/**
+ * Push every arrival stream's clock out of reach, so no gate hands anything over.
+ *
+ * One call rather than a field per stream: the spawner keeps a clock each, and a
+ * test that wants silence wants it from all of them.
+ */
+export function silenceArrivals(world: World): void {
+  for (const stream of world.scenario.arrivalStreams) {
+    streamStateFor(world.traffic, stream).nextSpawnAtS = Number.POSITIVE_INFINITY;
+  }
+}
+
+/** Open every arrival stream's clock at `atS`, the mirror of `silenceArrivals`. */
+export function releaseArrivals(world: World, atS = 0): void {
+  for (const stream of world.scenario.arrivalStreams) {
+    streamStateFor(world.traffic, stream).nextSpawnAtS = atS;
+  }
+}
+
 export function quietWorld(...aircraft: Aircraft[]): World {
   const world = createWorld(SCENARIO, 42);
-  world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+  silenceArrivals(world);
   world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
   world.departureFlowPerHour = 0;
   world.aircraft = aircraft;

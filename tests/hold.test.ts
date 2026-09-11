@@ -17,7 +17,7 @@ import { worldAtFrame } from '../src/replay/playback.js';
 import { createRecording, sample } from '../src/replay/recorder.js';
 import { stateTag } from '../src/render/trafficLayer.js';
 import { createWorld, step } from '../src/sim/world.js';
-import { AIRPORT, makeAircraft, pilotActs, quietWorld, run, SCENARIO } from './helpers.js';
+import { AIRPORT, makeAircraft, pilotActs, quietWorld, run, SCENARIO, silenceArrivals } from './helpers.js';
 
 /** A fresh arrival at `gateName`, on its STAR, in an otherwise empty world. */
 function arrival(gateName = 'VANDA'): { ac: Aircraft; world: World } {
@@ -64,7 +64,7 @@ describe('entering a holding pattern', () => {
     const gate = lsgg.gates.find((candidate) => candidate.name === star.gate)!;
     const ac = createArrival(lsgg, createRng(5), createTrafficState(), gate, [], 0);
     const world = createWorld(lsgg, 42);
-    world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+    silenceArrivals(world);
     world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
     world.departureFlowPerHour = 0;
     world.aircraft = [ac];
@@ -506,8 +506,10 @@ describe('delivering into a holding stack', () => {
     const rng = createRng(3);
     const gates = new Set<string>();
     for (let i = 0; i < 200; i += 1) {
-      const ac = trySpawn(SCENARIO, rng, state, full, i * SCENARIO.traffic.gateCooldownS);
-      if (ac) gates.add(ac.entryGate);
+      for (const stream of SCENARIO.arrivalStreams) {
+        const ac = trySpawn(SCENARIO, stream, rng, state, full, i * SCENARIO.traffic.gateCooldownS);
+        if (ac) gates.add(ac.entryGate);
+      }
     }
     expect(gates.has('KOVAL')).toBe(false);
     expect(gates.size).toBe(AIRPORT.gates.length - 1);

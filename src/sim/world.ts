@@ -38,6 +38,8 @@ import {
   createTrafficState,
   scheduleNextDeparture,
   scheduleNextSpawn,
+  streamFlowPerHour,
+  streamStateFor,
   tryDeparture,
   trySpawn,
   type TrafficState,
@@ -83,6 +85,20 @@ export interface Stats {
    * of the player's problem. Trimmed to the last few, as those are.
    */
   arrivalTimesS: Sec[];
+  /**
+   * Sim time each arrival left the airspace under control (§8.2).
+   *
+   * The sink to `arrivalTimesS`'s source, and deliberately role-blind: a landing
+   * at an approach field and a delivery at a center one are the same event —
+   * an arrival the player saw through to the far side. Read against the source
+   * rate it says whether the airspace is filling or draining, which is the
+   * arrival half of what `DEP QUEUE` says for the runway.
+   *
+   * An airspace *exit* is not counted. Those left uncontrolled, are a fault in
+   * their own right and are already counted as one; folding them in here would
+   * let a sector losing aircraft read as one that was keeping up.
+   */
+  sinkTimesS: Sec[];
   handoffs: number;
   violations: number;
   violationSeconds: number;
@@ -173,7 +189,12 @@ export function createWorld(
   departureFlowPerHour = scenario.traffic.departuresPerHour,
 ): World {
   const traffic = createTrafficState();
-  traffic.nextSpawnAtS = 5; // don't stare at an empty scope
+  // Don't stare at an empty scope: every stream opens its clock together, so a
+  // session begins with one arrival per stream rather than with whichever the
+  // sector's single draw happened to pick.
+  for (const stream of scenario.arrivalStreams) {
+    streamStateFor(traffic, stream).nextSpawnAtS = 5;
+  }
   // The first departure waits longer than the first arrival: a session that
   // opens on an aircraft already rolling reads as having started without you.
   traffic.nextDepartureAtS = 45;
@@ -188,6 +209,7 @@ export function createWorld(
       departures: 0,
       departureTimesS: [],
       arrivalTimesS: [],
+      sinkTimesS: [],
       handoffs: 0,
       violations: 0,
       violationSeconds: 0,
@@ -346,6 +368,17 @@ export function arrivalRatePerHour(world: World): number | null {
   return ratePerHour(world.stats.arrivalTimesS, world.timeS);
 }
 
+/**
+ * Arrivals per hour leaving the airspace the way they were meant to — landed at
+ * an approach field, delivered at a center one (§8.2).
+ *
+ * Pure measurement and never a score: what it is *for* is the comparison with
+ * `arrivalRatePerHour`, which is the only place the two numbers mean anything.
+ */
+export function sinkRatePerHour(world: World): number | null {
+  return ratePerHour(world.stats.sinkTimesS, world.timeS);
+}
+
 /** The most recent delivery at each gate, which is what the next slot follows. */
 export function lastDeliveryTimes(world: World): Map<string, Sec> {
   const last = new Map<string, Sec>();
@@ -458,6 +491,7 @@ function tryDelivery(world: World, ac: Aircraft): boolean {
   world.stats.deliveryTimesS.set(gate.fixName, times);
   world.stats.deliveryBankS.set(gate.fixName, verdict.bankAfterS);
   world.stats.deliveries += 1;
+  recordMovement(world.stats.sinkTimesS, world.timeS);
   for (const fault of verdict.faults) {
     world.stats.deliveryFaults.set(fault, (world.stats.deliveryFaults.get(fault) ?? 0) + 1);
   }
@@ -675,6 +709,7 @@ function handleApproachEvents(
       case 'landed':
         world.stats.landings += 1;
         recordMovement(world.stats.landingTimesS, world.timeS);
+        recordMovement(world.stats.sinkTimesS, world.timeS);
         // The runway is now occupied by an aircraft rolling out, which is what
         // holds the next departure (§4.7).
         world.traffic.lastLandingS = world.timeS;
@@ -754,31 +789,55 @@ function sampleHistory(world: World): void {
   }
 }
 
-/** Center hands over one arrival, if a gate is free to take it (§4.4). */
-function spawnArrival(world: World): void {
-  if (world.timeS < world.traffic.nextSpawnAtS) return;
-  // The time this one was *due*, which is what the one behind it is scheduled
-  // from: the flow the player asks for is the rate traffic is offered at, and a
-  // handover held back by a gate's cooldown is delayed rather than cancelled.
-  // Scheduling from the actual spawn instead silently lowered the whole flow by
-  // however long the field's gates had been busy.
-  const dueS = world.traffic.nextSpawnAtS;
-  const arrival = trySpawn(world.scenario, world.rng, world.traffic, world.aircraft, world.timeS);
-  if (!arrival) return;
+/**
+ * Every stream that is due hands over an arrival, if a gate is free to take it
+ * (§4.4).
+ *
+ * A loop over the streams rather than one draw for the sector: each keeps its own
+ * clock, so a stream held up by a cooldown delays only itself. That is what stops
+ * the busiest stream starving the rest — the failure this replaced, where one
+ * blocked gate held every arrival in the sector behind it.
+ */
+function spawnArrivals(world: World): void {
+  for (const stream of world.scenario.arrivalStreams) {
+    const clock = streamStateFor(world.traffic, stream);
+    if (world.timeS < clock.nextSpawnAtS) continue;
+    // The time this one was *due*, which is what the one behind it is scheduled
+    // from: the flow the player asks for is the rate traffic is offered at, and a
+    // handover held back by a gate's cooldown is delayed rather than cancelled.
+    // Scheduling from the actual spawn instead silently lowered the whole flow by
+    // however long the field's gates had been busy.
+    const dueS = clock.nextSpawnAtS;
+    const arrival = trySpawn(
+      world.scenario,
+      stream,
+      world.rng,
+      world.traffic,
+      world.aircraft,
+      world.timeS,
+    );
+    if (!arrival) continue;
 
-  world.aircraft.push(arrival);
-  recordMovement(world.stats.arrivalTimesS, world.timeS);
-  scheduleNextSpawn(world.traffic, world.rng, dueS, world.flowPerHour);
-  const routing = arrival.star
-    ? `on the ${arrival.star.route.name} arrival`
-    : `inbound ${arrival.entryGate}`;
-  log(
-    world,
-    `${arrival.callsign} (${arrival.type.code}) with you at ${Math.round(arrival.altitudeFt)} ft, ` +
-      `${Math.round(arrival.iasKts)} knots, ${routing}.`,
-    'pilot',
-    [arrival.id],
-  );
+    world.aircraft.push(arrival);
+    recordMovement(world.stats.arrivalTimesS, world.timeS);
+    scheduleNextSpawn(
+      clock,
+      world.rng,
+      dueS,
+      world.timeS,
+      streamFlowPerHour(world.scenario, stream, world.flowPerHour),
+    );
+    const routing = arrival.star
+      ? `on the ${arrival.star.route.name} arrival`
+      : `inbound ${arrival.entryGate}`;
+    log(
+      world,
+      `${arrival.callsign} (${arrival.type.code}) with you at ${Math.round(arrival.altitudeFt)} ft, ` +
+        `${Math.round(arrival.iasKts)} knots, ${routing}.`,
+      'pilot',
+      [arrival.id],
+    );
+  }
 }
 
 /**
@@ -827,7 +886,7 @@ function releaseDeparture(world: World): void {
 export function step(world: World, dt: Sec): void {
   world.timeS += dt;
 
-  spawnArrival(world);
+  spawnArrivals(world);
   queueDeparture(world);
   releaseDeparture(world);
 

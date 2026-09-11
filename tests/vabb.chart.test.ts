@@ -21,6 +21,7 @@ import { createRng } from '../src/sim/rng.js';
 import { createArrival } from '../src/sim/traffic.js';
 import { createWorld, step } from '../src/sim/world.js';
 import { bearing, distance, magnitude } from '../src/sim/units.js';
+import { silenceArrivals } from './helpers.js';
 
 /** Signed area of a closed ring: positive is counter-clockwise in this frame. */
 function signedArea(ring: readonly { x: number; y: number }[]): number {
@@ -467,7 +468,7 @@ describe('terrain violations at VABB', () => {
   it('counts an aircraft below the MSA, and logs why', () => {
     const spot = overTheGhats();
     const world = createWorld(VABB, 7);
-    world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+    silenceArrivals(world);
     world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
     world.departureFlowPerHour = 0;
     world.messages = [];
@@ -512,7 +513,7 @@ describe('terrain violations at VABB', () => {
   it('leaves an aircraft over the sea alone', () => {
     // West of the field is water: RWY 27 departs over it, and nothing is shaded.
     const world = createWorld(VABB, 7);
-    world.traffic.nextSpawnAtS = Number.POSITIVE_INFINITY;
+    silenceArrivals(world);
     world.traffic.nextDepartureAtS = Number.POSITIVE_INFINITY;
     world.departureFlowPerHour = 0;
     const ac = createArrival(VABB, createRng(1), world.traffic, VABB.gates[0]!, [], 0);

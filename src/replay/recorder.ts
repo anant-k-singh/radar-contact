@@ -353,6 +353,7 @@ function cloneStats(stats: Stats): Stats {
     landingTimesS: [...stats.landingTimesS],
     departureTimesS: [...stats.departureTimesS],
     arrivalTimesS: [...stats.arrivalTimesS],
+    sinkTimesS: [...stats.sinkTimesS],
     rejections: new Map(stats.rejections),
     missedIntercepts: new Map(stats.missedIntercepts),
     deliveryFaults: new Map(stats.deliveryFaults),
@@ -386,6 +387,8 @@ function sumCounts(counts: Map<string, number>): number {
  *
  * `arrivalTimesS` is compared the same way and for the same reason: nothing
  * counts hand-overs, so its last entry is the only thing that moves with one.
+ * `sinkTimesS` rides alongside it — a delivery moves `deliveries` too, but a
+ * landing at an approach field moves only this.
  */
 function sessionChanged(last: SessionSnapshot, world: World): boolean {
   const a = last.stats;
@@ -399,6 +402,7 @@ function sessionChanged(last: SessionSnapshot, world: World): boolean {
     a.departureTimesS[a.departureTimesS.length - 1] !==
       b.departureTimesS[b.departureTimesS.length - 1] ||
     a.arrivalTimesS[a.arrivalTimesS.length - 1] !== b.arrivalTimesS[b.arrivalTimesS.length - 1] ||
+    a.sinkTimesS[a.sinkTimesS.length - 1] !== b.sinkTimesS[b.sinkTimesS.length - 1] ||
     a.handoffs !== b.handoffs ||
     a.violations !== b.violations ||
     a.goArounds !== b.goArounds ||

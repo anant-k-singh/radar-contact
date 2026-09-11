@@ -3,7 +3,7 @@ import { adjustAltitude, adjustHeading } from '../src/sim/commands.js';
 import { PHYSICS_DT, PILOT_DELAY_MAX_S, PILOT_DELAY_MIN_S } from '../src/sim/constants.js';
 import { assignedAltitudeFt, assignedHeadingDeg } from '../src/sim/pilot.js';
 import { step } from '../src/sim/world.js';
-import { makeAircraft, quietWorld, run } from './helpers.js';
+import { makeAircraft, quietWorld, releaseArrivals, run } from './helpers.js';
 
 describe('pilot reaction time', () => {
   it('flies an instruction 1–3 s after it is transmitted', () => {
@@ -57,7 +57,7 @@ describe('pilot reaction time', () => {
     // cannot shift the traffic a seed generates.
     const spawnLog = (talk: boolean): string[] => {
       const world = quietWorld();
-      world.traffic.nextSpawnAtS = 5;
+      releaseArrivals(world, 5);
       const seen: string[] = [];
       for (let i = 0; i < 20_000; i += 1) {
         step(world, PHYSICS_DT);

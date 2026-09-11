@@ -575,20 +575,41 @@ as either alone; asking for both late in the sequence blows the spacing; and the
   **25/h** at ZZZZ, **20/h** at VABB, **15/h** at VABBS, where it is set against what the sector is
   agreed to deliver (§3.2a). The *range* the player may set is a property of the control
   they are given, so it is a constant: 5–50 arrivals, 0–24 departures.
-- **Spawn timing:** exponential inter-arrival intervals (Poisson process), mean `3600 / flow`
-  seconds, clamped to a minimum of 45 s so the queue can't clump absurdly.
-- **Gate choice:** weighted random over the gates, with a constraint: **no two spawns at the
+- **Arrival streams:** the flow is metered **per stream**, not per sector. A stream is a merge
+  group where the field has one and a lone gate where it does not, so every gate belongs to exactly
+  one and the streams together account for the whole flow. Derived rather than declared, the way
+  merge groups are — a field cannot claim a stream it does not fly. ZZZZ has four singleton streams,
+  LSGG three merge streams and a singleton, VABBS two: RCMG off two gates and RCKT off six.
+  Each stream keeps **its own clock**. One clock over every gate lets a blocked stream stall the
+  whole sector — the draw lands on a gate inside its cooldown, the handover waits, and nobody else
+  is offered anything meanwhile. Measured at VABBS, that starved RCKT completely in 12 sessions out
+  of 200 while RCMG took ten arrivals; per stream it is 0 in 200, because a stream can only ever
+  block itself.
+- **Stream share:** a stream is offered `flow × share / Σ shares`. The share is the **delivery
+  agreement** the stream feeds where the field publishes one, so a sector is fed in the proportions
+  it has promised to hand on (§3.2a), and the **sum of its gates' weights** otherwise — the same
+  statement made the only way an approach field can make it. Shares are relative, so every declared
+  ratio holds at any flow the player sets: VABBS at 15/h is RCMG 10.7 and RCKT 4.3, and at 30/h it
+  is 21.4 and 8.6.
+- **Spawn timing:** exponential inter-arrival intervals (Poisson process) **per stream**, mean
+  `3600 / stream flow` seconds, clamped to a minimum of 45 s so the queue can't clump absurdly. The
+  interval runs from when the last arrival was **due** rather than from when it got away, so a held
+  handover is late and not cancelled — but never more than one interval behind, or a stream blocked
+  for minutes repays the whole debt on consecutive ticks and arrives as a burst.
+- **Gate choice:** weighted random **within the stream**, with a constraint: **no two spawns at the
   same gate within 90 s** (at 290 kt TAS that guarantees ~7 NM initial in-trail separation). The
   draw is **sticky**: the gate is chosen once and then waited for, so one inside its cooldown delays
   the handover rather than passing it to whichever gate is free. Redrawing each tick makes the
   weights mean nothing — the busiest gate is blocked most often *because* it is drawn most often, so
   it donates its share to the quietest, and VABBS's declared 72/28 came out at 57/43. A field's
   weights are a statement about where its traffic comes from and the generator may not quietly
-  renegotiate them; a congested stream is the controller's problem, not the spawner's. The one
-  release is a holding stack at the ceiling (§4.5), where the gate is out of the question rather
-  than merely busy and waiting would stop the field instead of the stream. The interval to the next
-  arrival runs from when this one was **due** rather than from when it got away, so a held handover
-  is late and not cancelled: the flow the player asks for is the rate traffic is offered at.
+  renegotiate them; a congested stream is the controller's problem, not the spawner's. Waiting is
+  cheap now that it is scoped to one stream. The one release is a holding stack at the ceiling
+  (§4.5), where the gate is out of the question rather than merely busy and waiting would stop the
+  stream instead of the gate.
+  Splitting the draw in two — stream by share, then gate by weight **within** it — left every
+  published weight untouched: AGELA is still offered twice what EPKOS is, and KABSO five times what
+  SUGID is.
   A gate's `weight` defaults to 1, so a field that says nothing gets the even split. Which direction
   traffic comes from is a fact about the route network around an airport rather than about the job,
   and an even split is badly wrong where the gates are not evenly spread: VABB takes roughly 34 % of
@@ -1811,6 +1832,8 @@ The session is endless; the score is a running quality report, not a life counte
 | Landings | Aircraft that touched down |
 | Landing rate | Landings per hour from the gaps between the last **4** landings (§8.2) — deliveries use **3**, §8.2 |
 | Arrival rate | Arrivals handed over on a STAR per hour, from the same gap measure (§8.2) |
+| Source rate | Arrivals *entering* the airspace per hour — the arrival rate, shown under this name because its only use is the comparison below (§8.2) |
+| Sink rate | Arrivals *leaving* it per hour the way they were meant to: landed at an approach field, delivered at a center one (§8.2) |
 | Separation violations | Count, plus total seconds in violation |
 | Go-arounds | Automatic go-arounds triggered |
 | Airspace exits | Aircraft that left the 50 NM circle laterally (handed back to Center — penalty) |
@@ -1821,6 +1844,15 @@ The session is endless; the score is a running quality report, not a life counte
 | Departure rate | Departures per hour off the runway, from the same gap measure (§8.2) |
 | Departure queue | How many are holding short right now — amber above **3**, red above **6** (§8.2) |
 | Handoffs | Arrivals handed to Tower off a stable approach (§10) |
+
+**Source against sink is the one pair that has to be read together.** Each is a plain count per
+hour and neither is a score — the source is the flow the player asked for and the sink is mostly
+what the field can absorb — but source standing above sink is the airspace filling up, which is the
+thing no single counter says. It is the arrival half of what the departure queue says for the
+runway, and it is shown for **both** roles because it means the same thing at either: work arriving
+faster than work leaving. An airspace **exit** is deliberately *not* a sink. Those left uncontrolled
+and are counted as a fault in their own right; folding them in would let a sector losing aircraft
+read as one that was keeping up.
 
 Not every metric is on the scope. **Clearance rejections**, **missed intercepts** and **handoffs**
 are tracked but not shown in the stats gutter: all three are diagnostics for a clearance that has

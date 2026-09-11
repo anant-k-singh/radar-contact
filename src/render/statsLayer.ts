@@ -10,6 +10,7 @@ import { DEPARTURE_QUEUE_ALERT, DEPARTURE_QUEUE_WARN } from '../sim/constants.js
 import type { World } from '../sim/world.js';
 import {
   arrivalRatePerHour,
+  sinkRatePerHour,
   departureQueueLength,
   departureRatePerHour,
   deliveryRatePerHour,
@@ -41,6 +42,8 @@ interface Row {
  */
 function commonRows(world: World): Row[] {
   const stats = world.stats;
+  const source = arrivalRatePerHour(world);
+  const sink = sinkRatePerHour(world);
   return [
     {
       label: 'VIOLATIONS',
@@ -50,6 +53,13 @@ function commonRows(world: World): Row[] {
           : `${stats.violations} (${Math.round(stats.violationSeconds)}s)`,
       tone: stats.violations > 0 ? 'bad' : undefined,
     },
+    // What the airspace is taking in against what it is getting rid of, in the
+    // same units, for both roles (§8.2). Neither is a score — the source is the
+    // flow the player asked for and the sink is mostly the field's — but source
+    // standing above sink is the airspace filling up, which is the one thing
+    // about a session no single counter says.
+    { label: 'SOURCE', value: source === null ? '—' : `${Math.round(source)}/h` },
+    { label: 'SINK', value: sink === null ? '—' : `${Math.round(sink)}/h` },
     { label: 'EXITS', value: String(stats.exits), tone: stats.exits > 0 ? 'warn' : undefined },
     {
       label: 'TRACK MILES',
@@ -106,7 +116,6 @@ function approachRows(world: World, msaFt: number | null): Row[] {
   const stats = world.stats;
   const rate = landingRatePerHour(world);
   const depRate = departureRatePerHour(world);
-  const arrRate = arrivalRatePerHour(world);
   const queued = departureQueueLength(world);
   return [
     // The ground under the cursor, and the only row here that is not a statistic
@@ -115,9 +124,6 @@ function approachRows(world: World, msaFt: number | null): Row[] {
     // First, because it is the row the eye goes to on purpose rather than the
     // ones it monitors, and it is blank far more often than it is not.
     { label: 'MSA @ pointer', value: msaFt === null ? '—' : String(msaFt) },
-    // What Center is delivering. Above RATE it means the stack is growing —
-    // the arrival half of what DEP QUEUE says for the runway (§8.2).
-    { label: 'ARR RATE', value: arrRate === null ? '—' : `${Math.round(arrRate)}/h` },
     { label: 'LANDINGS', value: String(stats.landings) },
     { label: 'RATE', value: rate === null ? '—' : `${Math.round(rate)}/h` },
     // Departures that got away cleanly, and how fast the runway is releasing
