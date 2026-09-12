@@ -216,6 +216,47 @@ export const extendToRange =
     return t > 0 ? { x: a.x + dx * t, y: a.y + dy * t } : a;
   };
 
+/**
+ * Where the leg `from` → `to` crosses `rangeNm` from the field, going inward.
+ *
+ * The third of the family, and the one for a boundary the route runs *through*
+ * rather than starts or ends outside. `clipToRange` and `extendToRange` both
+ * reconcile a published fix with a boundary and both leave the leg alone when it
+ * does not need moving — `clipToRange` in particular returns `to` untouched the
+ * moment `to` is already inside the range, which is exactly the case here: a
+ * runway transition runs from a TMA fix at 60 NM to one at 18-35, so it crosses
+ * an arc at 50 with neither end anywhere near it.
+ *
+ * What it is for is a handoff point that is a *line* rather than a distance. An
+ * en-route sector gives an arrival up at its inner boundary, and stating that as
+ * a fixed inset down each leg only agrees with the boundary where the fixes
+ * happen to sit on one arc: Mumbai's five are 60.0 to 63.2 NM out, so ten miles
+ * along each puts four of them on the arc and MOLGO's 3.2 NM outside it, with
+ * the route drawn stopping short of the boundary it is supposed to reach.
+ *
+ * Throws rather than guessing when the leg does not reach the arc, since a
+ * handoff fix that silently landed on one end of its leg would be a route handed
+ * over at the wrong place.
+ */
+export const meetsRange =
+  (rangeNm: Nm, from: FixAt, to: FixAt): FixAt =>
+  (ctx) => {
+    const a = from(ctx);
+    const b = to(ctx);
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const quadratic = dx * dx + dy * dy;
+    const linear = a.x * dx + a.y * dy;
+    const constant = a.x * a.x + a.y * a.y - rangeNm * rangeNm;
+    const discriminant = linear * linear - quadratic * constant;
+    if (quadratic > 1e-12 && discriminant >= 0) {
+      // The first crossing along the leg, which is the one it reaches first.
+      const t = (-linear - Math.sqrt(discriminant)) / quadratic;
+      if (t >= 0 && t <= 1) return lerp(a, b, t);
+    }
+    throw new Error(`meetsRange: this leg never crosses ${rangeNm} NM from the field`);
+  };
+
 export function midpoint(a: Point, b: Point): Point {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }

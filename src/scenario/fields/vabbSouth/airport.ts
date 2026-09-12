@@ -67,12 +67,12 @@ export const FLOOR_FT = 14_000;
 export const OUTER_RANGE_NM = 160;
 
 /**
- * Where the aircraft is handed to Approach — ten miles inside the TMA fixes.
- *
- * `RCKT` lands at 50.03 NM measured along the published KETOR → MB393 track, so
- * the arc and the fix agree to within a twentieth of a mile. `RCMG` is 3.2 NM
- * further out on its own track, which leaves that stream a little run after the
- * fix rather than none.
+ * Where the aircraft is handed to Approach, and the line both delivery fixes sit
+ * on: each is where its own runway transition crosses this arc, so the handoff
+ * point and the airspace edge are the same thing. That comes out 10.0 NM inside
+ * KETOR and 13.2 inside MOLGO, because MOLGO is 63.2 NM from the field where
+ * KETOR is 60.0 — see `stars.ts` for why it is taken as a crossing rather than
+ * as a fixed inset.
  */
 export const INNER_RANGE_NM = 50;
 
