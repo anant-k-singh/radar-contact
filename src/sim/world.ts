@@ -2,10 +2,11 @@
  * The world: one mutable state object plus `step(world, dt)`.
  * No DOM, no rendering, no input — see docs §11.4.
  */
-import type { Runway, Scenario } from '../scenario/types.js';
+import type { Runway, Scenario, Star } from '../scenario/types.js';
 import type { Aircraft } from './aircraft.js';
 import { isDeparture, sampleRadar } from './aircraft.js';
 import { boundaryMarginNm } from '../scenario/airspace.js';
+import { isPastFix } from '../scenario/routes.js';
 import {
   DELIVERY_CAPTURE_NM,
   EXIT_WARN_MARGIN_NM,
@@ -36,12 +37,14 @@ import { analyzeSeparation, type SeparationReport } from './separation.js';
 import { starOwnsVertical, stepStar, type StarEvent } from './star.js';
 import {
   createTrafficState,
+  releaseScripted,
   scheduleNextDeparture,
   scheduleNextSpawn,
   streamFlowPerHour,
   streamStateFor,
   tryDeparture,
   trySpawn,
+  type Handoff,
   type TrafficState,
 } from './traffic.js';
 import { bearing, distance, headingDiff, type Nm, type Sec } from './units.js';
@@ -180,6 +183,30 @@ export interface World {
   nextHistoryAtS: Sec;
   /** Violation pair key → sim time the violation began. */
   activeViolations: Map<string, Sec>;
+  /**
+   * Everything this session has handed on to the field below (§15.0f). Empty at
+   * an approach field.
+   *
+   * Not `stats.handoffs`, which is the count of arrivals given to *Tower* at an
+   * approach field — the opposite end of the same word.
+   *
+   * On the `World` and not in the recording, because the recorder keeps a rolling
+   * ninety minutes and a longer session has already forgotten its early
+   * deliveries — and it is exactly the early ones an approach session would open
+   * on. Never pruned: thirty-one an hour is nothing to hold.
+   */
+  handedOn: Handoff[];
+  /**
+   * The arrival schedule this session is flying instead of generating one, or
+   * null for an ordinary session (§15.0f).
+   *
+   * A ledger from a finished center session, rebased onto this session's clock.
+   * While it is set the traffic generator does not run at all, which is why the
+   * flow control is disabled: the schedule is a record of what happened, not a
+   * rate to be asked for. It is the same `Handoff` rows rather than a type of
+   * their own — a scripted arrival *is* the handover it came from.
+   */
+  script: readonly Handoff[] | null;
 }
 
 export function createWorld(
@@ -187,6 +214,7 @@ export function createWorld(
   seed: number,
   flowPerHour = scenario.traffic.arrivalsPerHour,
   departureFlowPerHour = scenario.traffic.departuresPerHour,
+  script: readonly Handoff[] | null = null,
 ): World {
   const traffic = createTrafficState();
   // Don't stare at an empty scope: every stream opens its clock together, so a
@@ -245,6 +273,8 @@ export function createWorld(
     nextRadarAtS: 0,
     nextHistoryAtS: 0,
     activeViolations: new Map(),
+    handedOn: [],
+    script,
   };
 }
 
@@ -452,6 +482,68 @@ function tryHandoff(world: World, ac: Aircraft): void {
 }
 
 /**
+ * The fix this route is handed over at — the one the field below names as a gate
+ * (§15.0f).
+ *
+ * Second from the end, because a center route runs `<TMA fix> → <delivery fix>`:
+ * the delivery fix is this sector's own invention, ten miles inside the
+ * boundary, and the fix before it is the one both charts carry. Derived rather
+ * than declared, since `tests/center.test.ts` already pins that this is the
+ * receiving field's gate name for every center field — a second declaration
+ * would be a place for the two to disagree.
+ */
+function sharedFixName(route: Star): string | null {
+  return route.waypoints[route.waypoints.length - 2]?.name ?? null;
+}
+
+function handoffRow(
+  world: World,
+  ac: Aircraft,
+  gateName: string | null,
+  onRoute: boolean,
+): Handoff {
+  return {
+    atS: world.timeS,
+    callsign: ac.callsign,
+    airline: ac.airline,
+    type: ac.type,
+    gateName,
+    onRoute,
+    x: ac.x,
+    y: ac.y,
+    altitudeFt: ac.altitudeFt,
+    headingDeg: ac.headingDeg,
+    iasKts: ac.iasKts,
+  };
+}
+
+/**
+ * Take an arrival's state as it passes the fix it is handed over at, and park it
+ * on the aircraft until the handover is real (§15.0f).
+ *
+ * `isPastFix` rather than the route sequencer's index, for the reason that
+ * function exists: sequencing moves on up to six miles early to fly the turn as
+ * a fly-by, and the profile is still descending at ~160 ft/NM into this fix — so
+ * an index-triggered capture reads the crossing high: measured at 80 ft on a
+ * gentle turn, and proportionally more the harder the turn, which would put
+ * every clean delivery into the field below above its own chart. The crossing is
+ * made good at the fix.
+ *
+ * A holding aircraft is excluded outright. The pattern can carry it across the
+ * line, but it has not been handed to anyone: it is still this sector's problem,
+ * and the sector below should never see it.
+ */
+function captureHandoff(world: World, ac: Aircraft): void {
+  if (world.scenario.role !== 'center' || ac.pendingHandoff !== null) return;
+  const nav = ac.star;
+  if (nav === null || nav.hold !== null) return;
+  const index = nav.route.waypoints.length - 2;
+  const fix = nav.route.waypoints[index];
+  if (!fix || !isPastFix(nav.route, index, { x: ac.x, y: ac.y })) return;
+  ac.pendingHandoff = handoffRow(world, ac, fix.name, true);
+}
+
+/**
  * Hand an arrival to the next sector down, and grade what it got (§8.3).
  *
  * The mirror of `tryHandoff`, read from the other end of a session: that one
@@ -514,6 +606,12 @@ function tryDelivery(world: World, ac: Aircraft): boolean {
       [ac.id],
     );
   }
+  // Crossing the last fix is what makes the handover real, which is why the row
+  // is committed here and not where it was taken. An aircraft that passed the
+  // shared fix and was then vectored back out through the outer boundary has a
+  // parked row that is never committed — the field below is owed an arrival that
+  // arrives, not one that was pointed at it.
+  world.handedOn.push(ac.pendingHandoff ?? handoffRow(world, ac, sharedFixName(route), true));
   remove(world, ac);
   return true;
 }
@@ -560,6 +658,15 @@ function checkSectorExit(world: World, ac: Aircraft): boolean {
     `${ac.callsign} entered the terminal area off the arrival — Approach is taking it unsequenced.`,
     'alert',
     [ac.id],
+  );
+  // Still handed on, and deliberately: it physically entered the airspace below,
+  // so an approach session flown from this ledger inherits it — off its route, at
+  // the heading and level it was abandoned on (§15.0f). A parked row is discarded
+  // rather than used, because this aircraft did not cross the fix it was parked
+  // at; it arrived somewhere else, unsequenced.
+  const remembered = ac.star?.route ?? ac.rejoin?.nav.route ?? null;
+  world.handedOn.push(
+    handoffRow(world, ac, remembered ? sharedFixName(remembered) : null, false),
   );
   remove(world, ac);
   return true;
@@ -801,6 +908,24 @@ function sampleHistory(world: World): void {
  * blocked gate held every arrival in the sector behind it.
  */
 function spawnArrivals(world: World): void {
+  // A scripted session flies a record rather than a rate, so the generator does
+  // not run at all beside it — which is what the disabled flow control says.
+  if (world.script !== null) {
+    for (const arrival of releaseScripted(
+      world.scenario,
+      world.script,
+      world.traffic,
+      world.timeS,
+    )) {
+      world.aircraft.push(arrival);
+      // Counted the same way a generated handover is: `arrivalRatePerHour` is a
+      // measurement of what arrived, and a scripted arrival arrived.
+      recordMovement(world.stats.arrivalTimesS, world.timeS);
+      announceArrival(world, arrival);
+    }
+    return;
+  }
+
   for (const stream of world.scenario.arrivalStreams) {
     const clock = streamStateFor(world.traffic, stream);
     if (world.timeS < clock.nextSpawnAtS) continue;
@@ -829,17 +954,22 @@ function spawnArrivals(world: World): void {
       world.timeS,
       streamFlowPerHour(world.scenario, stream, world.flowPerHour),
     );
-    const routing = arrival.star
-      ? `on the ${arrival.star.route.name} arrival`
-      : `inbound ${arrival.entryGate}`;
-    log(
-      world,
-      `${arrival.callsign} (${arrival.type.code}) with you at ${Math.round(arrival.altitudeFt)} ft, ` +
-        `${Math.round(arrival.iasKts)} knots, ${routing}.`,
-      'pilot',
-      [arrival.id],
-    );
+    announceArrival(world, arrival);
   }
+}
+
+/** The check-in call, shared by the generated and the scripted arrival paths. */
+function announceArrival(world: World, arrival: Aircraft): void {
+  const routing = arrival.star
+    ? `on the ${arrival.star.route.name} arrival`
+    : `inbound ${arrival.entryGate}`;
+  log(
+    world,
+    `${arrival.callsign} (${arrival.type.code}) with you at ${Math.round(arrival.altitudeFt)} ft, ` +
+      `${Math.round(arrival.iasKts)} knots, ${routing}.`,
+    'pilot',
+    [arrival.id],
+  );
 }
 
 /**
@@ -954,6 +1084,9 @@ export function step(world: World, dt: Sec): void {
     // the very tick it happens.
     stepKinematics(ac, dt, ac.phase !== 'gs' && !starOwnsVertical(ac));
 
+    // Before the delivery check, so an aircraft that passes the fix and reaches
+    // the boundary on the same tick is still captured at the fix.
+    captureHandoff(world, ac);
     if (tryDelivery(world, ac)) continue;
     if (checkAirspaceExit(world, ac)) continue;
     if (checkSectorExit(world, ac)) continue;

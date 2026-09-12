@@ -101,6 +101,13 @@ export interface SessionSnapshot {
   departureFlowPerHour: number;
   /** Departures holding short — a live gauge, not a tally, so it is recorded. */
   departureQueue: number;
+  /**
+   * Whether the session was flying a schedule rather than generating one
+   * (§15.0f). Displayed — the flow control reads `scripted` and is disabled —
+   * and not derivable from a rebuilt frame, which is `departureQueue`'s reason
+   * for being here too.
+   */
+  scripted: boolean;
   stats: Stats;
 }
 
@@ -397,6 +404,7 @@ function sessionChanged(last: SessionSnapshot, world: World): boolean {
     last.flowPerHour !== world.flowPerHour ||
     last.departureFlowPerHour !== world.departureFlowPerHour ||
     last.departureQueue !== world.traffic.departureQueue ||
+    last.scripted !== (world.script !== null) ||
     a.landings !== b.landings ||
     a.departures !== b.departures ||
     a.departureTimesS[a.departureTimesS.length - 1] !==
@@ -431,6 +439,7 @@ function recordSession(rec: Recording, world: World, frame: number): void {
     flowPerHour: world.flowPerHour,
     departureFlowPerHour: world.departureFlowPerHour,
     departureQueue: world.traffic.departureQueue,
+    scripted: world.script !== null,
     stats: cloneStats(world.stats),
   });
 }

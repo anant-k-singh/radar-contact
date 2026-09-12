@@ -24,6 +24,14 @@ export const VABB_AREA: ScenarioSpec = {
   name: 'Mumbai Area Control',
   icao: 'VABB',
   role: 'center',
+  /**
+   * A finished session here can be flown again as Approach (§15.0f), and it is
+   * the *sum* of the agreements that earns the offer: these five are the whole
+   * of what Mumbai accepts, so the ledger a session leaves behind is the whole
+   * of VABB's arrival flow rather than a slice needing a generator alongside it.
+   * VABB South covers two gates of five and so declares nothing.
+   */
+  deliversTo: 'VABB',
   elevationFt: 40,
   runway: VABB_RUNWAY,
   airspace: VABB_AREA_AIRSPACE,

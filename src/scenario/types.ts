@@ -37,6 +37,17 @@ export interface ScenarioSpec {
    * handed.
    */
   role?: FacilityRole;
+  /**
+   * Approach field this sector hands its arrivals to, by registry id (§15.0f).
+   *
+   * An **id** rather than a `Scenario`, so declaring it costs no import and
+   * cannot make two fields depend on each other's compilation order. Only a
+   * `center` field sets it, and only one whose agreements add up to the whole of
+   * what the receiving field accepts: a sector covering two gates of five would
+   * script a session missing half its traffic, which is why VABBS leaves it
+   * unset and VABBA does not.
+   */
+  deliversTo?: string;
   runway: RunwaySpec;
   /**
    * Other runways on the field. Drawn on the scope and nothing else — see
@@ -418,6 +429,8 @@ export interface Scenario {
   elevationFt: Ft;
   /** Which job this field is (`ScenarioSpec.role`). */
   role: FacilityRole;
+  /** Approach field this sector feeds, by id, or null (`ScenarioSpec.deliversTo`). */
+  deliversTo: string | null;
   /**
    * Airport reference point, and always the origin of the local frame.
    *

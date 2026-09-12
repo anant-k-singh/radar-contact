@@ -505,6 +505,7 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     icao: spec.icao,
     elevationFt: spec.elevationFt,
     role: spec.role ?? 'approach',
+    deliversTo: spec.deliversTo ?? null,
     arp,
     runway,
     inactiveRunways: (spec.inactiveRunways ?? []).map(

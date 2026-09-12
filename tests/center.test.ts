@@ -883,6 +883,22 @@ describe.each(SCENARIOS.filter((s) => s.role === 'center').map((s) => [s.id, s] 
       }
     });
 
+    it('names a real approach field where it claims to deliver to one', () => {
+      // Optional, and the option is the rule: a sector is offered as an approach
+      // session only where its agreements are the whole of what the field below
+      // accepts (§15.0f), so VABBS — two gates of five — declares nothing rather
+      // than scripting a session missing half its traffic.
+      if (field.deliversTo === null) return;
+      const target = SCENARIOS.find((s) => s.id === field.deliversTo);
+      expect(target, field.deliversTo!).toBeDefined();
+      expect(target!.role).toBe('approach');
+      expect(target!.icao).toBe(field.icao);
+      // And the agreements really do add up to what it accepts, which is what
+      // earns the declaration.
+      const agreed = field.delivery.reduce((sum, gate) => sum + gate.targetRatePerHour, 0);
+      expect(agreed).toBeGreaterThanOrEqual(target!.traffic.arrivalsPerHour);
+    });
+
     it('flies 90 minutes and delivers to every gate it declares', () => {
       const world = createWorld(field, 4242);
       for (let i = 0; i < (90 * 60) / PHYSICS_DT; i += 1) step(world, PHYSICS_DT);
