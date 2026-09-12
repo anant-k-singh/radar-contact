@@ -415,8 +415,8 @@ off, inside which the player sequences arrivals onto one ILS. `Scenario.role` na
 
 | | `approach` | `center` |
 | --- | --- | --- |
-| Shape | `chordedCircle` — a circle about the ARP, caps cut (§3.1) | `sector` — an annular wedge: an inner arc, an outer arc, two radials |
-| VABB | 60 NM circle | 50–160 NM, 125°–285° |
+| Shape | `chordedCircle` — a circle about the ARP, caps cut (§3.1) | `sector` — an annular wedge: an inner arc, an outer arc, two radials; or `annulus`, that wedge opened out to the whole circle |
+| VABB | 60 NM circle | 50–160 NM, 125°–285° (VABBS); 50–150 NM all round (VABBA) |
 | Takes arrivals | at a gate on the boundary, on a STAR (§3.2) | the same, at cruise, much further out |
 | Gives them up | to Tower, established on the localizer (§10) | to Approach, at a delivery gate (§3.2a) |
 | Graded on | what lands, and how it got there (§8) | what it hands on, and whether it was wanted (§8.3) |
@@ -435,6 +435,11 @@ scope has always fitted.
 two reasons: a field *is* one position at one facility — VABB approach and the sector feeding it are
 two scenarios, not one with a switch — and the layering rules leave no other channel, since nothing
 under `src/sim/` or `src/render/` may import a scenario value.
+
+**A center field may be a slice or the whole thing.** `?airport=VABBS` is the southern wedge and
+feeds two of Mumbai's five gates; `?airport=VABBA` is the ring, feeds all five, and its delivery
+agreements therefore sum to the field's entire acceptance rate rather than 47 % of it. They are two
+positions at the same facility rather than two versions of one, and both are registered.
 
 **The two overlap by ten miles, deliberately.** VABBS delivers at 50 NM; VABB spawns at 60. A
 transfer of control point inside the receiving unit's lateral boundary is ordinary, and what matters
@@ -2509,6 +2514,15 @@ where the arrivals are" — it is gone rather than recorded.
 | What happens when the drawn gate is busy | **The arrival waits for it** (2026-09-11). Redrawing among whatever is free sounds harmless and is not: the busiest stream is blocked most often precisely because it is drawn most often, so it donates its share to the quietest, and a declared 72/28 was offered as 57/43 — KETOR half again what Approach had agreed to take. The weights are a statement about where the traffic comes from and the generator may not renegotiate them. The next arrival is also scheduled from when this one was *due* rather than from when it got away, so the flow control states the rate traffic is offered at rather than an optimistic ceiling on it |
 | Where the balance lives | **`Stats.deliveryBankS`, stored rather than derived.** `deliveryTimesS` is trimmed to the few timestamps the rate reads, so folding the ledger back out of it would silently forget it. Being in `Stats` also means the recording carries it for free — `cloneStats` copies the map and `deliveries` already moves with it, so a rebuilt frame slots the stream against the ledger that was actually standing |
 
+| Question | Decision (2026-09-12, the full ring) |
+| --- | --- |
+| Why an `annulus` member rather than a `sector` spanning 000 → 360 | **Because that compiles to a wedge of no width.** Every sector branch takes its span as `normalizeHeading(toDeg - fromDeg)` and `normalizeHeading(360)` is 0, so a full turn reads as zero: nothing inside, nothing drawn, nothing clickable. The near-miss version — 000 to 359.999 — is worse than it looks rather than merely ugly, because `radialMarginNm` then returns roughly `range · sin(off)` near due north, so an aircraft within a couple of degrees of north at 150 NM reads as inside `EXIT_WARN_MARGIN_NM` and gets a boundary call it is 150 miles from earning. The member costs seven branches and every one of them is the simpler case |
+| The outer ring at 150 NM | **The radius that spends least on the fixes that exist.** The north is short and the south is long — AKTIV is 72.9 NM out where BISET is 206.4 — so every ring clips some legs in and extends others out, and the only question is which. 150 lands on DARMI (151.3), AROTA (150.3) and EPKOS (150.3), so the three furthest-out southern entries move about a mile between them; VABBS's 160 costs those three nine miles each *and* pushes all four northern gates out 50–87 NM instead of 50–77. That the two fields differ is not a disagreement: a ring and a wedge are picking the radius that suits the legs each actually flies |
+| Stating four fixes as a track and a distance | **Because the chart that carries them publishes no coordinate table**, and one step from an exact anchor is not the chaining that put five gates 9–18° out. AKTIV, EXOLU, BOFIN and OPAKA are each one published leg — a printed magnetic track and distance, VAR 0.75° W so magnetic is true within a degree — back from a fix whose WGS84 position is transcribed. A degree at 40 NM is 0.7 NM, the same order as the flat-frame residual the southern file already documents. It is recorded as a derivation rather than dressed up as a transcription, and `fields/vabbArea/fixes.ts` names the four lines to replace if the supplement's table is ever read for them |
+| Why SUGID's transition became AROTA's | **A leg outside the boundary is the next sector's, not this one's to truncate.** AROTA is 150.25 NM out — a quarter mile outside the ring — and it is a *waypoint* rather than a gate, which `validateScenario` rejects outright. Moving the ring five miles to keep one fix would have cost every other entry, and inventing a position for AROTA was never on the table. So the entry starts at AROTA and runs one straight leg to KETOR, and the cost is honest: the field loses the only entry that turned on its way in. SUGID stays in `fixes.ts` because it is still where that traffic comes from |
+| Where a delivery fix goes | **On the inner arc, as a crossing rather than an inset** (2026-09-12). VABBS stated it as ten miles down each runway transition, which agrees with its boundary at KETOR (60.0 NM out against a 50 NM arc) and not at MOLGO (63.2), so RCMG sat 3.2 NM outside the sector and its route was drawn stopping short of the boundary KETOR's reached. The note defending it said that left the stream "a little run after the fix"; it does not, because `tryDelivery` removes the aircraft at the fix, so those 3.2 miles were flown by nothing. A fixed inset only agrees with a boundary where the fixes happen to share an arc, and Mumbai's five do not. `meetsRange` is the third member of the `clipToRange`/`extendToRange` family — neither of those helps, since `clipToRange` returns its destination untouched the moment the destination is inside the range, which every runway transition's is. Both center fields now put the handoff line and the airspace edge in the same place, and the inset falls out at 10.0 to 13.2 NM |
+| Whether a full ring's agreements are derived the same way | **Yes, and the sum is the point.** The five are VABB's ~30/h cut by VABB's own gate weights, exactly as VABBS's two are — 10, 7, 6, 4, 4. What changes is that they now total 31, which is Mumbai's whole arrival capacity, because this position is the whole of what feeds the field rather than 47 % of it. That is also what makes a center session a complete VABB arrival stream, which §15.0f is about |
+
 ## 15. Still open
 
 None of these blocks play; each is a small, contained change.
@@ -2520,7 +2534,14 @@ None of these blocks play; each is a small, contained change.
    boundary, and it is the boundary that moved. What made it cheap was that **a center field is an
    ordinary `Scenario` whose routes end at a delivery fix instead of at a final-approach platform**,
    so `flyProfile`, the holds, `rejoinTarget` and the merge groups all work unchanged at 160 NM.
-   Still open: the northern sector — EMRAK's, IGBAN's and POKON's transitions.
+   **The northern sector followed on 2026-09-12, and by going round rather than up:**
+   `?airport=VABBA` is the whole ring, 50 to 150 NM at every bearing, flying all twelve transitions
+   into all five gates. Nothing about a route, a hold or a merge changed to do it — what changed is
+   the shape (§15.0c) and the fact that a sector feeding every gate is graded against the receiving
+   field's *whole* capacity, so its five agreements sum to 31 an hour against VABB's ~30. The four
+   northern transitions are the only positions on any field stated as a published track and distance
+   rather than read from a coordinate table, because the chart that carries them publishes no table;
+   `fields/vabbArea/fixes.ts` says so and says what to replace if the table is ever read.
 0a. **A runway in use that can change.** Both fields hard-wire one: RWY 18 and RWY 27. VABB's 09 is
    the other ILS end and would be a second `ScenarioSpec` (`?airport=VABB09`) long before it is worth
    an `activeRunwayId` — a *selection*, and the wind that would justify it, is a further step again.
@@ -2533,6 +2554,24 @@ None of these blocks play; each is a small, contained change.
    origins and converge, so each entry names its own gate *and its own entry crossing*. That second
    half is load-bearing — a 145 NM feed and a 97 NM feed onto one trunk cannot be handed over at the
    same level.
+0f. **Flying a finished center session again as Approach.** A session at `?airport=VABBA` produces
+   the whole of VABB's arrival flow, so the aircraft it delivered are exactly the aircraft VABB would
+   spawn — at the same five fixes, at the levels and speeds they were actually given rather than the
+   ones the chart asks for. Offering that as a second session after the replay is mostly seams that
+   already exist. A session ends at exactly one point, `startReplay()`, and the live `World` is still
+   intact there. `tryDelivery` has every field a VABB arrival needs — callsign, airline, type,
+   altitude, speed, route, gate, time — in hand immediately before `remove`, so the ledger is a push
+   onto a new `World.handoffs` and should be taken at the TMA fix rather than ten miles later at the
+   delivery. `createScriptedArrival` is a sibling of `createArrival` that is handed those instead of
+   drawing them from the rng, and `joinStar(route, levelFt)` already carries an aircraft entering
+   *above* the published profile, which is how a sloppy handover survives into the approach session
+   instead of being quietly rounded back onto the chart.
+   The hard part is none of that: it is that `SCENARIO` is a module const and changing field is a
+   page reload by design (A14), so the ledger has to cross it — the first persistence in this
+   codebase, and the rows must be JSON-safe, storing the airline and type as ids to be re-resolved
+   rather than the object references they are. Note also why the ledger belongs on `World` and not in
+   the recording: the recorder keeps a rolling 90 minutes, so a long session has already forgotten
+   its early deliveries.
 0b. **A per-approach glideslope angle.** 3° is a constant (A17). It is a published per-runway figure,
    along with the antenna offset and threshold crossing height, and would move onto `Runway` the day
    a field needs it.
@@ -2541,7 +2580,12 @@ None of these blocks play; each is a small, contained change.
    contained change it was predicted to be: one branch each in `boundaryMarginNm`,
    `isInsideAirspace`, `boundaryRangeAtBearing`, `clipToAirspace`, `drawBoundary` and `isOnScope`.
    What it cost that was *not* predicted is that the scope could no longer assume the airport is in
-   the middle of its own airspace — hence `Airspace.view`. A general polygon is now a third member.
+   the middle of its own airspace — hence `Airspace.view`. **`annulus` is the third member
+   (2026-09-12) and cost exactly what this entry predicted**: the same six branches, plus
+   `checkSectorExit`, which the wedge got for free because it was the only shape with an inner arc.
+   Every one of the seven is the *simpler* case — a ring has no radials — and the `Airspace.view`
+   lesson paid off immediately in the other direction, since a ring is centred on its own field
+   again. A general polygon is now a fourth.
 0d. **Serialised recordings.** A `Recording` carries its `Scenario`, so it is self-describing, but
    nothing is persisted. If it ever is: a recording whose field is not registered must be *refused*,
    with the reason shown. Never draw a recording against a different chart — the aircraft would be

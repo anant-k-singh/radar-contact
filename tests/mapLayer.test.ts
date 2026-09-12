@@ -424,3 +424,125 @@ describe('hovering a SID', () => {
     }
   });
 });
+
+/**
+ * A ring is the one shape whose clip region is not convex, so it is stated as a
+ * single path wound against itself rather than as an intersection — and the two
+ * canvas branches that draw it are the half of the `annulus` work no headless
+ * assertion reaches through `isInsideAirspace`.
+ *
+ * This recorder keeps every arc in a path, and their winding, which the stub above
+ * deliberately does not: that one only ever needs the last one.
+ */
+describe('the ring boundary', () => {
+  interface Arc {
+    cx: number;
+    cy: number;
+    r: number;
+    from: number;
+    to: number;
+    anticlockwise: boolean;
+  }
+
+  function pathRecorder(): {
+    ctx: CanvasRenderingContext2D;
+    clipPaths: Arc[][];
+    strokePaths: Arc[][];
+    rects: number;
+    lines: number;
+  } {
+    const clipPaths: Arc[][] = [];
+    const strokePaths: Arc[][] = [];
+    let path: Arc[] = [];
+    let rects = 0;
+    let lines = 0;
+    const api: Record<string, unknown> = {
+      beginPath: () => {
+        path = [];
+      },
+      arc: (cx: number, cy: number, r: number, from: number, to: number, anti?: boolean) =>
+        path.push({ cx, cy, r, from, to, anticlockwise: anti === true }),
+      rect: () => {
+        rects += 1;
+      },
+      lineTo: () => {
+        lines += 1;
+      },
+      clip: () => clipPaths.push([...path]),
+      stroke: () => strokePaths.push([...path]),
+      measureText: (text: string) => ({ width: text.length * 6 }),
+      canvas: { width: W, height: H },
+    };
+    const ctx = new Proxy(api, {
+      get: (t, k: string) => (k in t ? t[k] : () => {}),
+      set: (t, k: string, v: unknown) => ((t[k] = v), true),
+    }) as unknown as CanvasRenderingContext2D;
+    return {
+      ctx,
+      clipPaths,
+      strokePaths,
+      get rects() {
+        return rects;
+      },
+      get lines() {
+        return lines;
+      },
+    };
+  }
+
+  const RING = SCENARIOS.find((s) => s.id === 'VABBA')!;
+  const full = (a: Arc) => Math.abs(Math.abs(a.to - a.from) - Math.PI * 2) < 1e-9;
+
+  it('clips to one path wound against itself, so the hole is a hole', () => {
+    const rec = pathRecorder();
+    const p = createProjection(RING.airspace, W, H);
+    draw(rec.ctx, RING, p);
+    const pxPerNm = p.base.pxPerNm;
+
+    // The airspace clip is the one made of two full circles. A second `clip`
+    // narrowing it with a rect is the chorded-circle path and must not run here:
+    // intersecting a ring with a band would cut the north and south of it off.
+    const ring = rec.clipPaths.find((path) => path.length === 2 && path.every(full));
+    expect(ring, 'no two-arc clip path was issued').toBeDefined();
+    const [outer, inner] = ring!;
+    expect(outer!.r).toBeCloseTo(RING.airspace.radiusNm * pxPerNm, 6);
+    expect(inner!.r).toBeCloseTo(50 * pxPerNm, 6);
+    // Counter-wound, which is the whole mechanism: the nonzero winding rule
+    // counts the inner circle out of the region the outer one counts in. Wind
+    // them the same way and the hole silently fills.
+    expect(outer!.anticlockwise).toBe(false);
+    expect(inner!.anticlockwise).toBe(true);
+    expect(inner!.cx).toBeCloseTo(outer!.cx, 6);
+    expect(inner!.cy).toBeCloseTo(outer!.cy, 6);
+    expect(rec.rects, 'a ring must not be narrowed by a chord band').toBe(0);
+  });
+
+  it('strokes the two arcs separately, with nothing joining them', () => {
+    const rec = pathRecorder();
+    const p = createProjection(RING.airspace, W, H);
+    draw(rec.ctx, RING, p);
+    const pxPerNm = p.base.pxPerNm;
+
+    // Not the clip's single wound path: that one closes across nothing at all,
+    // and stroking it draws the join as a line through the middle of the scope.
+    const radii = rec.strokePaths
+      .filter((path) => path.length === 1 && full(path[0]!))
+      .map((path) => path[0]!.r / pxPerNm);
+    expect(radii, 'both arcs of the ring').toEqual(
+      expect.arrayContaining([expect.closeTo(50, 6), expect.closeTo(150, 6)]),
+    );
+    // And no wedge: a ring has no radials, so nothing draws one.
+    expect(rec.strokePaths.some((path) => path.length === 2 && path.every(full))).toBe(false);
+  });
+
+  it('keeps due north inside the region, where a 000-to-360 wedge has its seam', () => {
+    // The failure mode this shape exists to avoid, checked on the drawing side:
+    // `sectorAngles(0, 360)` sweeps `normalizeHeading(360)` = 0 radians, so the
+    // clip is empty and the scope paints nothing at all.
+    const rec = pathRecorder();
+    const p = createProjection(RING.airspace, W, H);
+    draw(rec.ctx, RING, p);
+    const ring = rec.clipPaths.find((path) => path.length === 2 && path.every(full))!;
+    expect(Math.abs(ring[0]!.to - ring[0]!.from)).toBeCloseTo(Math.PI * 2, 9);
+  });
+});

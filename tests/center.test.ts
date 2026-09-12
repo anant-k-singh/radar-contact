@@ -45,7 +45,7 @@ import {
   streamStateFor,
   trySpawn,
 } from '../src/sim/traffic.js';
-import { distance, headingVector, type Deg, type Nm } from '../src/sim/units.js';
+import { distance, headingVector, magnitude, type Deg, type Nm } from '../src/sim/units.js';
 import { createWorld, deliveryRatePerHour, step, type World } from '../src/sim/world.js';
 
 const CENTER: Scenario = SCENARIOS.find((s) => s.id === 'VABBS')!;
@@ -127,6 +127,87 @@ describe('the sector airspace', () => {
         view.halfHeightNm + 1,
       );
     }
+  });
+});
+
+describe('the ring airspace', () => {
+  const RING: Scenario = SCENARIOS.find((s) => s.id === 'VABBA')!;
+
+  it('is a ring: inside at every bearing, outside only through the two arcs', () => {
+    const { airspace } = RING;
+    const shape = airspace.shape;
+    if (shape.kind !== 'annulus') throw new Error('VABBA should be an annulus');
+
+    // The difference from a wedge, and the whole point of the shape: there is no
+    // bearing this sector does not own.
+    for (let bearingDeg = 0; bearingDeg < 360; bearingDeg += 15) {
+      expect(isInsideAirspace(airspace, at(bearingDeg, 100)), `${bearingDeg}`).toBe(true);
+      expect(isInsideAirspace(airspace, at(bearingDeg, shape.innerNm - 5)), `${bearingDeg}`)
+        .toBe(false);
+      expect(isInsideAirspace(airspace, at(bearingDeg, airspace.radiusNm + 5)), `${bearingDeg}`)
+        .toBe(false);
+    }
+    // Due north in particular: a `sector` spanning 000 to 360 has a seam there,
+    // because its span is `normalizeHeading(360)` and that is zero.
+    expect(isInsideAirspace(airspace, at(0, 100))).toBe(true);
+    expect(isInsideAirspace(airspace, at(359.99, 100))).toBe(true);
+    // The airport is still not in its own en-route sector.
+    expect(isInsideAirspace(airspace, RING.arp)).toBe(false);
+  });
+
+  it('measures the margin to whichever arc is nearer, at every bearing', () => {
+    const shape = RING.airspace.shape;
+    if (shape.kind !== 'annulus') throw new Error('VABBA should be an annulus');
+    for (const bearingDeg of [0, 90, 180, 270, 17, 313]) {
+      expect(boundaryMarginNm(RING.airspace, at(bearingDeg, shape.innerNm + 10)), `${bearingDeg}`)
+        .toBeCloseTo(10, 5);
+      expect(
+        boundaryMarginNm(RING.airspace, at(bearingDeg, RING.airspace.radiusNm - 10)),
+        `${bearingDeg}`,
+      ).toBeCloseTo(10, 5);
+    }
+    // A ring has no radial to be near, so nothing on the boundary reads as
+    // near-exit — the bug a 000-to-360 wedge would have introduced silently, by
+    // calling every point off due north outside.
+    expect(boundaryMarginNm(RING.airspace, at(0, 100))).toBeGreaterThan(5);
+  });
+
+  it('centres the scope on the airport, because a ring is centred on it', () => {
+    // The opposite of the wedge above, and the reason `Airspace.view` is derived
+    // from the shape rather than declared per role.
+    const { view } = RING.airspace;
+    expect(Math.hypot(view.centre.x, view.centre.y)).toBeCloseTo(0, 6);
+    for (const gate of RING.gates) {
+      expect(Math.abs(gate.position.x - view.centre.x), gate.name)
+        .toBeLessThanOrEqual(view.halfWidthNm);
+      expect(Math.abs(gate.position.y - view.centre.y), gate.name)
+        .toBeLessThanOrEqual(view.halfHeightNm);
+    }
+    // With room left over for the gate labels, which are drawn outside the ring.
+    expect(view.halfWidthNm).toBeGreaterThan(RING.airspace.radiusNm);
+  });
+
+  it('takes an aircraft that reaches the inner arc off its route, as a wedge does', () => {
+    // `checkSectorExit` is keyed on the shape, and the rule belongs to both en-route
+    // shapes: a ring that read as a chorded circle here would lose the removal and
+    // the `unsequenced` fault together, and nothing else would have noticed.
+    const world = createWorld(RING, 5);
+    silenceArrivals(world);
+    const route = RING.stars.find((s) => s.name === 'IGBAN2A/AKTIV')!;
+    const gate = RING.gates.find((g) => g.name === 'AKTIV')!;
+    const ac = createArrival(RING, createRng(3), createTrafficState(), gate, [], 0);
+    // Off its route, well inside the inner arc, tracking at the field.
+    ac.star = null;
+    ac.x = 0;
+    ac.y = 20;
+    ac.headingDeg = 180;
+    world.aircraft = [ac];
+    step(world, PHYSICS_DT);
+
+    expect(world.aircraft).toHaveLength(0);
+    expect(world.stats.exits).toBe(1);
+    expect(world.stats.deliveryFaults.get('unsequenced')).toBe(1);
+    expect(route.waypoints.at(-1)!.name).toBe('RCIG');
   });
 });
 
@@ -709,3 +790,116 @@ describe('flying the sector', () => {
     }
   });
 });
+
+/**
+ * Everything above uses VABBS as the worked example, because the rules of the job
+ * are easier to state against one field. These are the parts that are a
+ * **contract** rather than an example, so they run over every center field there
+ * is — and they are what a new sector has to satisfy to be one.
+ */
+describe.each(SCENARIOS.filter((s) => s.role === 'center').map((s) => [s.id, s] as const))(
+  'every center field: %s',
+  (_id, field) => {
+    it('validates clean, and every route ends at a gate it declares', () => {
+      expect(validateScenario(field)).toEqual([]);
+      expect(field.delivery.length).toBeGreaterThan(0);
+      const fixNames = new Set(field.delivery.map((gate) => gate.fixName));
+      for (const star of field.stars) {
+        expect(fixNames.has(star.waypoints[star.waypoints.length - 1]!.name), star.name).toBe(true);
+      }
+      // And every gate is actually fed, or it is an agreement nothing can meet.
+      for (const gate of field.delivery) {
+        expect(gate.starNames.length, gate.fixName).toBeGreaterThan(0);
+        expect(gate.targetRatePerHour, gate.fixName).toBeGreaterThan(0);
+      }
+    });
+
+    it('gives each entry a level its own run in can lose', () => {
+      for (const route of field.stars) {
+        const gradient =
+          (route.waypoints[0]!.altitudeFt! - route.waypoints.at(-1)!.altitudeFt!) / route.lengthNm;
+        expect(gradient, route.name).toBeGreaterThan(0);
+        expect(gradient, route.name).toBeLessThan(250);
+      }
+    });
+
+    it('puts every entry onto one trunk in one merge group', () => {
+      for (const chart of new Set(field.stars.map((s) => s.chart))) {
+        const names = field.stars.filter((s) => s.chart === chart).map((s) => s.name);
+        const group = field.mergeGroups.find((g) => g.starNames.includes(names[0]!));
+        if (names.length === 1) continue;
+        expect(group, chart).toBeDefined();
+        expect([...group!.starNames].sort(), chart).toEqual([...names].sort());
+      }
+      // Every gate lands in exactly one stream, so the streams account for the
+      // whole flow — which is what lets a share be stated as a ratio.
+      const claimed = field.arrivalStreams.flatMap((s) => [...s.gateNames]);
+      expect([...claimed].sort()).toEqual(field.gates.map((g) => g.name).sort());
+    });
+
+    it('leaves somewhere to hold within 50 NM of every merge fix', () => {
+      // A transition runs the whole way from the boundary to the merge, and
+      // without a fix publishing a level in between there is nothing to hold on
+      // — KABSO's leg alone is 124 NM. What has to be true is not that the fix
+      // is invented but that it is *there*: BEDOL is a published one doing the
+      // same job on AGELA's leg.
+      for (const star of field.stars) {
+        const merge = star.waypoints[star.waypoints.length - 2]!;
+        const before = star.waypoints[star.waypoints.indexOf(merge) - 1];
+        expect(before, star.name).toBeDefined();
+        expect(before!.altitudeFt, star.name).toBeGreaterThan(0);
+        expect(distance(before!.position, merge.position), star.name).toBeLessThanOrEqual(50.01);
+      }
+    });
+
+    it('puts every delivery fix on the inner boundary, not near it', () => {
+      // The handoff line *is* the airspace edge, so a delivery fix outside it is
+      // a route that stops short of the boundary every other route reaches — a
+      // visible gap on the scope, and an aircraft removed from airspace this
+      // sector still owns. It happens whenever the inset is a fixed distance and
+      // the TMA fixes are not all on one arc: Mumbai's are 60.0 to 63.2 NM out,
+      // so ten miles down each leg left MOLGO's 3.2 NM adrift at both fields.
+      const shape = field.airspace.shape;
+      if (shape.kind === 'chordedCircle') throw new Error(`${field.id} has no inner arc`);
+      for (const gate of field.delivery) {
+        expect(magnitude(gate.position), `${field.id} ${gate.fixName}`)
+          .toBeCloseTo(shape.innerNm, 6);
+      }
+    });
+
+    it('hands every gate over at the crossing the approach field below expects', () => {
+      // The two fields overlap on purpose and must not disagree about it: a
+      // number the boundary is shared on is read off the other field, never
+      // invented at this one. Matched by ICAO so a new sector cannot quietly
+      // grade itself against nobody.
+      const approach = SCENARIOS.find((s) => s.icao === field.icao && s.role === 'approach');
+      expect(approach, field.icao).toBeDefined();
+      for (const star of field.stars) {
+        const merge = star.waypoints[star.waypoints.length - 2]!;
+        const expected = approach!.gates.find((g) => g.name === merge.name);
+        expect(expected, merge.name).toBeDefined();
+        expect(merge.altitudeFt, merge.name).toBe(expected!.entryAltitudeFt);
+        expect(merge.speedKts, merge.name).toBe(expected!.entrySpeedKts);
+      }
+    });
+
+    it('flies 90 minutes and delivers to every gate it declares', () => {
+      const world = createWorld(field, 4242);
+      for (let i = 0; i < (90 * 60) / PHYSICS_DT; i += 1) step(world, PHYSICS_DT);
+
+      expect(world.stats.deliveries).toBeGreaterThan(10);
+      // A stream that never gets offered anything is the failure per-stream
+      // metering exists to prevent, and it is silent without this.
+      for (const gate of field.delivery) {
+        expect(
+          world.stats.deliveryTimesS.get(gate.fixName)?.length ?? 0,
+          `${field.id} ${gate.fixName}`,
+        ).toBeGreaterThan(0);
+      }
+      // Nothing vectors an aircraft out here but a player, so the sector must
+      // never lose one into the terminal area on its own.
+      expect(world.stats.deliveryFaults.get('unsequenced') ?? 0).toBe(0);
+      expect(world.stats.exits).toBe(0);
+    });
+  },
+);
