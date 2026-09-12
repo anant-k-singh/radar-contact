@@ -1,10 +1,12 @@
 /**
- * The shape of the controlled airspace (§3.1), in two kinds.
+ * The shape of the controlled airspace (§3.1), in three kinds.
  *
  * A `chordedCircle` is a circle centred on the airport with its caps cut off by
  * two chords — what a terminal area looks like on a screen, and what every
  * approach field is. A `sector` is an annular wedge: an inner arc, an outer arc
- * and two radials, which is what one en-route sector actually is.
+ * and two radials, which is what one en-route sector actually is. An `annulus`
+ * is that wedge opened out to the full circle, for a sector that works every
+ * direction off its field and owns nothing but the hole in the middle.
  *
  * This lives beside the airport data rather than in `src/sim/` because the shape
  * *is* part of the field. Both the exit check and the scope's boundary drawing
@@ -54,8 +56,14 @@ const at = (bearingDeg: Deg, rangeNm: Nm): Point => {
  * arc supplies an extreme depends on where the wedge sits.
  */
 function viewBoxOf(shape: AirspaceShape, radiusNm: Nm, halfHeightNm: Nm): ViewBox {
-  if (shape.kind !== 'sector') {
+  if (shape.kind === 'chordedCircle') {
     return { centre: ORIGIN, halfWidthNm: radiusNm, halfHeightNm };
+  }
+  if (shape.kind === 'annulus') {
+    // Centred on the ARP, because a full ring is — but padded like a wedge, for
+    // the same reason: the gates sit *on* the outer arc and label outwards.
+    const reachNm = radiusNm * (1 + SECTOR_LABEL_MARGIN);
+    return { centre: ORIGIN, halfWidthNm: reachNm, halfHeightNm: reachNm };
   }
   const spanDeg = normalizeHeading(shape.toDeg - shape.fromDeg);
   const ranges = [shape.innerNm, radiusNm];
@@ -132,6 +140,9 @@ function radialMarginNm(fromDeg: Deg, toDeg: Deg, point: Point): Nm {
  */
 export function boundaryMarginNm(airspace: Airspace, point: Point): Nm {
   const rangeNm = magnitude(point);
+  if (airspace.shape.kind === 'annulus') {
+    return Math.min(airspace.radiusNm - rangeNm, rangeNm - airspace.shape.innerNm);
+  }
   if (airspace.shape.kind === 'sector') {
     const { innerNm, fromDeg, toDeg } = airspace.shape;
     return Math.min(
@@ -154,13 +165,14 @@ export function isInsideAirspace(airspace: Airspace, point: Point): boolean {
  * the top of the screen — and what puts an entry gate on the boundary rather
  * than 6 NM outside it.
  *
- * A sector's outer edge is a plain arc, so its answer is the radius everywhere,
- * including on bearings the wedge does not cover: the compass rose is drawn all
- * the way round whatever the shape, and a gate is only ever placed on a bearing
- * the sector actually owns.
+ * A sector's outer edge is a plain arc and an annulus is nothing but arc, so for
+ * both the answer is the radius everywhere — including, for the wedge, on
+ * bearings it does not cover: the compass rose is drawn all the way round
+ * whatever the shape, and a gate is only ever placed on a bearing the sector
+ * actually owns.
  */
 export function boundaryRangeAtBearing(airspace: Airspace, bearingDeg: Deg): Nm {
-  if (airspace.shape.kind === 'sector') return airspace.radiusNm;
+  if (airspace.shape.kind !== 'chordedCircle') return airspace.radiusNm;
   const northward = Math.abs(headingVector(bearingDeg).y);
   if (northward <= 0) return airspace.radiusNm;
   return Math.min(airspace.radiusNm, airspace.halfHeightNm / northward);

@@ -149,7 +149,8 @@ export function draw(ctx: CanvasRenderingContext2D, scenario: Scenario, p: Proje
 }
 
 /**
- * Clip to the airspace: a circle intersected with a horizontal band (§3.1).
+ * Clip to the airspace: a circle intersected with a horizontal band (§3.1), or
+ * the one region a wedge or a ring already is.
  *
  * Clipped by the canvas rather than by walking the geometry, which is what gets
  * the edge right at the chords as well as the arcs without turning every segment
@@ -168,6 +169,17 @@ export function clipToAirspace(
   const origin = baseOrigin(p);
   const radiusPx = scenario.airspace.radiusNm * p.base.pxPerNm;
   const shape = scenario.airspace.shape;
+  if (shape.kind === 'annulus') {
+    // One path again, and the hole is punched by winding rather than by a second
+    // clip: the inner circle is swept the other way, so the nonzero rule counts
+    // it out of the region the outer one counts in.
+    const innerPx = shape.innerNm * p.base.pxPerNm;
+    ctx.beginPath();
+    ctx.arc(origin.x, origin.y, radiusPx, 0, Math.PI * 2);
+    ctx.arc(origin.x, origin.y, innerPx, Math.PI * 2, 0, true);
+    ctx.clip();
+    return;
+  }
   if (shape.kind === 'sector') {
     // One path, not two: a wedge is a single region — out along one radial,
     // round the outer arc, back down the other and home along the inner one —
@@ -555,7 +567,8 @@ function atBaseFrame(p: Projection): Projection {
 }
 
 /**
- * The airspace edge: a circle with its caps cut off (§3.1), or a sector's wedge.
+ * The airspace edge: a circle with its caps cut off (§3.1), a sector's wedge, or
+ * a ring's two arcs.
  */
 function drawBoundary(ctx: CanvasRenderingContext2D, scenario: Scenario, zoomed: Projection): void {
   // The boundary is the scope's own shape rather than content inside it, so the
@@ -569,6 +582,16 @@ function drawBoundary(ctx: CanvasRenderingContext2D, scenario: Scenario, zoomed:
   ctx.lineWidth = 1.5;
 
   const shape = scenario.airspace.shape;
+  if (shape.kind === 'annulus') {
+    // Two independent circles, stroked. Not the clip's single wound path: that
+    // one closes across nothing at all, and stroking it draws the join.
+    for (const rangeNm of [shape.innerNm, scenario.airspace.radiusNm]) {
+      ctx.beginPath();
+      ctx.arc(origin.x, origin.y, rangeNm * p.pxPerNm, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    return;
+  }
   if (shape.kind === 'sector') {
     const innerPx = shape.innerNm * p.pxPerNm;
     const { from, to } = sectorAngles(shape.fromDeg, shape.toDeg);

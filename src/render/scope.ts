@@ -43,6 +43,10 @@ function isOnScope(airspace: Airspace, p: Projection, sx: number, sy: number): b
   const radiusPx = airspace.radiusNm * p.base.pxPerNm;
   if (dx * dx + dy * dy > radiusPx * radiusPx) return false;
   const shape = airspace.shape;
+  if (shape.kind === 'annulus') {
+    const innerPx = shape.innerNm * p.base.pxPerNm;
+    return dx * dx + dy * dy >= innerPx * innerPx;
+  }
   if (shape.kind === 'sector') {
     const innerPx = shape.innerNm * p.base.pxPerNm;
     if (dx * dx + dy * dy < innerPx * innerPx) return false;

@@ -546,7 +546,9 @@ function deliveryFaultText(fault: DeliveryFault, verdict: Delivery): string {
  */
 function checkSectorExit(world: World, ac: Aircraft): boolean {
   const shape = world.scenario.airspace.shape;
-  if (shape.kind !== 'sector') return false;
+  // Both en-route shapes have a hole, and the hole is the rule — a ring that
+  // read as a chorded circle here would lose the fault as well as the removal.
+  if (shape.kind === 'chordedCircle') return false;
   if (distance({ x: ac.x, y: ac.y }, world.scenario.arp) >= shape.innerNm) return false;
   world.stats.exits += 1;
   world.stats.deliveryFaults.set(

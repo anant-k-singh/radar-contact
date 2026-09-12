@@ -194,6 +194,14 @@ export interface DeliveryGateSpec {
  */
 export type AirspaceShape =
   | { kind: 'chordedCircle' }
+  /**
+   * A full ring: an inner arc and an outer one, all the way round. What an area
+   * sector working every direction off one field is, and the shape a `sector`
+   * cannot express — every sector branch takes its span as
+   * `normalizeHeading(toDeg - fromDeg)`, and `normalizeHeading(360)` is 0, so
+   * 000 → 360 compiles to a wedge of no width at all.
+   */
+  | { kind: 'annulus'; innerNm: Nm }
   | {
       kind: 'sector';
       /** Inner arc: where the next sector down begins. */
