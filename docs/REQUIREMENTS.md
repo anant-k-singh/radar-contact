@@ -2323,7 +2323,7 @@ where the arrivals are" — it is gone rather than recorded.
 | A11 | One STAR per gate **at handover**, and no route change the player did not ask for. `R` may join any published STAR (§4.5a) — the half of this assumption that said "only its own" is gone; leaving a hold still resumes the route it never left (§4.6) |
 | A12 | Departures always fly their SID exactly and are never re-routed, delayed airborne or given a level change by Departure Control. What the player sees is the published route, every time (§4.7) |
 | A13 | A departure's climb rate depends only on type and on whether the flaps are up. No weight, temperature, thrust derate or runway-length effect (§4.7) |
-| A14 | **One active field per session.** Chosen by `?airport=` at load; changing it — the sidebar dropdown included — is a reload. The map cache, the recording and every in-flight route object are bound to the scenario, and nothing needs two at once |
+| A14 | **One active field per session** — a `World`'s, not a page's. Chosen by `?airport=` at load, and the sidebar dropdown changes it by reloading, because choosing a field is choosing to start over. The map cache, the recording and every in-flight route object are bound to the scenario, so a switch has to tear all three down; where something already does — `newSession` rebuilds the world and the recording together, and the map cache is keyed by `scenario.id` — the field may move with them, which is how an approach session starts from a center one without a reload (§15.0f). Still never two at once |
 | A15 | The reference point is the origin of the local frame, always. Not settable |
 | A16 | The airspace chords are horizontal in the local frame — they cut the north and south caps whatever way the runway points, because they exist to reclaim canvas height |
 | A17 | A 3° glideslope everywhere. It is a published per-approach figure in life, but no field the simulator flies differs, so it stays a constant rather than a runway field |
@@ -2417,7 +2417,7 @@ where the arrivals are" — it is gone rather than recorded.
 | Where the entry crossing lives | **On the STAR.** `ENTRY_ALTITUDE_NEAR_FT` existed only because two of ZZZZ's four gates happen to sit north of its runway — a per-route fact wearing a global constant. A route with a short run to the localizer is what knows it must be given the height off lower; the gate takes the values from it, so nothing reading them needs a special case for a gate delivered on vectors (§3.2) |
 | How routes are authored | **In the runway frame, declared per fix.** `final(15.2, 2)` and `depart(3.2, 8)` are the same numbers `finalGeometry` reports back and the same ones the prose already used. Route *templates* were rejected: `northStar`/`southStar` were parameterised over a shape rather than a runway, so a course-agnostic version would still need a new builder for the next field — and they forced two routes to be exact mirrors, which made an asymmetric ZZZZ inexpressible |
 | Which way a SID turns | **Derived from the resulting track.** It was a hand-written label with a hand-inverted sign, correct only for a southbound runway; a runway-36 field would have mislabelled every departure |
-| Whether to support two fields at once | **No.** One active field per session, chosen by `?airport=`; changing it is a reload (A14). The map cache, the recording and every in-flight route are bound to the scenario, and a switch would have to tear all three down — which is a reload, done worse |
+| Whether to support two fields at once | **No.** One active field per session, chosen by `?airport=` (A14). The map cache, the recording and every in-flight route are bound to the scenario, and a switch has to tear all three down — which the dropdown does by reloading. The one place it is done in memory instead is where all three were being replaced anyway (§15.0f), and it is still one field at a time: the previous session is over, not running alongside |
 | How a field is known to be flyable | **`validateScenario` plus a flown conformance suite over every registered field.** And a second, deliberately awkward field in the fixtures: without one, the suite is a `describe.each` over a single element and every runway-relative helper could be wrong in a way that happens to work for a 180° course (§3.0) |
 | Whether the layering rules are documented or tested | **Tested.** `tests/architecture.test.ts`. Every rule it asserts was violated before v2, and every violation was invisible — nothing failed, the code just quietly knew which airport it was flying |
 
@@ -2523,6 +2523,14 @@ where the arrivals are" — it is gone rather than recorded.
 | Where a delivery fix goes | **On the inner arc, as a crossing rather than an inset** (2026-09-12). VABBS stated it as ten miles down each runway transition, which agrees with its boundary at KETOR (60.0 NM out against a 50 NM arc) and not at MOLGO (63.2), so RCMG sat 3.2 NM outside the sector and its route was drawn stopping short of the boundary KETOR's reached. The note defending it said that left the stream "a little run after the fix"; it does not, because `tryDelivery` removes the aircraft at the fix, so those 3.2 miles were flown by nothing. A fixed inset only agrees with a boundary where the fixes happen to share an arc, and Mumbai's five do not. `meetsRange` is the third member of the `clipToRange`/`extendToRange` family — neither of those helps, since `clipToRange` returns its destination untouched the moment the destination is inside the range, which every runway transition's is. Both center fields now put the handoff line and the airspace edge in the same place, and the inset falls out at 10.0 to 13.2 NM |
 | Whether a full ring's agreements are derived the same way | **Yes, and the sum is the point.** The five are VABB's ~30/h cut by VABB's own gate weights, exactly as VABBS's two are — 10, 7, 6, 4, 4. What changes is that they now total 31, which is Mumbai's whole arrival capacity, because this position is the whole of what feeds the field rather than 47 % of it. That is also what makes a center session a complete VABB arrival stream, which §15.0f is about |
 
+| Question | Decision (2026-09-12, flying the ledger as Approach) |
+| --- | --- |
+| Where the handover is measured, and where it is committed | **Measured at the fix both fields name, committed when the last fix is crossed.** They are different events and conflating either way is wrong. Measuring at the delivery fix ten miles further in would hide the error the grading is about — an aircraft that reaches MOLGO a thousand feet high and is levelled off by RCMG reads as clean — while committing at the shared fix would hand the field below arrivals that never arrived: an aircraft can pass MOLGO and be vectored back out through 150 NM. So the row is parked on the aircraft at the fix and pushed at the delivery, and `Aircraft.pendingHandoff` is both halves plus the one-shot guard. A hold is excluded outright: the pattern can carry an aircraft across the line, but nobody has been handed anything |
+| Why `isPastFix` and not the route index | **Because sequencing is early by design and the profile is still descending.** `stepStar` moves to the next fix up to 6 NM out so the turn flies as a fly-by; into the shared fix the gradient is ~160 ft/NM, so the index fires where the aircraft is still 80–900 ft above the crossing. Measured at 79.8 ft on a gentle turn, and every clean delivery would then take the "arrived high" branch at the field below and fly a raised run-in nobody was ever given. `isPastFix` exists for exactly this — "a crossing restriction is made good at the fix, so it is released at the fix" — and it was only ever SID-shaped by where it was first needed, so it now takes its route structurally |
+| Whether a scripted release is vetoed or metered | **Neither, and that is the feature.** `trySpawn` has a conflict veto and a gate cooldown because a generated sector must never hand the player a problem it invented. A schedule is not invented — it is a record of what the player did one position earlier — so two handovers twenty seconds apart appear twenty seconds apart, two miles in trail at the same level. Smoothing them would delete the only consequence poor sequencing has ever had, and the whole point of the second session is that the cost is paid downstream by the person who caused it |
+| What an unsequenced arrival inherits | **No route, and a parked one.** An aircraft abandoned across the inner boundary is still handed on, because it physically entered the airspace below and the sector was already charged an `unsequenced` fault for it. It arrives with `star: null` at the position and heading it was left on — but with a `RejoinNav` parked, because `leaveStar` parks one for every other off-route aircraft in the sim and a scripted one arriving with nothing would be the first that `R` could only ever refuse |
+| Why the flow control is disabled rather than hidden | **Because it is off for a reason worth reading.** The replay controls are hidden on the argument that nothing there acts on a recording, so they go rather than sit refusing to work. This is the other case: the control still belongs to the position, and a session where it has simply vanished looks broken. It reads `scripted` and is dimmed, and `SessionSnapshot` carries the flag for `departureQueue`'s reason — displayed, not derivable from a rebuilt frame |
+
 ## 15. Still open
 
 None of these blocks play; each is a small, contained change.
@@ -2554,24 +2562,36 @@ None of these blocks play; each is a small, contained change.
    origins and converge, so each entry names its own gate *and its own entry crossing*. That second
    half is load-bearing — a 145 NM feed and a 97 NM feed onto one trunk cannot be handed over at the
    same level.
-0f. **Flying a finished center session again as Approach.** A session at `?airport=VABBA` produces
-   the whole of VABB's arrival flow, so the aircraft it delivered are exactly the aircraft VABB would
-   spawn — at the same five fixes, at the levels and speeds they were actually given rather than the
-   ones the chart asks for. Offering that as a second session after the replay is mostly seams that
-   already exist. A session ends at exactly one point, `startReplay()`, and the live `World` is still
-   intact there. `tryDelivery` has every field a VABB arrival needs — callsign, airline, type,
-   altitude, speed, route, gate, time — in hand immediately before `remove`, so the ledger is a push
-   onto a new `World.handoffs` and should be taken at the TMA fix rather than ten miles later at the
-   delivery. `createScriptedArrival` is a sibling of `createArrival` that is handed those instead of
-   drawing them from the rng, and `joinStar(route, levelFt)` already carries an aircraft entering
-   *above* the published profile, which is how a sloppy handover survives into the approach session
-   instead of being quietly rounded back onto the chart.
-   The hard part is none of that: it is that `SCENARIO` is a module const and changing field is a
-   page reload by design (A14), so the ledger has to cross it — the first persistence in this
-   codebase, and the rows must be JSON-safe, storing the airline and type as ids to be re-resolved
-   rather than the object references they are. Note also why the ledger belongs on `World` and not in
-   the recording: the recorder keeps a rolling 90 minutes, so a long session has already forgotten
-   its early deliveries.
+0f. **~~Flying a finished center session again as Approach.~~** Resolved 2026-09-12. A session at
+   `?airport=VABBA` produces the whole of VABB's arrival flow, so the aircraft it handed on are
+   exactly the aircraft VABB would spawn — at the same five fixes, at the levels and speeds they were
+   actually given rather than the ones the chart asks for. The replay bar offers it in **both** modes:
+   `startReplay()` leaves the live `World` and its ledger untouched, so watching the session back
+   does not forfeit the offer to fly it again. `Scenario.deliversTo` is the whole declaration, an id
+   and not a `Scenario`, and only VABBA sets it — a sector covering two gates of five would script a
+   session missing half its traffic, so VABBS leaves it unset and that *is* the rule.
+   Two of the seams this entry predicted turned out not to be there.
+   **There is no persistence and no reload.** `newSession` already rebuilt the world and the
+   recording together, and the map cache is keyed by `scenario.id`, so all three things A14 binds to
+   a field were being torn down anyway; moving the field with them is a few lines, the ledger never
+   leaves memory, and the airline and type stay the object references they are.
+   **And the capture cannot be triggered off the route index.** `stepStar` sequences up to 6 NM early
+   so the turn flies as a fly-by, and the profile is still descending at ~160 ft/NM into the shared
+   fix — measured, an index-triggered capture recorded 15,080 ft for an aircraft making its 15,000
+   crossing exactly, so *every* clean delivery would have arrived at VABB above VABB's own chart, and
+   an aircraft still in the hold at MOLGO could be captured on the pattern's outbound leg.
+   `isPastFix` is the predicate that exists for this distinction and it is what is used.
+   The capture is in two stages, which is what makes the three rules fall out together: the state is
+   taken at the shared fix and *parked on the aircraft*, and committed only when the last fix is
+   crossed. So a hold is never handed on, and neither is an aircraft that passed the fix and was then
+   vectored back out through the outer boundary. One that crosses the *inner* boundary off its route
+   is handed on deliberately — it physically entered the airspace below — without a route, at the
+   heading and level it was abandoned on, with a `RejoinNav` parked so `R` still has something to
+   offer. `createScriptedArrival` is the sibling of `createArrival` that is handed all this instead of
+   drawing it from the rng, and it applies no conflict veto and no gate cooldown.
+   The ledger is on `World` and not in the recording, for the reason this entry always gave: the
+   recorder keeps a rolling 90 minutes, and a long session has already forgotten its early
+   deliveries — which are the ones an approach session opens on.
 0b. **A per-approach glideslope angle.** 3° is a constant (A17). It is a published per-runway figure,
    along with the antenna offset and threshold crossing height, and would move onto `Runway` the day
    a field needs it.
@@ -2741,6 +2761,13 @@ Selection is held by the *transport*, not written onto the world: a replay frame
 redraw and anything written onto it is thrown away. It is also kept as an intent rather than a
 fact — an aircraft exists for only part of the recording, so scrubbing outside its life leaves the
 sidebar and the path quiet and brings them back rather than deselecting for good.
+
+A center session with a ledger and a `deliversTo` is offered a second way out beside the replay:
+**work the field below**, flying what it handed on (§15.0f). The offer is shown in *both* modes and
+not only the live one, because stopping a session to watch it does not touch the live `World` — so
+the two exits do not forfeit each other, and the natural order, watch it back and then fly it again,
+is available. It is withheld where there is nothing to offer: a field that hands to nobody, an empty
+ledger, and a session that is itself flying a schedule.
 
 ### 17.3 What the replay deliberately does not show
 

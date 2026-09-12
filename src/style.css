@@ -264,9 +264,19 @@ button {
   cursor: pointer;
 }
 
-button:hover {
+button:hover:not(:disabled) {
   border-color: var(--green);
   color: var(--green);
+}
+
+/*
+ * A control that is off for a reason, rather than one that has gone. Dimmed and
+ * inert — without the `:not()` above it would still light up under the pointer
+ * and read as pressable.
+ */
+button:disabled {
+  color: var(--dim);
+  cursor: default;
 }
 
 .flow {
@@ -286,7 +296,9 @@ button:hover {
   right: 14px;
   bottom: 14px;
   z-index: 2;
-  padding: 8px 10px;
+  /* Tight, because it sits *on* the scope rather than beside it: every pixel of
+     box is a pixel of airspace, and the offer is read once a session. */
+  padding: 5px 6px;
   border: 1px solid var(--panel-line);
   border-radius: 4px;
   /* Translucent, so the boundary and any traffic underneath still read. */
@@ -301,13 +313,25 @@ button:hover {
 
 .replay-start {
   width: 100%;
-  padding: 6px 10px;
+  padding: 4px 8px;
   color: var(--green);
   border-color: #1e4a33;
 }
 
+/*
+ * The second offer, and deliberately the quieter of the two: amber rather than
+ * green, because watching a replay is the ordinary way out of a session and this
+ * is the one that starts another one. Stacked under it rather than beside it —
+ * both labels are long, and a row would wrap.
+ */
+.replay-approach {
+  margin-top: 4px;
+  color: var(--amber);
+  border-color: #4a3a1e;
+}
+
 .replay-note {
-  margin-top: 5px;
+  margin-top: 3px;
   color: var(--dim);
   font-size: 10px;
   text-align: center;

@@ -126,9 +126,9 @@ const template = (scenarios: readonly Scenario[]): string => `
     )}
   </div>
   <div class="buttons live-only">
-    <button data-action="flow-down">Arr −</button>
+    <button data-action="flow-down" data-field="flowdown">Arr −</button>
     <span class="flow" data-field="flow"></span>
-    <button data-action="flow-up">Arr +</button>
+    <button data-action="flow-up" data-field="flowup">Arr +</button>
   </div>
   <div class="buttons live-only">
     <button data-action="dep-flow-down">Dep −</button>
@@ -269,7 +269,16 @@ export function createSidebar(
         if (brand.firstChild?.textContent !== title) brand.firstChild!.textContent = title;
       }
       set('clock', clockText(world.timeS));
-      set('flow', `${world.flowPerHour}/h`);
+      // A scripted session flies a record of what was handed to it, so there is
+      // no rate to ask for (§15.0f). Disabled and still shown, rather than hidden
+      // the way the replay controls are: the control is absent for a reason, and
+      // the reason is worth reading.
+      const scripted = world.script !== null;
+      set('flow', scripted ? 'scripted' : `${world.flowPerHour}/h`);
+      for (const name of ['flowdown', 'flowup']) {
+        const button = fields.get(name) as HTMLButtonElement | undefined;
+        if (button && button.disabled !== scripted) button.disabled = scripted;
+      }
       set('depflow', world.departureFlowPerHour === 0 ? 'off' : `${world.departureFlowPerHour}/h`);
 
       const ac = selectedAircraft(world);
