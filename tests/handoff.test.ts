@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { SCENARIOS } from '../src/scenario/registry.js';
 import type { Scenario } from '../src/scenario/types.js';
-import { PHYSICS_DT } from '../src/sim/constants.js';
+import { DELIVERY_TRAIL_FLOOR_S, PHYSICS_DT, SEP_HORIZ_NM } from '../src/sim/constants.js';
 import { toggleHold } from '../src/sim/commands.js';
 import { createRng } from '../src/sim/rng.js';
 import {
@@ -60,6 +60,55 @@ describe('taking the ledger', () => {
     expect(world.stats.deliveries).toBeGreaterThan(10);
     expect(world.handedOn.length).toBe(world.stats.deliveries);
     expect(world.handedOn.every((row) => row.onRoute)).toBe(true);
+  });
+
+  it('hands the field below a stream it can separate', () => {
+    // What the sector model rests on: the agreement is a rate over a window and
+    // says nothing whatever about *where* a delivery went, so a busy gate may
+    // take consecutive arrivals. That makes the in-trail floor load-bearing
+    // rather than a backstop — two aircraft handed to one fix arrive at the same
+    // published level down the same route, and `createScriptedArrival` applies no
+    // conflict veto by design, so the floor is the whole of what stands between a
+    // lopsided delivery and a replayed session that spawns a pair on top of each
+    // other.
+    //
+    // Left alone the autopilot breaks it, the way it breaks the interval — the
+    // player is what this position is for. What has to be true is that the two
+    // agree: every same-fix pair inside the floor is a delivery the sector was
+    // faulted for, or the ledger is handing on spacing the grader never saw.
+    const world = flownSession(4242, 90);
+    const atGate = new Map<string, number>();
+    let inTrail = 0;
+    for (const row of world.handedOn) {
+      if (row.gateName === null) continue;
+      const previousS = atGate.get(row.gateName);
+      if (previousS !== undefined && row.atS - previousS < DELIVERY_TRAIL_FLOOR_S) inTrail += 1;
+      atGate.set(row.gateName, row.atS);
+    }
+    expect(inTrail).toBeLessThanOrEqual(world.stats.deliveryFaults.get('early') ?? 0);
+  });
+
+  it('hands simultaneous arrivals to fixes the field below keeps apart', () => {
+    // The other half of the same argument, and the reason two gates delivering
+    // in one second is clean: rows that land together are at different fixes, and
+    // those are tens of miles apart around a 60 NM arc at different published
+    // levels. So a burst is a merge problem twenty miles later — Approach's own
+    // job — and never a conflict at the spawn.
+    // Close enough together that the field below releases them as one burst.
+    const TOGETHER_S = 60;
+    const world = flownSession(4242, 90);
+    const rows = [...world.handedOn].sort((a, b) => a.atS - b.atS);
+    for (const [i, row] of rows.entries()) {
+      const next = rows[i + 1];
+      if (!next || next.atS - row.atS > TOGETHER_S) continue;
+      if (row.gateName === null || next.gateName === null) continue;
+      if (row.gateName === next.gateName) continue;
+      const a = VABB.gates.find((g) => g.name === row.gateName)!;
+      const b = VABB.gates.find((g) => g.name === next.gateName)!;
+      expect(distance(a.position, b.position), `${row.gateName}/${next.gateName}`).toBeGreaterThan(
+        SEP_HORIZ_NM,
+      );
+    }
   });
 
   it('names a gate the receiving field has, at the level that field expects', () => {

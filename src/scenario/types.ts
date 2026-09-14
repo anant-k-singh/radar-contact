@@ -176,11 +176,12 @@ export type FacilityRole = 'approach' | 'center';
  * A fix a center field delivers a stream to, and the rate the next sector wants
  * it at (§3.2a).
  *
- * The rate is the whole objective. It is miles-in-trail expressed as the thing
- * the receiving controller actually cares about — 10 an hour is a six-minute
- * interval — and it is stated per fix because a sector feeding two gates has to
- * satisfy both independently: filling one and starving the other is not a
- * sector that delivered 24 an hour.
+ * The rate is stated per fix because that is how the receiving field's capacity
+ * splits — its arrival rate cut by its own gate weights — and because it is the
+ * share the sector's traffic is then offered in (`arrivalStreams`) and the row
+ * the scoreboard reads. What it is *not* is the interval the sector is graded
+ * against: that is `Scenario.agreedRatePerHour`, the sum of them, for the reason
+ * `src/sim/delivery.ts` gives at length.
  */
 export interface DeliveryGateSpec {
   /** The fix this stream is delivered to: the last waypoint of its routes. */
@@ -452,6 +453,16 @@ export interface Scenario {
   gates: readonly EntryGate[];
   /** Empty at an approach field. */
   delivery: readonly DeliveryGate[];
+  /**
+   * What the sector may hand on in total: the sum of its gates' agreements,
+   * derived by `compileScenario` and never authored. Zero at an approach field.
+   *
+   * This is the interval the sector is actually graded against, because the field
+   * below accepts a runway rate rather than five independent ones (§3.2a). Its
+   * achieved counterpart is `deliveryRatePerHour(world, fixName)` in `world.ts`,
+   * which is per gate and measured rather than agreed.
+   */
+  agreedRatePerHour: number;
   stars: readonly Star[];
   /**
    * Sets of STARs that become one stream before the end, keyed by the fix they

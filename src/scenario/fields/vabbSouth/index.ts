@@ -33,18 +33,24 @@ export const VABB_SOUTH: ScenarioSpec = {
   airlines: VABB_AIRLINES,
   traffic: {
     /**
-     * Fifteen an hour, split 72/28 by the gate weights — about 10.7 into MOLGO
-     * against an agreement of 10, and 4.1 into KETOR against 4.
+     * Fourteen an hour, split 72/28 by the gate weights — about 10 into MOLGO
+     * and 4 into KETOR, which is what each gate has agreed to take.
      *
-     * A few percent over what Approach will take, and deliberately no more. The
-     * work is not a surplus to absorb: it is that arrivals are a Poisson process,
-     * so a stream offered its agreed rate still delivers 40 % of its gaps short
-     * of the interval. Feeding it well above the agreement instead would put the
-     * sector permanently and irrecoverably behind, which is a fail state rather
-     * than an exercise — the player can ask for that with the flow control, and
-     * it is their choice to make.
+     * Set against the strict window's ceiling rather than against the agreement:
+     * two gates at 14 an hour cap the sector at 3 deliveries in any twelve
+     * minutes, which is 15, so a flow of 15 would have been offered at exactly
+     * what could be passed. At parity the mean is met and nothing more — a clump
+     * can never be paid back, and the backlog walks away with nothing pulling it
+     * home. Ninety flown minutes do not show it, but it is a fail state rather
+     * than an exercise, and it was 15 only because the rule it was set against
+     * was a gap.
+     *
+     * The work is not a surplus to absorb either way: arrivals are a Poisson
+     * process, so a sector offered its agreed rate still presents a large share
+     * of its gaps short. The player can ask for more with the flow control, and
+     * that is their choice to make.
      */
-    arrivalsPerHour: 15,
+    arrivalsPerHour: 14,
     departuresPerHour: 0,
     /**
      * Two minutes, against agreements of six and fifteen. A merge group shares

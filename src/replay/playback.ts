@@ -36,6 +36,7 @@ import { deliveryPlan } from '../sim/delivery.js';
 import { analyzeSeparation } from '../sim/separation.js';
 import { activeFix, type RejoinNav, type StarNav } from '../sim/star.js';
 import { clamp, type Point, type Sec } from '../sim/units.js';
+import { deliveryStateOf } from '../sim/world.js';
 import type { Message, Stats, World } from '../sim/world.js';
 import {
   decodeFlags,
@@ -64,7 +65,7 @@ const EMPTY_STATS: Stats = {
   exits: 0,
   deliveries: 0,
   deliveryTimesS: new Map(),
-  deliveryBankS: new Map(),
+  sectorDeliveryTimesS: [],
   deliveryFaults: new Map(),
   rejections: new Map(),
   missedIntercepts: new Map(),
@@ -360,18 +361,13 @@ export function worldAtFrame(
     },
     separation: analyzeSeparation(rec.scenario.runway, aircraft, rec.scenario.terrain),
     // Recomputed, never recorded — the same rule the separation report follows.
-    // The gate times come from the recorded `stats`, so a rebuilt frame slots the
-    // stream against the deliveries that had actually been made by then.
+    // The sector's series and the gate times both come from the recorded `stats`,
+    // so a rebuilt frame slots the stream against the deliveries that had
+    // actually been made by then.
     deliverySlots: deliveryPlan(
       rec.scenario.delivery,
       aircraft,
-      new Map(
-        [...stats.deliveryTimesS].flatMap(([gate, times]) => {
-          const at = times[times.length - 1];
-          return at === undefined ? [] : [[gate, at] as const];
-        }),
-      ),
-      stats.deliveryBankS,
+      deliveryStateOf(rec.scenario, stats),
       timeS,
     ),
     selectedId: aircraft.some((ac) => ac.id === view.selectedId) ? view.selectedId : null,

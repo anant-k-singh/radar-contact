@@ -364,10 +364,13 @@ function cloneStats(stats: Stats): Stats {
     rejections: new Map(stats.rejections),
     missedIntercepts: new Map(stats.missedIntercepts),
     deliveryFaults: new Map(stats.deliveryFaults),
-    deliveryBankS: new Map(stats.deliveryBankS),
     // A map of arrays, so both levels have to be copied: `tryDelivery` pushes
     // onto the array in place, and a shallow copy of the map would leave every
     // snapshot sharing — and so silently updating — the live one.
+    // The sector's own series is copied for the same reason and by the same
+    // rule; `sessionChanged` needs nothing for either, since `deliveries` moves
+    // on the tick they do.
+    sectorDeliveryTimesS: [...stats.sectorDeliveryTimesS],
     deliveryTimesS: new Map(
       [...stats.deliveryTimesS].map(([gate, times]) => [gate, [...times]]),
     ),

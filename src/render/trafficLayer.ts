@@ -12,7 +12,7 @@ import { assignedAltitudeFt, assignedHeadingDeg, isPending } from '../sim/pilot.
 import { activeFix } from '../sim/star.js';
 import { displayHeading, headingDiff, headingVector } from '../sim/units.js';
 import type { World } from '../sim/world.js';
-import { lastDeliveryTimes } from '../sim/world.js';
+import { deliveryStateOf } from '../sim/world.js';
 import { clipped, unclipped } from './clip.js';
 import { clipToAirspace, haloText } from './mapLayer.js';
 import { screenX, screenY, type Projection } from './project.js';
@@ -336,7 +336,7 @@ function drawConnector(
 
 /** Returns where each data block ended up, so clicks can hit the label as well as the blip. */
 /**
- * A countdown beside each delivery gate: how long before that stream will take
+ * A countdown beside each delivery gate: how long before the sector will hand on
  * another arrival without breaking its agreement (§8.3).
  *
  * Here rather than on the chart layer because it changes every frame and that
@@ -347,18 +347,24 @@ function drawConnector(
  * which of two to send first is one glance instead of two subtractions.
  *
  * Amber while the gate is still closed and green the moment it opens, because
- * the useful reading is binary before it is quantitative — `0:00` means send the
- * next one now.
+ * the useful reading is binary before it is quantitative — and `0:00` is exactly
+ * the fault line rather than a tolerance short of it, so it can be read as an
+ * instruction: the next one is clean wherever it goes.
+ *
+ * The gates read the same number while one of the sector's windows is binding,
+ * one of them reads longer where it has just taken a delivery and is inside its
+ * own in-trail floor, and they all read `0:00` together while the sector has
+ * headroom — which is the burst the agreement is written to permit.
  */
 function drawDeliveryClocks(ctx: CanvasRenderingContext2D, world: World, p: Projection): void {
   if (world.scenario.delivery.length === 0) return;
-  const last = lastDeliveryTimes(world);
+  const state = deliveryStateOf(world.scenario, world.stats);
   ctx.font = THEME.fontBlock;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
   for (const gate of world.scenario.delivery) {
-    const readyInS = gateReadyInS(gate, last, world.stats.deliveryBankS, world.timeS);
-    // No delivery yet: the stream is empty and will take anyone, so a countdown
+    const readyInS = gateReadyInS(gate.fixName, state, world.timeS);
+    // Nothing delivered anywhere yet: the sector will take anyone, so a countdown
     // would be counting down from nothing.
     if (readyInS === null) continue;
     ctx.fillStyle = readyInS > 0 ? THEME.logAlert : THEME.gateLabel;

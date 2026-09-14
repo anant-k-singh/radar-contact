@@ -335,21 +335,56 @@ export const DELIVERY_SHOW_LOSE_S = 30;
 export const DELIVERY_SHOW_GAIN_S = 120;
 
 /**
- * The spacing ledger: how far one delivery may run under the agreement, and how
- * much surplus or shortfall the gate carries forward (§8.3).
+ * What the sector may hand on, as a count over a window — the agreement itself
+ * (§3.2a, §8.3).
  *
- * Fractions rather than seconds, because the agreement is per gate — four
- * minutes at RCMG against seven and a half at RCKT — and forgiveness that did
- * not scale with it would be a tenth of one agreement and a twentieth of the
- * other. They are rules of the job rather than field data, which is what keeps
- * them here and off `DeliveryGateSpec`.
+ * A rate rather than a gap, because a gap between two aircraft is not what the
+ * field below is short of. Two arrivals reaching two different fixes in the same
+ * second are sixty miles apart on two routes at two published levels and meet
+ * only at the merge, which is Approach's own job; what Approach cannot absorb is
+ * a sustained rate above its runway capacity. So the constraint counts, and says
+ * nothing at all about *where* a delivery went.
  *
- * The tolerance bounds what a single gap may spend; the cap bounds the balance
- * itself, so a long quiet period is worth something later but never a licence to
- * empty the stream into the next sector.
+ * **Two windows, because one cannot do both jobs.** A short cap alone holds no
+ * long-run rate — five in six minutes, forever, is thirty an hour — and a long
+ * cap alone refuses a burst the field genuinely takes. So the short one is the
+ * lenient half and the long one is what actually bounds the hour.
+ *
+ * The slack is a whole aircraft in each because a cap is a count and the only
+ * forgiveness a count has is discrete: it is what turns "3.1 an window" into a
+ * rule that can be stated to a controller. The short window gets two of them,
+ * which is what makes it the lenient rule by construction rather than by having
+ * a shorter window. `deliveryWindows` derives the caps per field —
+ * `floor(rate × window / 3600) + slack` — so VABBA's 31/h is 5 in six minutes and
+ * 7 in twelve, and VABBS's 14/h is 3 and 3.
  */
-export const DELIVERY_GAP_TOLERANCE_FRACTION = 0.1;
-export const DELIVERY_BANK_CAP_FRACTION = 0.2;
+export const DELIVERY_WINDOWS = [
+  { windowS: 360, slack: 2 },
+  { windowS: 720, slack: 1 },
+] as const;
+
+/** How far back the sector's own delivery series has to reach to answer them. */
+export const LONGEST_DELIVERY_WINDOW_S = Math.max(...DELIVERY_WINDOWS.map((w) => w.windowS));
+
+/**
+ * The in-trail minimum at a single delivery fix, and the only pairwise rule in
+ * the model (§3.2a).
+ *
+ * The sector's own agreement is a rate over a window, which expresses nothing
+ * whatever about two aircraft handed to the *same* fix — and those arrive at the
+ * same published level down the same route, one behind the other. So this is
+ * what separates them, and it is load-bearing rather than a backstop: three
+ * minutes is ~16.5 NM at the 260 kt crossing, and it caps one fix at 20 an hour
+ * against the ~11 the busiest is actually offered, so it binds on a clump and
+ * never on the mean.
+ *
+ * Seconds rather than miles because the grader has timestamps and not a track,
+ * and because every route into one fix crosses it at one speed — the validator
+ * makes sure of that. No tolerance and no ledger: it is a spacing minimum rather
+ * than a rate, and giving it either would rebuild the per-gate clock this model
+ * exists to remove.
+ */
+export const DELIVERY_TRAIL_FLOOR_S = 180;
 
 /**
  * How close to the delivery fix counts as reaching it.

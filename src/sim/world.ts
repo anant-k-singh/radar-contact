@@ -9,6 +9,8 @@ import { boundaryMarginNm } from '../scenario/airspace.js';
 import { isPastFix } from '../scenario/routes.js';
 import {
   DELIVERY_CAPTURE_NM,
+  DELIVERY_TRAIL_FLOOR_S,
+  LONGEST_DELIVERY_WINDOW_S,
   EXIT_WARN_MARGIN_NM,
   HISTORY_PERIOD_S,
   IN_TRAIL_MIN_NM,
@@ -27,6 +29,7 @@ import {
   type Delivery,
   type DeliveryFault,
   type DeliverySlot,
+  type DeliveryState,
 } from './delivery.js';
 import { stepDeparture, type DepartureEvent } from './departure.js';
 import { groundSpeed, stepKinematics } from './dynamics.js';
@@ -115,20 +118,24 @@ export interface Stats {
   /**
    * Sim time of each delivery, per gate.
    *
-   * Per gate and not pooled, because the agreement is per gate: a sector feeding
-   * two streams that delivers twenty an hour into one and none into the other
-   * has satisfied neither. Trimmed to the last few, as the other rate series are,
-   * but to one gap fewer: a delivery agreement is minutes wide where a runway
-   * movement is not (`DELIVERY_RATE_INTERVALS`).
+   * Per gate and not pooled even though the agreement is the sector's, because a
+   * sector handing on its whole 31 an hour down one route has starved four gates
+   * and the scoreboard has to be able to say so — and because the in-trail floor
+   * reads the last one at a fix off here. Trimmed to the last few, as the other
+   * rate series are, but to one gap fewer: a delivery agreement is minutes wide
+   * where a runway movement is not (`DELIVERY_RATE_INTERVALS`).
    */
   deliveryTimesS: Map<string, Sec[]>;
   /**
-   * Each gate's spacing ledger: seconds in hand, or owed when negative (§8.3).
+   * Sim time of every delivery, sector-wide, back as far as the longest window
+   * (§8.3). The agreement itself is read off this.
    *
-   * Stored rather than folded back out of `deliveryTimesS`, which is trimmed to
-   * the few timestamps the rate reads and would forget the balance.
+   * Deliberately not folded out of `deliveryTimesS`, which keeps only the last
+   * four at each gate: a gate taking five inside ten minutes would silently drop
+   * one still inside the twelve-minute window, so the long cap would under-count
+   * on exactly the busiest gate — the case it exists for.
    */
-  deliveryBankS: Map<string, Sec>;
+  sectorDeliveryTimesS: Sec[];
   /** Deliveries that were made but not cleanly, by reason (§8.3). */
   deliveryFaults: Map<string, number>;
   rejections: Map<string, number>;
@@ -245,7 +252,7 @@ export function createWorld(
       exits: 0,
       deliveries: 0,
       deliveryTimesS: new Map(),
-      deliveryBankS: new Map(),
+      sectorDeliveryTimesS: [],
       deliveryFaults: new Map(),
       rejections: new Map(),
       missedIntercepts: new Map(),
@@ -320,6 +327,20 @@ function recordMovement(timesS: Sec[], nowS: Sec): void {
   timesS.push(nowS);
   const keep = MOVEMENT_RATE_INTERVALS + 1;
   if (timesS.length > keep) timesS.splice(0, timesS.length - keep);
+}
+
+/**
+ * Keep a series back as far as a horizon, dropping what has aged out.
+ *
+ * Trimmed on write and never lazily on read: `sessionChanged` detects a snapshot
+ * by `deliveries`, which is stamped on the same tick, so a series that mutated
+ * when the renderer looked at it would drift out of the recording.
+ */
+function recordWindowed(timesS: Sec[], nowS: Sec, horizonS: Sec): void {
+  timesS.push(nowS);
+  const oldest = nowS - horizonS;
+  const drop = timesS.findIndex((at) => at > oldest);
+  if (drop > 0) timesS.splice(0, drop);
 }
 
 function remove(world: World, ac: Aircraft): void {
@@ -409,14 +430,28 @@ export function sinkRatePerHour(world: World): number | null {
   return ratePerHour(world.stats.sinkTimesS, world.timeS);
 }
 
-/** The most recent delivery at each gate, which is what the next slot follows. */
-export function lastDeliveryTimes(world: World): Map<string, Sec> {
-  const last = new Map<string, Sec>();
-  for (const [gate, times] of world.stats.deliveryTimesS) {
+/**
+ * The spacing state the grader, the countdown and the plan all read (§8.3).
+ *
+ * Takes the two slices rather than a `World`, so `playback.ts` can build one
+ * while the `World` it would otherwise be handed is still being assembled — the
+ * same reason `delivery.ts` takes slices at all.
+ *
+ * Two series and no derived state: the windows read the sector's own, and the
+ * in-trail floor reads the last delivery at each fix, which is the tail of that
+ * gate's array and survives trimming because the arrays are cut from the old end.
+ */
+export function deliveryStateOf(scenario: Scenario, stats: Stats): DeliveryState {
+  const lastGateS = new Map<string, Sec>();
+  for (const [gate, times] of stats.deliveryTimesS) {
     const at = times[times.length - 1];
-    if (at !== undefined) last.set(gate, at);
+    if (at !== undefined) lastGateS.set(gate, at);
   }
-  return last;
+  return {
+    ratePerHour: scenario.agreedRatePerHour,
+    recentSectorS: stats.sectorDeliveryTimesS,
+    lastGateS,
+  };
 }
 
 /**
@@ -573,15 +608,18 @@ function tryDelivery(world: World, ac: Aircraft): boolean {
   if (route === null || ac.star!.index < route.waypoints.length - 1) return false;
   if (distance({ x: ac.x, y: ac.y }, gate.position) > DELIVERY_CAPTURE_NM) return false;
 
-  const times = world.stats.deliveryTimesS.get(gate.fixName) ?? [];
-  const previousS = times[times.length - 1] ?? null;
-  const bankS = world.stats.deliveryBankS.get(gate.fixName) ?? 0;
-  const verdict = assessDelivery(gate, ac, previousS, bankS, world.timeS);
+  const verdict = assessDelivery(
+    gate,
+    ac,
+    deliveryStateOf(world.scenario, world.stats),
+    world.timeS,
+  );
 
+  const times = world.stats.deliveryTimesS.get(gate.fixName) ?? [];
   times.push(world.timeS);
   if (times.length > DELIVERY_RATE_INTERVALS + 1) times.shift();
   world.stats.deliveryTimesS.set(gate.fixName, times);
-  world.stats.deliveryBankS.set(gate.fixName, verdict.bankAfterS);
+  recordWindowed(world.stats.sectorDeliveryTimesS, world.timeS, LONGEST_DELIVERY_WINDOW_S);
   world.stats.deliveries += 1;
   recordMovement(world.stats.sinkTimesS, world.timeS);
   for (const fault of verdict.faults) {
@@ -619,9 +657,14 @@ function tryDelivery(world: World, ac: Aircraft): boolean {
 function deliveryFaultText(fault: DeliveryFault, verdict: Delivery): string {
   switch (fault) {
     case 'early':
-      return `${Math.round(verdict.gapS ?? 0)} s behind the last one, against ${Math.round(
-        verdict.requiredGapS,
-      )} s agreed`;
+      // Which of the three constraints broke, since `early` is one code for all
+      // of them — and it is the binding one, `deliveryBound` having already taken
+      // the latest.
+      if (verdict.early === null) return 'handed on too soon';
+      if (verdict.early.rule.kind === 'trail') {
+        return `${Math.round(verdict.trailGapS ?? 0)} s behind the last one at this fix, against ${DELIVERY_TRAIL_FLOOR_S} s in trail`;
+      }
+      return `one too many inside ${verdict.early.rule.windowS / 60} min, against ${verdict.early.rule.cap} the sector may pass — ${Math.round(verdict.early.shortByS)} s early`;
     case 'level':
       return 'not at the agreed level';
     case 'speed':
@@ -1043,8 +1086,7 @@ export function step(world: World, dt: Sec): void {
   world.deliverySlots = deliveryPlan(
     world.scenario.delivery,
     world.aircraft,
-    lastDeliveryTimes(world),
-    world.stats.deliveryBankS,
+    deliveryStateOf(world.scenario, world.stats),
     world.timeS,
   );
 

@@ -22,6 +22,7 @@
 import { describe, expect, it } from 'vitest';
 import { boundaryMarginNm } from '../src/scenario/airspace.js';
 import { scenarioById } from '../src/scenario/registry.js';
+import { agreedGapS, deliveryWindows } from '../src/sim/delivery.js';
 import { VABB_FIXES } from '../src/scenario/fields/vabb/fixes.js';
 import { VABB_AREA_FIXES } from '../src/scenario/fields/vabbArea/fixes.js';
 import { bearing, distance, magnitude, normalizeHeading, type Point } from '../src/sim/units.js';
@@ -192,9 +193,20 @@ describe('the five handovers', () => {
       expect(FIELD.delivery.find((d) => d.fixName === fixName)!.targetRatePerHour, fixName)
         .toBe(rate);
     }
-    // The whole of Mumbai's arrival flow, which is what a full ring is for.
+    // The whole of Mumbai's arrival flow, which is what a full ring is for — and
+    // the interval the sector is actually graded against, since what the field
+    // below accepts is one runway rate rather than five independent ones.
     const total = FIELD.delivery.reduce((sum, d) => sum + d.targetRatePerHour, 0);
     expect(total).toBe(31);
+    expect(FIELD.agreedRatePerHour).toBe(31);
+    expect(agreedGapS(FIELD.agreedRatePerHour)).toBeCloseTo(116.1, 1);
+    // Which the sector is graded on as a count over each window: five in six
+    // minutes and seven in twelve, the second of them the real ceiling at 35 an
+    // hour against the 33 this field offers itself.
+    expect(deliveryWindows(FIELD.agreedRatePerHour)).toEqual([
+      { windowS: 360, cap: 5 },
+      { windowS: 720, cap: 7 },
+    ]);
     // And the streams carry those agreements as their shares, so the flow the
     // player sets arrives in the ratio the gates declared.
     expect(FIELD.arrivalStreams.reduce((sum, s) => sum + s.share, 0)).toBe(total);

@@ -7,7 +7,7 @@
 import { speedFloorKts } from '../sim/commands.js';
 import type { Aircraft } from '../sim/aircraft.js';
 import { isDeparture } from '../sim/aircraft.js';
-import { destinationOf, requiredGapS } from '../sim/delivery.js';
+import { deliveryWindows, destinationOf } from '../sim/delivery.js';
 import { activeSidFix } from '../sim/departure.js';
 import {
   DEPARTURE_FLOW_STEP_PER_HOUR,
@@ -17,6 +17,7 @@ import {
   VS_DISPLAY_STEP_FPM,
   DELIVERY_SHOW_GAIN_S,
   DELIVERY_SHOW_LOSE_S,
+  DELIVERY_TRAIL_FLOOR_S,
 } from '../sim/constants.js';
 import {
   evaluateClearance,
@@ -101,7 +102,7 @@ const template = (scenarios: readonly Scenario[]): string => `
     </dl>
     <dl class="detail center-only">
       <dt>Deliver to</dt><dd data-field="dgate"></dd>
-      <dt>Wanted every</dt><dd data-field="dgap"></dd>
+      <dt>Sector may pass</dt><dd data-field="dgap"></dd>
       <dt>Arrives in</dt><dd data-field="deta"></dd>
       <dt>Sequence</dt><dd data-field="ddeficit"></dd>
     </dl>
@@ -178,7 +179,7 @@ export function createSidebar(
   /**
    * The four rows an area controller actually works from (§8.3).
    *
-   * `Wanted every` is the agreement itself, spelled out per aircraft rather than
+   * `Sector may pass` is the agreement itself, spelled out per aircraft rather than
    * left to be inferred from a rate in the gutter — it is the number the whole
    * job is measured against, and a player who has to divide 3600 by it before
    * every decision is being asked to do arithmetic instead of control.
@@ -191,7 +192,15 @@ export function createSidebar(
     const slot = world.deliverySlots.get(ac.id);
     const gate = world.scenario.delivery.find((entry) => entry.fixName === destinationOf(ac));
     set('dgate', gate ? gate.fixName : '—');
-    set('dgap', gate ? `${minutesText(requiredGapS(gate))}  (${gate.targetRatePerHour}/h)` : '—');
+    const windows = deliveryWindows(world.scenario.agreedRatePerHour)
+      .map((w) => `${w.cap} in ${w.windowS / 60} min`)
+      .join(' · ');
+    set(
+      'dgap',
+      gate
+        ? `${windows}  (${world.scenario.agreedRatePerHour}/h, ${minutesText(DELIVERY_TRAIL_FLOOR_S)} in trail)`
+        : '—',
+    );
     set('deta', slot ? minutesText(slot.etaS - world.timeS) : '—');
     if (!slot) {
       set('ddeficit', '—');
