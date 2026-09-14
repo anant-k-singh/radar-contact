@@ -830,7 +830,15 @@ an aircraft with Tower; one cleared for the approach or going around — `R` mus
 clearance, only a heading does that (§6.1c); one in the hold, since `H` owns getting out of a pattern;
 one already on its route with nothing assigned; one that never had a STAR, which is still refused —
 `R` gives an arrival back, it does not hand one out; a heading whose ray reaches no joinable leg on
-any route; and a crossing of its own route steeper than 50°. A second `R` while armed cancels.
+any route; and a crossing of its own route steeper than 50°.
+
+**`R` is not a toggle.** A second press while a rejoin is already armed is redundant the way a
+second ILS clearance is: it re-casts the ray from the assigned heading and re-arms, rather than
+taking the first back. It was a toggle, and that made the one key that *gives* an arrival back the
+one key that could also throw it away — a player restating a clearance they were unsure had gone
+through disarmed it instead. Nothing else is lost by dropping the cancel: a heading that reaches no
+joinable leg already disarms one (§6.1c), which is the instruction a controller actually gives to
+stop a rejoin.
 
 **The vertical and the speed are the route's from the readback**, not from the capture. The aircraft
 flies the published profile — the same `flyProfile` an aircraft on the route uses — evaluated at the

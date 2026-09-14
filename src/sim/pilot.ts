@@ -41,11 +41,8 @@ export type Instruction =
    * one boolean carries the whole of what `H` toggles.
    */
   | { kind: 'hold'; hold: boolean }
-  /**
-   * Resume the arrival (§4.5a). `resume: false` is the cancel — `R` on an
-   * aircraft whose rejoin is already armed, the way `H` toggles the hold.
-   */
-  | { kind: 'rejoin'; resume: boolean };
+  /** Resume the arrival (§4.5a). Not a toggle: `R` never cancels one. */
+  | { kind: 'rejoin' };
 
 export interface PendingInstruction {
   /** Sim time the crew acts on it. */
@@ -295,12 +292,6 @@ function apply(
       const rejoin = ac.rejoin;
       if (!rejoin) {
         readbacks.push({ text: `${ac.callsign}, negative — we have no arrival to resume.`, kind: 'pilot' });
-        return readbacks;
-      }
-
-      if (!instruction.resume) {
-        rejoin.leg = null;
-        readbacks.push({ text: `${ac.callsign}, cancelling the rejoin, maintaining heading.`, kind: 'pilot' });
         return readbacks;
       }
 
