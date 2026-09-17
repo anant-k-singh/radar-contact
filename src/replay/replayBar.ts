@@ -17,15 +17,41 @@ export interface ReplayBarHandlers {
   startReplay(): void;
   /** Abandon the recording and fly a fresh session. */
   newSession(): void;
+  /** Fly what this session handed on, as the field below (§15.0f). */
+  workApproach(): void;
+}
+
+/**
+ * The offer to work the field below, or null when there is none — a field that
+ * hands to nobody, a session with an empty ledger, or one that is itself flying
+ * a schedule.
+ *
+ * Resolved by the caller, because nothing under `src/replay/` may name a field:
+ * what arrives here is a finished label and a count.
+ */
+export interface ApproachOffer {
+  label: string;
+  count: number;
 }
 
 export interface ReplayBar {
   /** Live: `playback` is null. Replay: it drives the transport. */
-  update(recording: Recording, playback: Playback | null): void;
+  update(recording: Recording, playback: Playback | null, approach: ApproachOffer | null): void;
 }
+
+/**
+ * Offered in **both** modes, which is what stops the two buttons eating each
+ * other: stopping a session to watch it leaves the live world and its ledger
+ * untouched, so the offer to fly it again is still good afterwards. Kept in the
+ * markup and hidden rather than built on demand, so neither template has to be
+ * rebuilt when a ledger's first row lands.
+ */
+const APPROACH_BUTTON =
+  '<button class="replay-start replay-approach" data-action="approach" data-field="approach" hidden></button>';
 
 const LIVE_TEMPLATE = `
   <button class="replay-start" data-action="replay">▶ Stop session &amp; watch replay</button>
+  ${APPROACH_BUTTON}
   <div class="replay-note" data-field="span"></div>
 `;
 
@@ -41,6 +67,7 @@ const REPLAY_TEMPLATE = `
     <button data-action="forward" title="Forward ${REPLAY_SKIP_S} s">+${REPLAY_SKIP_S}s</button>
     <span class="replay-rates" data-field="rates"></span>
   </div>
+  ${APPROACH_BUTTON}
   <div class="replay-row">
     <button data-action="new">New session</button>
     <span class="replay-note" data-field="hint">Click an aircraft for its whole path</span>
@@ -122,6 +149,9 @@ export function createReplayBar(root: HTMLElement, handlers: ReplayBarHandlers):
       case 'new':
         handlers.newSession();
         break;
+      case 'approach':
+        handlers.workApproach();
+        break;
       case 'play':
         playback?.togglePause();
         break;
@@ -137,10 +167,22 @@ export function createReplayBar(root: HTMLElement, handlers: ReplayBarHandlers):
   });
 
   return {
-    update(recording: Recording, current: Playback | null): void {
+    update(
+      recording: Recording,
+      current: Playback | null,
+      approach: ApproachOffer | null,
+    ): void {
       playback = current;
       const next = current ? 'replay' : 'live';
       if (mode !== next) build(next);
+
+      const offer = fields.get('approach');
+      if (offer) {
+        offer.hidden = approach === null;
+        if (approach) {
+          set('approach', `▶ Stop session & work ${approach.label} Approach (${approach.count})`);
+        }
+      }
 
       if (!current) {
         set('span', spanText(recording));

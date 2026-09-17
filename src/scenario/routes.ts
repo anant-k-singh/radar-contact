@@ -139,9 +139,18 @@ export function raisedToLevel(star: Star, levelFt: Ft): readonly StarConstraint[
  * Flown as a fly-by the aircraft cuts the corner and never crosses the fix itself,
  * so what this tests is a line rather than a point. That line is where the crossing
  * is made good.
+ *
+ * Takes the route structurally rather than as a `Sid`: nothing here reads anything
+ * but the positions, and an arrival needs the same question answered about the fix
+ * it is handed over at (§15.0f). It was only ever SID-shaped by where it was first
+ * needed.
  */
-export function isPastFix(sid: Sid, index: number, position: Point): boolean {
-  const waypoints = sid.waypoints;
+export function isPastFix(
+  route: { waypoints: readonly { position: Point }[] },
+  index: number,
+  position: Point,
+): boolean {
+  const waypoints = route.waypoints;
   const fix = waypoints[index]!;
   const previous = waypoints[index - 1];
   const next = waypoints[index + 1];

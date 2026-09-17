@@ -5,6 +5,7 @@
  * holding point and released by whether the runway is free rather than by
  * anything to do with the gates.
  */
+import type { AircraftType } from '../scenario/aircraftTypes.js';
 import type { Airline } from '../scenario/airlines.js';
 
 
@@ -23,7 +24,69 @@ import { groundSpeed } from './dynamics.js';
 import { finalGeometry } from './ils.js';
 import type { Rng } from './rng.js';
 import { joinStar } from './star.js';
-import { bearing, distance, type Ft, type Sec } from './units.js';
+import {
+  bearing,
+  distance,
+  type Deg,
+  type Ft,
+  type Kts,
+  type Nm,
+  type Sec,
+} from './units.js';
+
+/**
+ * One aircraft as it was handed on to the field below (§15.0f).
+ *
+ * Taken **at the fix both fields name** — MOLGO, KETOR, POKON, IGBAN, EMRAK —
+ * because that fix is the handover, and what it is worth recording is the state
+ * the next controller actually inherits: the level and speed the aircraft was
+ * given rather than the ones the chart asked for. A sloppy 16,200 ft delivery
+ * survives into the approach session as 16,200 ft.
+ *
+ * `airline` and `type` are the scenario's own objects rather than ids because
+ * the ledger never leaves memory — the approach session replaces the world in
+ * place, and both fields draw from the same two tables. Serialising a recording
+ * (§15.0d) is what would force them back to ids.
+ */
+export interface Handoff {
+  /** Sim time of the handover, in the *center* session's clock. */
+  atS: Sec;
+  callsign: string;
+  airline: Airline;
+  type: AircraftType;
+  /**
+   * Gate on the receiving field. Null only for one that crossed into the
+   * terminal area with no route even remembered, which is the one case there is
+   * nothing to name it by.
+   */
+  gateName: string | null;
+  /**
+   * False for an aircraft that was vectored off and crossed the inner boundary
+   * unsequenced. It still entered the airspace below, so it is still handed on —
+   * without a route, at the position and heading it was actually left on.
+   */
+  onRoute: boolean;
+  x: Nm;
+  y: Nm;
+  altitudeFt: Ft;
+  headingDeg: Deg;
+  iasKts: Kts;
+}
+
+/**
+ * What an arrival is filed under when it was handed over with no route even
+ * remembered, so there is no gate to name it by. Never a gate on any field, and
+ * never drawn from — the traffic generator only ever uses real gate names.
+ */
+const UNSEQUENCED_ENTRY = 'VECTORS';
+
+/**
+ * When the first scripted arrival appears, matching the arrival streams' own
+ * opening clock: a session that starts on an empty scope reads as not having
+ * started, and one that starts with an aircraft already there reads as having
+ * started without you.
+ */
+const SCRIPT_START_S = 5;
 
 /** One arrival stream's own clock and its held draw (§4.4). */
 export interface StreamState {
@@ -79,6 +142,15 @@ export interface TrafficState {
   lastDepartureChart: string | null;
   /** Sim time of the last landing, for the runway-vacated interval. */
   lastLandingS: Sec | null;
+  /**
+   * How far down `World.script` the session has got (§15.0f).
+   *
+   * A cursor rather than a shrinking queue so the schedule itself stays the
+   * immutable record of what was handed over — the replay bar counts what is
+   * left off it, and a scripted session is over when the cursor reaches the end
+   * rather than when the list empties.
+   */
+  nextScriptIndex: number;
 }
 
 export function createTrafficState(): TrafficState {
@@ -91,6 +163,7 @@ export function createTrafficState(): TrafficState {
     lastDepartureS: null,
     lastDepartureChart: null,
     lastLandingS: null,
+    nextScriptIndex: 0,
   };
 }
 
@@ -301,6 +374,125 @@ export function createArrival(
     spawnedAtS: timeS,
     directDistanceNm,
   });
+}
+
+/**
+ * Put one aircraft from a finished center session's ledger onto this field
+ * (§15.0f) — the sibling of `createArrival` that is handed its identity and its
+ * state instead of drawing them from the rng.
+ *
+ * What it does **not** do is as important as what it does. There is no conflict
+ * veto and no gate cooldown: two aircraft handed over twenty seconds apart at
+ * one gate appear twenty seconds apart, two miles in trail at the same level,
+ * and that is the feature rather than a case to smooth over. The cost of poor
+ * sequencing is meant to be paid by the controller downstream, and this is the
+ * position downstream.
+ */
+export function createScriptedArrival(
+  scenario: Scenario,
+  state: TrafficState,
+  row: Handoff,
+  timeS: Sec,
+): Aircraft {
+  const id = state.nextId;
+  state.nextId += 1;
+  const gate = scenario.gates.find((entry) => entry.name === row.gateName) ?? null;
+  const route = gate ? starForGate(scenario, gate.name) : null;
+
+  // Off its route, or with no gate left to name one: it arrives where it was
+  // abandoned, on the heading it was left on, with nothing flying it.
+  if (!row.onRoute || !gate || !route) {
+    const position = { x: row.x, y: row.y };
+    const ac = newAircraft({
+      id,
+      callsign: row.callsign,
+      airline: row.airline,
+      type: row.type,
+      position,
+      altitudeFt: row.altitudeFt,
+      headingDeg: row.headingDeg,
+      iasKts: row.iasKts,
+      star: null,
+      phase: 'inbound',
+      entryGate: row.gateName ?? UNSEQUENCED_ENTRY,
+      spawnedAtS: timeS,
+      // It never flew the route, so the route's length is not the shortest thing
+      // it could reasonably have flown — straight in from here is.
+      directDistanceNm: distance(position, scenario.runway.threshold),
+    });
+    // Park the route it was headed for, so `R` can still give it back. Every
+    // other aircraft off its route in this sim has one parked by `leaveStar`; a
+    // scripted one arriving with nothing would be the first that could only ever
+    // be hand-flown onto the localizer.
+    if (route) ac.rejoin = { nav: joinStar(route), leg: null };
+    return ac;
+  }
+
+  // Above the level this gate publishes, the run in to the entry fix is raised to
+  // meet it — the holding-stack mechanism, which converges the aircraft onto the
+  // chart by the entry fix instead of writing the chart straight onto it. Below
+  // it, hold the level and let the descending profile come down: an arrival is
+  // never climbed back up to a profile it is under.
+  const high = row.altitudeFt > gate.entryAltitudeFt;
+  const star = high ? joinStar(route, row.altitudeFt) : joinStar(route);
+  if (row.altitudeFt < gate.entryAltitudeFt) star.rejoining = -1;
+
+  return newAircraft({
+    id,
+    callsign: row.callsign,
+    airline: row.airline,
+    type: row.type,
+    position: gate.position,
+    altitudeFt: row.altitudeFt,
+    headingDeg: bearing(gate.position, star.route.waypoints[star.index]!.position),
+    iasKts: row.iasKts,
+    star,
+    phase: 'inbound',
+    entryGate: gate.name,
+    spawnedAtS: timeS,
+    directDistanceNm:
+      route.lengthNm +
+      distance(route.waypoints[route.waypoints.length - 1]!.position, scenario.runway.threshold),
+  });
+}
+
+/**
+ * Turn a finished session's ledger into a schedule for the next one (§15.0f).
+ *
+ * Only the clock changes: the first handover lands at `SCRIPT_START_S` and every
+ * other row keeps its interval from it exactly, so the sequence, the gaps and
+ * the bunching are the ones the center controller made. Sorted, because the two
+ * capture sites commit in the order aircraft leave rather than in time order —
+ * the cursor only walks forward, and an out-of-order row would be released late.
+ */
+export function scriptFrom(handedOn: readonly Handoff[]): Handoff[] {
+  const rows = [...handedOn].sort((a, b) => a.atS - b.atS);
+  const first = rows[0]?.atS ?? 0;
+  return rows.map((row) => ({ ...row, atS: row.atS - first + SCRIPT_START_S }));
+}
+
+/**
+ * Release everything on the schedule that has come due (§15.0f).
+ *
+ * The rows are in the order they were handed over and the cursor only moves
+ * forward, so the approach session sees the center session's sequence exactly —
+ * including its mistakes. Returns what was released, for the caller to log and
+ * count the way it does a generated arrival.
+ */
+export function releaseScripted(
+  scenario: Scenario,
+  script: readonly Handoff[],
+  state: TrafficState,
+  timeS: Sec,
+): Aircraft[] {
+  const released: Aircraft[] = [];
+  while (state.nextScriptIndex < script.length) {
+    const row = script[state.nextScriptIndex]!;
+    if (row.atS > timeS) break;
+    released.push(createScriptedArrival(scenario, state, row, timeS));
+    state.nextScriptIndex += 1;
+  }
+  return released;
 }
 
 /**

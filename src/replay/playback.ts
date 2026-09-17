@@ -36,6 +36,7 @@ import { deliveryPlan } from '../sim/delivery.js';
 import { analyzeSeparation } from '../sim/separation.js';
 import { activeFix, type RejoinNav, type StarNav } from '../sim/star.js';
 import { clamp, type Point, type Sec } from '../sim/units.js';
+import { deliveryStateOf } from '../sim/world.js';
 import type { Message, Stats, World } from '../sim/world.js';
 import {
   decodeFlags,
@@ -64,7 +65,7 @@ const EMPTY_STATS: Stats = {
   exits: 0,
   deliveries: 0,
   deliveryTimesS: new Map(),
-  deliveryBankS: new Map(),
+  sectorDeliveryTimesS: [],
   deliveryFaults: new Map(),
   rejections: new Map(),
   missedIntercepts: new Map(),
@@ -246,6 +247,9 @@ function aircraftAt(scenario: Scenario, track: Track, frame: number): Aircraft {
     directDistanceNm: 0,
     goArounds: 0,
     exitWarned: false,
+    // The handover ledger is the live world's, and a rebuilt frame is not the
+    // world that took it — nothing on the scope shows a parked row.
+    pendingHandoff: null,
     // The assigned-heading vector is an instruction artefact and is not drawn
     // in replay (§17.3), so there is no hint window to reproduce.
     headingHintUntilS: 0,
@@ -265,7 +269,13 @@ function aircraftAt(scenario: Scenario, track: Track, frame: number): Aircraft {
 function sessionAt(
   rec: Recording,
   frame: number,
-): { flowPerHour: number; departureFlowPerHour: number; departureQueue: number; stats: Stats } {
+): {
+  flowPerHour: number;
+  departureFlowPerHour: number;
+  departureQueue: number;
+  scripted: boolean;
+  stats: Stats;
+} {
   let lo = 0;
   let hi = rec.session.length - 1;
   let found = -1;
@@ -280,12 +290,19 @@ function sessionAt(
   }
   const snapshot = found >= 0 ? rec.session[found] : rec.session[0];
   if (!snapshot) {
-    return { flowPerHour: 0, departureFlowPerHour: 0, departureQueue: 0, stats: EMPTY_STATS };
+    return {
+      flowPerHour: 0,
+      departureFlowPerHour: 0,
+      departureQueue: 0,
+      scripted: false,
+      stats: EMPTY_STATS,
+    };
   }
   return {
     flowPerHour: snapshot.flowPerHour,
     departureFlowPerHour: snapshot.departureFlowPerHour,
     departureQueue: snapshot.departureQueue,
+    scripted: snapshot.scripted,
     stats: snapshot.stats,
   };
 }
@@ -313,7 +330,10 @@ export function worldAtFrame(
     if (trackCoversFrame(track, frame)) aircraft.push(aircraftAt(rec.scenario, track, frame));
   }
   const timeS = frameTimeS(frame);
-  const { flowPerHour, departureFlowPerHour, departureQueue, stats } = sessionAt(rec, frame);
+  const { flowPerHour, departureFlowPerHour, departureQueue, scripted, stats } = sessionAt(
+    rec,
+    frame,
+  );
 
   return {
     scenario: rec.scenario,
@@ -337,21 +357,17 @@ export function worldAtFrame(
       lastDepartureS: null,
       lastDepartureChart: null,
       lastLandingS: null,
+      nextScriptIndex: 0,
     },
     separation: analyzeSeparation(rec.scenario.runway, aircraft, rec.scenario.terrain),
     // Recomputed, never recorded — the same rule the separation report follows.
-    // The gate times come from the recorded `stats`, so a rebuilt frame slots the
-    // stream against the deliveries that had actually been made by then.
+    // The sector's series and the gate times both come from the recorded `stats`,
+    // so a rebuilt frame slots the stream against the deliveries that had
+    // actually been made by then.
     deliverySlots: deliveryPlan(
       rec.scenario.delivery,
       aircraft,
-      new Map(
-        [...stats.deliveryTimesS].flatMap(([gate, times]) => {
-          const at = times[times.length - 1];
-          return at === undefined ? [] : [[gate, at] as const];
-        }),
-      ),
-      stats.deliveryBankS,
+      deliveryStateOf(rec.scenario, stats),
       timeS,
     ),
     selectedId: aircraft.some((ac) => ac.id === view.selectedId) ? view.selectedId : null,
@@ -360,6 +376,15 @@ export function worldAtFrame(
     nextRadarAtS: Infinity,
     nextHistoryAtS: Infinity,
     activeViolations: new Map(),
+    // Nothing replays a handover: the ledger belongs to the session that took it,
+    // and an approach session started from one is handed the rows directly.
+    handedOn: [],
+    // Recorded rather than derived, for `departureQueue`'s reason — the sidebar
+    // shows a scripted session's flow control as disabled, and a replay that
+    // rebuilt this as null would show it live over a figure that generated
+    // nothing. An empty schedule is the honest shape: a replay has no arrivals
+    // left to release.
+    script: scripted ? [] : null,
   };
 }
 

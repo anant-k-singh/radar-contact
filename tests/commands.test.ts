@@ -494,7 +494,7 @@ describe('the R key', () => {
     }
   });
 
-  it('toggles: a second R while armed cancels the rejoin', () => {
+  it('is redundant, not a toggle: a second R while armed leaves it armed', () => {
     const { ac, world } = arrival();
     run(world, 60);
     for (let i = 0; i < 3; i += 1) adjustHeading(world, ac, 1);
@@ -511,11 +511,13 @@ describe('the R key', () => {
     }
     resumeArrival(world, ac);
     pilotActs(world, ac);
-    expect(ac.rejoin!.leg).not.toBeNull();
+    const leg = ac.rejoin!.leg;
+    expect(leg).not.toBeNull();
 
+    // Like the ILS clearance, the second press restates the first rather than
+    // taking it back — same leg, still armed.
     resumeArrival(world, ac);
     pilotActs(world, ac);
-    expect(ac.rejoin!.leg).toBeNull();
-    expect(ac.star).toBeNull();
+    expect(ac.rejoin!.leg).toBe(leg);
   });
 });

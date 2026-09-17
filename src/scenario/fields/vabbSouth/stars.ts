@@ -67,16 +67,25 @@
  * the exception and needs nothing — BEDOL is already a published fix on its long
  * leg, which is what the other seven are imitating.
  */
-import { alongLeg, type FixAt } from '../../geometry.js';
+import { alongLeg, meetsRange, type FixAt } from '../../geometry.js';
 import type { StarSpec } from '../../types.js';
 import type { Ft } from '../../../sim/units.js';
+import { INNER_RANGE_NM } from './airport.js';
 import { VABB_SOUTH_FIXES as F } from './fixes.js';
 
 /**
- * How far down the runway transition the handoff sits — the ten miles that let
- * the sector hold at its own entry fixes. See `airport.ts`.
+ * Where the handoff sits: on the inner arc, which is the boundary itself.
+ *
+ * This was ten miles down the runway transition, which is right for KETOR — it
+ * is 60.0 NM out against a 50 NM arc, so the two agree to a twentieth of a mile
+ * — and wrong for MOLGO, which is 63.2 and so put RCMG 3.2 NM *outside* the
+ * sector, with its route drawn stopping short of the boundary KETOR's reaches.
+ * The old note here said that left the stream "a little run after the fix", and
+ * it does not: `tryDelivery` removes the aircraft at the fix, so those 3.2 miles
+ * were never flown by anything. Taking the crossing instead makes the handoff
+ * line and the airspace edge one thing, and the inset falls out at 10.0 and 13.2.
  */
-const HANDOFF_INSET_NM = 10;
+const handoff = (from: FixAt, to: FixAt) => meetsRange(INNER_RANGE_NM, from, to);
 
 /**
  * How far back from the merge fix each invented holding fix sits.
@@ -113,7 +122,7 @@ export const VABB_SOUTH_STARS: readonly StarSpec[] = [
     name: 'KETOR2A',
     fixes: [
       { name: 'KETOR', at: F.KETOR, ...KETOR_CROSSING },
-      { name: 'RCKT', at: alongLeg(HANDOFF_INSET_NM, F.KETOR, F.MB393), ...KETOR_CROSSING },
+      { name: 'RCKT', at: handoff(F.KETOR, F.MB393), ...KETOR_CROSSING },
     ],
     // FL280 to FL370, **in order of how far each has to run**. That ordering is
     // the field's own rule — "a route's own length decides what it can be given"
@@ -182,7 +191,7 @@ export const VABB_SOUTH_STARS: readonly StarSpec[] = [
     name: 'MOLGO2A',
     fixes: [
       { name: 'MOLGO', at: F.MOLGO, ...MOLGO_CROSSING },
-      { name: 'RCMG', at: alongLeg(HANDOFF_INSET_NM, F.MOLGO, F.DUGED), ...MOLGO_CROSSING },
+      { name: 'RCMG', at: handoff(F.MOLGO, F.DUGED), ...MOLGO_CROSSING },
     ],
     // The same ordering, over a much smaller spread: these two are within 4 NM
     // of each other in length, so they are 2000 ft apart to keep them separated

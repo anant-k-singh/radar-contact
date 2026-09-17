@@ -1,4 +1,5 @@
 import type { AircraftType } from '../scenario/aircraftTypes.js';
+import type { Handoff } from './traffic.js';
 import type { Airline } from '../scenario/airlines.js';
 import type { SidNav } from './departure.js';
 import type { PendingInstruction } from './pilot.js';
@@ -84,6 +85,19 @@ export interface Aircraft {
   directDistanceNm: Nm;
   goArounds: number;
   exitWarned: boolean;
+  /**
+   * State captured as this aircraft passed the fix it is handed over at, held
+   * until the handover is real (§15.0f). Null at an approach field and until the
+   * fix is made good.
+   *
+   * Parked here rather than pushed straight onto `World.handoffs` because
+   * passing the fix is not yet the handover: an aircraft can pass MOLGO and then
+   * be vectored back out through the outer boundary, and committing at the fix
+   * would hand the field below an arrival that never arrived. It doubles as the
+   * one-shot guard, so the two capture sites cannot both claim the same
+   * aircraft.
+   */
+  pendingHandoff: Handoff | null;
 
   // Display
   /**
@@ -164,6 +178,7 @@ export function newAircraft(seed: AircraftSeed): Aircraft {
     directDistanceNm: seed.directDistanceNm ?? 0,
     goArounds: 0,
     exitWarned: false,
+    pendingHandoff: null,
     headingHintUntilS: 0,
     // Starts empty: a freshly handed-over target has no history behind it.
     trail: [],

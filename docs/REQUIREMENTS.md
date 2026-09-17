@@ -286,15 +286,46 @@ other side: VABBS delivers to KETOR and MOLGO, which is exactly where VABB spawn
 
 A delivery gate states the fix and the rate the next sector down has asked for:
 
-| Gate | Fed by | Asked for | Interval it implies |
-| --- | --- | --- | --- |
-| `RCMG` | MOLGO 2A ×2 | **10/h** | 360 s |
-| `RCKT` | KETOR 2A ×6 | **4/h** | 900 s |
+| Gate | Fed by | Asked for |
+| --- | --- | --- |
+| `RCMG` | MOLGO 2A ×2 | **10/h** |
+| `RCKT` | KETOR 2A ×6 | **4/h** |
+| **The sector** | both | **14/h** — 3 in any 6 min, 3 in any 12 |
 
-**A rate is miles-in-trail stated the way the receiving controller thinks of it.** The two are
-satisfied **independently**: a sector that fills one stream while starving the other has not
-delivered 14 an hour, it has broken both agreements at once. That is why the figure is per fix
-rather than per sector.
+**The agreement the sector is graded against is the sum, and it is `Scenario.agreedRatePerHour`.**
+What the field below can accept is a *runway* rate — one number — and a gate's published figure is
+that number cut by that gate's share of the traffic. So enforcing each gate's figure as its own
+interval assumed every *other* gate was simultaneously running at its own maximum, which arrivals
+being a Poisson process (§4.4) they never are: a line down one STAR with the others empty was held
+fifteen minutes an aircraft at VABBA's RCEK while the sector handed Approach a fraction of the 31 an
+hour it had agreed to take. The per-fix figure survives as three things — the share the traffic is
+offered in (§4.4), the row the scoreboard reads (§8.3), and the derivation of the sum — and is no
+longer a fault line.
+
+**And the sum is a rate, not a gap.** Two arrivals reaching two different fixes in the same second
+are sixty miles apart on two routes at two published levels; they cost Approach nothing at the moment
+it happens, and meet only at the merge twenty to forty miles later, which is Approach's own job. What
+the field below cannot absorb is a sustained rate above its runway capacity. So the agreement is a
+**count over a window** and says nothing whatever about *where* a delivery went:
+
+| Window | Cap | At VABBA (31/h) | At VABBS (14/h) |
+| --- | --- | --- | --- |
+| 6 min, the lenient one | `floor(rate × 360/3600) + 2` | **5** — 30/h | 3 — 30/h |
+| 12 min, the strict one | `floor(rate × 720/3600) + 1` | **7** — 35/h | 3 — 15/h |
+
+**Two windows, because one cannot do both jobs.** A short cap alone holds no long-run rate — five in
+six minutes forever is thirty an hour — and a long cap alone refuses a burst the field genuinely
+takes. The slack is a whole aircraft because a cap is a count and the only forgiveness a count has is
+discrete; the short window gets two of them, which is what makes it the lenient rule by construction
+rather than by having a shorter window. A burst of five at five different gates in one second is
+clean, and the sixth waits.
+
+**What is still per gate is spacing, not rate.** Two aircraft delivered to the *same* fix arrive at
+the same published level down the same route, and a rate over a window expresses nothing at all about
+that — which makes `DELIVERY_TRAIL_FLOOR_S`, **180 s**, load-bearing rather than a backstop. It is
+~16.5 NM at the 260 kt crossing, takes no tolerance and no ledger, and caps one fix at 20/h against
+the ~11/h the busiest gate is actually offered, so it binds on a clump and never on the mean. It is
+also the only pairwise rule left in the model.
 
 **Both are derived, not chosen: the receiving field's arrival capacity cut by its own gate
 weights.** VABB works to about 30 arrivals an hour, and §4.4's weights put 34 % of them over MOLGO
@@ -303,12 +334,19 @@ That is what an acceptance rate *is*, and deriving it is what stops the two fiel
 the boundary they share, exactly as KETOR is delivered at 15,000/260 here because VABB spawns it
 there.
 
-The flow the sector is offered is then set against them rather than the other way round: **15/h**,
-which the gate weights split into about 10.7 into MOLGO and 4.1 into KETOR. A few percent over what
-Approach will take, and deliberately no more — the work is not a surplus to absorb but the fact that
-arrivals are a Poisson process (§4.4), so a stream offered exactly its agreed rate still delivers
-around 40 % of its gaps short of the interval whatever the mean. Doing nothing has to score badly or
-there is no exercise.
+The flow the sector is offered is then set against the **strict window's ceiling** rather than
+against the agreement: VABBA offers 33 against a ceiling of 35, and VABBS 14 against 15. Equal would
+not do. At parity the mean is exactly met and nothing more, so a clump can never be paid back and the
+backlog walks away with nothing pulling it home — a fail state rather than a puzzle, which is what
+this section says of feeding a sector past its agreement. VABBS was offered 15 while the rule it was
+set against was a gap with a tolerance above it; against a count it is 14.
+
+Doing nothing still has to score badly or there is no exercise, and it does: over three seeded
+90-minute sessions an untouched autopilot busts 19–38 deliveries at VABBA and 8–20 at VABBS, which is
+what each of the two earlier rules scored on the very same flights. What has changed across all three
+is not how badly nothing scores but what *something* can achieve — the per-gate rule could demand a
+hold from a sector that was under-delivering, and the pairwise one could fault an east gate for a
+west gate's arrival.
 
 Feeding it well above the agreement does something different and worse: the sector falls behind by a
 fixed number of aircraft every hour, with no arrangement of speed, track miles and holding that ever
@@ -322,7 +360,8 @@ control, and that is their choice to make.
 | Established on its published arrival | The fault this position exists to prevent — an aircraft handed on as a problem rather than as a sequence |
 | At the published crossing altitude, ±200 ft | The altimeter tolerance a level bust is judged on |
 | At the published crossing speed, ±10 kt | The tolerance a pilot is allowed against an assignment |
-| Not inside the gate's own interval behind the last delivery | The agreement itself |
+| Not more than the window caps allow, over the sector as a whole | The agreement itself, which is the field below's acceptance rate |
+| Not inside the in-trail floor behind the last delivery at **its own fix** | Two arrivals to one fix are on one route at one level |
 
 **Early is the fault; late is not.** Delivering into a gap endangers nobody — it wastes capacity,
 which shows in the achieved rate against the agreed one. Delivering too close is what overloads the
@@ -415,8 +454,8 @@ off, inside which the player sequences arrivals onto one ILS. `Scenario.role` na
 
 | | `approach` | `center` |
 | --- | --- | --- |
-| Shape | `chordedCircle` — a circle about the ARP, caps cut (§3.1) | `sector` — an annular wedge: an inner arc, an outer arc, two radials |
-| VABB | 60 NM circle | 50–160 NM, 125°–285° |
+| Shape | `chordedCircle` — a circle about the ARP, caps cut (§3.1) | `sector` — an annular wedge: an inner arc, an outer arc, two radials; or `annulus`, that wedge opened out to the whole circle |
+| VABB | 60 NM circle | 50–160 NM, 125°–285° (VABBS); 50–150 NM all round (VABBA) |
 | Takes arrivals | at a gate on the boundary, on a STAR (§3.2) | the same, at cruise, much further out |
 | Gives them up | to Tower, established on the localizer (§10) | to Approach, at a delivery gate (§3.2a) |
 | Graded on | what lands, and how it got there (§8) | what it hands on, and whether it was wanted (§8.3) |
@@ -435,6 +474,11 @@ scope has always fitted.
 two reasons: a field *is* one position at one facility — VABB approach and the sector feeding it are
 two scenarios, not one with a switch — and the layering rules leave no other channel, since nothing
 under `src/sim/` or `src/render/` may import a scenario value.
+
+**A center field may be a slice or the whole thing.** `?airport=VABBS` is the southern wedge and
+feeds two of Mumbai's five gates; `?airport=VABBA` is the ring, feeds all five, and its delivery
+agreements therefore sum to the field's entire acceptance rate rather than 47 % of it. They are two
+positions at the same facility rather than two versions of one, and both are registered.
 
 **The two overlap by ten miles, deliberately.** VABBS delivers at 50 NM; VABB spawns at 60. A
 transfer of control point inside the receiving unit's lateral boundary is ordinary, and what matters
@@ -825,7 +869,15 @@ an aircraft with Tower; one cleared for the approach or going around — `R` mus
 clearance, only a heading does that (§6.1c); one in the hold, since `H` owns getting out of a pattern;
 one already on its route with nothing assigned; one that never had a STAR, which is still refused —
 `R` gives an arrival back, it does not hand one out; a heading whose ray reaches no joinable leg on
-any route; and a crossing of its own route steeper than 50°. A second `R` while armed cancels.
+any route; and a crossing of its own route steeper than 50°.
+
+**`R` is not a toggle.** A second press while a rejoin is already armed is redundant the way a
+second ILS clearance is: it re-casts the ray from the assigned heading and re-arms, rather than
+taking the first back. It was a toggle, and that made the one key that *gives* an arrival back the
+one key that could also throw it away — a player restating a clearance they were unsure had gone
+through disarmed it instead. Nothing else is lost by dropping the cancel: a heading that reaches no
+joinable leg already disarms one (§6.1c), which is the instruction a controller actually gives to
+stop a rejoin.
 
 **The vertical and the speed are the route's from the readback**, not from the capture. The aircraft
 flies the published profile — the same `flyProfile` an aircraft on the route uses — evaluated at the
@@ -1933,10 +1985,18 @@ An approach field is scored on what lands. A center sector is scored on what it 
 boundary it never sees the far side of — which is the whole difference between the two jobs, and the
 reason this is a separate section rather than a row in §8.
 
-`DELIVERED` counts them. One row per delivery gate reads **achieved against agreed** (`13/15`), with
-the same open-interval decay the landing rate uses (§8.2) and for the same reason: a stream that has
-gone quiet is a stream falling behind its agreement, and the number has to say so. `TOO CLOSE`,
-`UNSEQUENCED` and `OFF CROSSING` tally the faults of §3.2a.
+`DELIVERED` counts them, and `SECTOR /h` reads **achieved against agreed** for the sector as a whole
+— free, because at a center field nothing lands, so §8.2's sink rate *is* the delivery rate. It is
+the row that carries the amber, since a rate over the total is the one direction that costs the field
+below something.
+
+One row per delivery gate sits underneath it, reading achieved against the share that gate's rate was
+derived from, with the same open-interval decay the landing rate uses (§8.2) and for the same reason:
+a stream that has gone quiet is a stream falling behind, and the number has to say so. Those rows
+carry **no** tone — a gate running above its share while the sector total holds is exactly what §3.2a
+allows, and amber there would contradict the model on screen. What they are for is the other
+direction: a pooled figure alone would let a sector hide a starved stream behind a flooded one.
+`TOO CLOSE`, `UNSEQUENCED` and `OFF CROSSING` tally the faults of §3.2a.
 
 #### The deficit, and why it is stated in time
 
@@ -1944,12 +2004,17 @@ Each inbound carries an estimate at its delivery fix — distance to go over gro
 stream is slotted first-come-first-served on that estimate. An aircraft's **deficit** is the gap
 between the earliest time the agreement allows it and the time it will actually arrive:
 
-    deficit = (slot of the aircraft ahead + agreed interval) − own estimate
+    deficit = (the earliest the windows and this fix's floor allow) − own estimate
 
 Positive is time to lose, and the data block says `L2`; negative is slack in hand, and says `G3`.
-It is measured against the slot the aircraft *ahead* was given rather than pairwise, so it
-accumulates down a queue the way the delay actually does — three aircraft two minutes apart in a
-four-minute stream owe two, four and six minutes, not two minutes each.
+The chain runs the plan's own hypothetical deliveries through the same bound the grader uses, so it
+accumulates down a queue the way the delay actually does — three aircraft a minute apart into one fix
+against a three-minute floor owe one, two and three minutes, not one minute each.
+
+There is one queue over every gate rather than one per gate, because the windows are the sector's: an
+arrival to RCKT counts against the window the last aircraft into RCMG filled, whether or not it ever
+sees it. But the first few into a quiet sector all read zero — a burst is clean, and accumulation
+starts at the one that finds a window full.
 
 **The scope states the deficit and never the remedy.** A readout that printed "SPEED 250" would be a
 to-do list, and choosing between speed, track miles and the hold is the entire exercise. Which also
@@ -1960,49 +2025,42 @@ stretches it — so the estimate *is* the ledger, and there is nothing to bank t
 
 #### The gate countdown
 
-Each delivery gate carries the time until it will next accept an arrival — the agreed interval less
-the time since the last delivery, floored at zero, and blank before the first one because an empty
-stream will take anyone. It is drawn per frame in `trafficLayer` rather than onto the cached chart
-layer, for the reason `sidHover` is.
+Each delivery gate carries the time until it will next accept an arrival, and it is the latest of
+three clocks — one per window, plus this fix's own:
+
+    ready = max( over each window w:  (w.cap-th most recent delivery anywhere) + w.windowS,
+                 last delivery at this fix + in-trail floor ) − now
+
+floored at zero, and blank only before the sector's **first** delivery, because until then there is
+nothing anywhere to count from. A window binds from the moment its cap is full: what it counts down
+to is when the oldest of those falls out of it. So the gates read the same number while a window is
+binding, one of them reads longer where it has just taken a delivery, and they all read `0:00`
+together while the sector has headroom — which is the burst the agreement is written to permit. It is
+drawn per frame in `trafficLayer` rather than onto the cached chart layer, for the reason `sidHover`
+is.
 
 It answers a different question from the deficit on a data block: that says what one aircraft owes,
-this says what the *stream* is ready for. The clock is never allowed to invite a delivery it would
-then fault, whatever the ledger below is carrying — `tests/center.test.ts` pins that in both
-directions, because a scope that did would be worse than one that said nothing.
+this says what the *sector* is ready for.
 
-#### The spacing ledger
+#### The three numbers
 
-The agreement is a **rate**, and a rate is kept over a stream rather than between one pair. So each
-gate carries a signed balance of seconds, and the interval it asks for moves with it:
+    short window = 5 in any 6 min   — the burst Approach absorbs
+    long window  = 7 in any 12 min  — the sustained rate it cannot
+    trail floor  = 180 s, at one fix, flat
+    caps         = floor(agreed/h × window / 3600) + slack, slack 2 short and 1 long
 
-    required   = max(agreed − bank, 0.9 × agreed)
-    acceptable = max(required − 0.1 × agreed, 0.9 × agreed)
-    bank       ← clamp(bank + (gap − agreed), ±0.2 × agreed)
+There is no tolerance anywhere, and there is nothing to retune in its place: **a count cap has no
+near-miss.** The instant the `cap`-th most recent delivery falls out of the window is both when the
+gate opens and when a delivery stops being early, so "the clock is never allowed to invite a delivery
+it would then fault" is an identity here rather than an inequality somebody has to keep true — and
+`tests/center.test.ts` asserts it as an equivalence, in both directions, across seeded series and
+rates.
 
-`required` is the countdown on the scope: what the gate wants next. `acceptable` is what it will
-take without scoring `early` — a tenth under, which is what stops 3:59 into a four-minute stream
-being the same event as 2:00. Worked at RCMG, wanted every 15 an hour, so 240 s with a 216 s floor
-and a ±48 s cap. The last three rows are alternatives for the third delivery, not a sequence:
-
-| gap flown | bank after | then asks for |
-| --- | --- | --- |
-| first at the gate | 0 | 4:00 |
-| 4:20 | +20 | 3:40 |
-| 4:20 again | +40 | 3:36 — floored, and the balance still holds all forty |
-| 4:00 | +20 | 3:40 — a gap at the agreement moves the balance not at all |
-| 3:38 | −2 | 4:02 |
-
-Three things are load-bearing. **The balance is weighed against the agreement, never against the
-requirement standing** — otherwise credit is spent by default the moment it is earned, and the
-ledger becomes a drift. **The floor bounds what one gap may spend, not what the balance may hold**,
-so a gate left quiet keeps its credit for later instead of being handed a licence to empty the
-stream downstream. And **debt carries the fault line up with the requirement**: at a full −48 the
-gate wants 4:48 and faults under 4:24, which is what stops a sector running permanently at the
-tolerance and calling every delivery clean.
-
-`deliveryPlan` rolls the balance down the chain rather than holding it at today's figure — each
-slot's own gap settles what the one behind it is measured against — so the deficit on a data block
-is what the player will actually be graded on if they fly the plan.
+Two mechanisms preceded it and both are gone. A per-gate ledger — credit banked by a long gap, debt
+carried by a short one — which existed because a quiet gate's own clock was the only clock it had; a
+quiet sector's clock is already at zero. And the tolerance under the interval, which existed because
+1:52 into a two-minute stream is not the event 1:00 is; a cap counts, and counting has no such
+question.
 
 #### The assignable speed band
 
@@ -2019,7 +2077,10 @@ paid in track miles or in the hold.
 #### The freeze horizon
 
 Outside **120 NM** to the delivery fix the deficit is not shown and the order is still provisional;
-inside it the slot is a commitment and the deficit is the player's to absorb. That threshold is what
+inside it the slot is a commitment and the deficit is the player's to absorb. One queue over every
+gate does weaken that slightly — a frozen slot now moves when an aircraft on another route changes
+speed, where a per-gate chain only moved it for same-gate traffic. That is the cost of the agreement
+being the sector's, and it is the honest one: a delivery anywhere spends the same capacity. That threshold is what
 makes a sequence a sequence rather than a running guess, and it is the difference between metering
 and merely vectoring. Real traffic-based metering freezes about twenty minutes from the meter fix,
 which at the ground speed of a descending jet is close to the same distance — and here it also falls
@@ -2318,7 +2379,7 @@ where the arrivals are" — it is gone rather than recorded.
 | A11 | One STAR per gate **at handover**, and no route change the player did not ask for. `R` may join any published STAR (§4.5a) — the half of this assumption that said "only its own" is gone; leaving a hold still resumes the route it never left (§4.6) |
 | A12 | Departures always fly their SID exactly and are never re-routed, delayed airborne or given a level change by Departure Control. What the player sees is the published route, every time (§4.7) |
 | A13 | A departure's climb rate depends only on type and on whether the flaps are up. No weight, temperature, thrust derate or runway-length effect (§4.7) |
-| A14 | **One active field per session.** Chosen by `?airport=` at load; changing it — the sidebar dropdown included — is a reload. The map cache, the recording and every in-flight route object are bound to the scenario, and nothing needs two at once |
+| A14 | **One active field per session** — a `World`'s, not a page's. Chosen by `?airport=` at load, and the sidebar dropdown changes it by reloading, because choosing a field is choosing to start over. The map cache, the recording and every in-flight route object are bound to the scenario, so a switch has to tear all three down; where something already does — `newSession` rebuilds the world and the recording together, and the map cache is keyed by `scenario.id` — the field may move with them, which is how an approach session starts from a center one without a reload (§15.0f). Still never two at once |
 | A15 | The reference point is the origin of the local frame, always. Not settable |
 | A16 | The airspace chords are horizontal in the local frame — they cut the north and south caps whatever way the runway points, because they exist to reclaim canvas height |
 | A17 | A 3° glideslope everywhere. It is a published per-approach figure in life, but no field the simulator flies differs, so it stays a constant rather than a runway field |
@@ -2412,7 +2473,7 @@ where the arrivals are" — it is gone rather than recorded.
 | Where the entry crossing lives | **On the STAR.** `ENTRY_ALTITUDE_NEAR_FT` existed only because two of ZZZZ's four gates happen to sit north of its runway — a per-route fact wearing a global constant. A route with a short run to the localizer is what knows it must be given the height off lower; the gate takes the values from it, so nothing reading them needs a special case for a gate delivered on vectors (§3.2) |
 | How routes are authored | **In the runway frame, declared per fix.** `final(15.2, 2)` and `depart(3.2, 8)` are the same numbers `finalGeometry` reports back and the same ones the prose already used. Route *templates* were rejected: `northStar`/`southStar` were parameterised over a shape rather than a runway, so a course-agnostic version would still need a new builder for the next field — and they forced two routes to be exact mirrors, which made an asymmetric ZZZZ inexpressible |
 | Which way a SID turns | **Derived from the resulting track.** It was a hand-written label with a hand-inverted sign, correct only for a southbound runway; a runway-36 field would have mislabelled every departure |
-| Whether to support two fields at once | **No.** One active field per session, chosen by `?airport=`; changing it is a reload (A14). The map cache, the recording and every in-flight route are bound to the scenario, and a switch would have to tear all three down — which is a reload, done worse |
+| Whether to support two fields at once | **No.** One active field per session, chosen by `?airport=` (A14). The map cache, the recording and every in-flight route are bound to the scenario, and a switch has to tear all three down — which the dropdown does by reloading. The one place it is done in memory instead is where all three were being replaced anyway (§15.0f), and it is still one field at a time: the previous session is over, not running alongside |
 | How a field is known to be flyable | **`validateScenario` plus a flown conformance suite over every registered field.** And a second, deliberately awkward field in the fixtures: without one, the suite is a `describe.each` over a single element and every runway-relative helper could be wrong in a way that happens to work for a 180° course (§3.0) |
 | Whether the layering rules are documented or tested | **Tested.** `tests/architecture.test.ts`. Every rule it asserts was violated before v2, and every violation was invisible — nothing failed, the code just quietly knew which airport it was flying |
 
@@ -2500,14 +2561,50 @@ where the arrivals are" — it is gone rather than recorded.
 | Why the rejoin gate is 50° and the localizer's is still 45° | **Neither capture anticipates the angle, and only one of them has to roll out on something** (2026-09-10). Both fire on a hard cross-track threshold, so a steeper crossing is absorbed by whatever the aircraft does next. On the localizer that is a ±25°-clamped pursuit law with 5 NM of runway left, where 50° overshoots the centreline by ~0.3 NM and then has to beat `isEstablished` and the 5 NM stability gate; on a rejoin it is a direct track to the joining fix with 10–40 NM of leg to settle in, where it costs nothing. So `MAX_REJOIN_ANGLE_DEG` split off from `MAX_INTERCEPT_ANGLE_DEG` rather than the shared number moving |
 | Intercepting a STAR leg at all | **A gameplay device, and recorded as one.** The real instruction is "cleared direct ALVOR, resume the arrival" (FAA 7110.65): an RNAV leg radiates nothing a crew can arm on, so leg intercepts belong to airways and VOR radials. It is kept because it puts setting up the join in the player's hands, and because a direct-to falls out of it — aim at a fix and the ray crosses there. Stated here rather than dressed up as published procedure, as `turnAtOrAboveFt` and the `RC__` fixes are |
 
-| Question | Decision (2026-09-11, the spacing ledger) |
+| Question | Decision (2026-09-11, the spacing ledger) — *superseded in part by the sector ledger, 2026-09-14* |
 | --- | --- |
 | Whether the agreed interval is a floor per pair or a rate over the stream | **A rate, kept in a per-gate ledger.** A flat interval graded 3:59 exactly as it graded 2:00 and gave nothing back for a gap flown long, which makes the agreement a stopwatch: the player is punished for a two-second miss and the capacity a six-minute gap wasted is never recovered. A signed balance of seconds settles both — it shortens the next ask by what was earned and lengthens it by what was borrowed, so the long-run rate comes out exactly right while the individual gaps breathe |
 | The two numbers | **A tenth of the agreement for one gap, a fifth for the balance.** Fractions rather than seconds because the agreement is per gate — four minutes at RCMG against seven and a half at RCKT — and a fixed tolerance would be a tenth of one and a twentieth of the other. They are rules of the job, so they are in `constants.ts` and not on `DeliveryGateSpec` |
 | What the countdown counts to | **What the gate wants, not what it will take.** The requirement and the fault line are a tolerance apart, so an amber clock is not yet a fault — the alternative pinned them together and made every delivery inside the tolerance a fault, which is the behaviour the ledger exists to remove. What is still pinned is the one-way implication: an open gate is never a fault |
 | Whether the delivery agreements are chosen or derived | **Derived: the receiving field's capacity cut by its own gate weights** (2026-09-11). They had been picked to sit just above the rate each stream was offered, which made them a difficulty dial wearing an agreement's clothes — and put them in a ratio, 15:8, that matched neither VABB's traffic nor anything else. VABB works to ~30 arrivals an hour and weights MOLGO at 34 % and KETOR at 13 %, so the agreements are 10 and 4. The arrival flow is then set against *them* — 15/h, a few percent over — rather than the agreements being set against the flow. This is the same rule that makes VABBS deliver KETOR at 15,000/260: a number the boundary is shared on is read off the other field, never invented at this one |
 | What happens when the drawn gate is busy | **The arrival waits for it** (2026-09-11). Redrawing among whatever is free sounds harmless and is not: the busiest stream is blocked most often precisely because it is drawn most often, so it donates its share to the quietest, and a declared 72/28 was offered as 57/43 — KETOR half again what Approach had agreed to take. The weights are a statement about where the traffic comes from and the generator may not renegotiate them. The next arrival is also scheduled from when this one was *due* rather than from when it got away, so the flow control states the rate traffic is offered at rather than an optimistic ceiling on it |
-| Where the balance lives | **`Stats.deliveryBankS`, stored rather than derived.** `deliveryTimesS` is trimmed to the few timestamps the rate reads, so folding the ledger back out of it would silently forget it. Being in `Stats` also means the recording carries it for free — `cloneStats` copies the map and `deliveries` already moves with it, so a rebuilt frame slots the stream against the ledger that was actually standing |
+| Where the balance lives | **`Stats.deliveryBankS`, stored rather than derived.** `deliveryTimesS` is trimmed to the few timestamps the rate reads, so folding the ledger back out of it would silently forget it. Being in `Stats` also means the recording carries it for free — `cloneStats` copies the map and `deliveries` already moves with it, so a rebuilt frame slots the stream against the ledger that was actually standing. *Removed 2026-09-14 with the ledger itself; nothing is stored now but the timestamps* |
+
+| Question | Decision (2026-09-12, the full ring) |
+| --- | --- |
+| Why an `annulus` member rather than a `sector` spanning 000 → 360 | **Because that compiles to a wedge of no width.** Every sector branch takes its span as `normalizeHeading(toDeg - fromDeg)` and `normalizeHeading(360)` is 0, so a full turn reads as zero: nothing inside, nothing drawn, nothing clickable. The near-miss version — 000 to 359.999 — is worse than it looks rather than merely ugly, because `radialMarginNm` then returns roughly `range · sin(off)` near due north, so an aircraft within a couple of degrees of north at 150 NM reads as inside `EXIT_WARN_MARGIN_NM` and gets a boundary call it is 150 miles from earning. The member costs seven branches and every one of them is the simpler case |
+| The outer ring at 150 NM | **The radius that spends least on the fixes that exist.** The north is short and the south is long — AKTIV is 72.9 NM out where BISET is 206.4 — so every ring clips some legs in and extends others out, and the only question is which. 150 lands on DARMI (151.3), AROTA (150.3) and EPKOS (150.3), so the three furthest-out southern entries move about a mile between them; VABBS's 160 costs those three nine miles each *and* pushes all four northern gates out 50–87 NM instead of 50–77. That the two fields differ is not a disagreement: a ring and a wedge are picking the radius that suits the legs each actually flies |
+| Stating four fixes as a track and a distance | **Because the chart that carries them publishes no coordinate table**, and one step from an exact anchor is not the chaining that put five gates 9–18° out. AKTIV, EXOLU, BOFIN and OPAKA are each one published leg — a printed magnetic track and distance, VAR 0.75° W so magnetic is true within a degree — back from a fix whose WGS84 position is transcribed. A degree at 40 NM is 0.7 NM, the same order as the flat-frame residual the southern file already documents. It is recorded as a derivation rather than dressed up as a transcription, and `fields/vabbArea/fixes.ts` names the four lines to replace if the supplement's table is ever read for them |
+| Why SUGID's transition became AROTA's | **A leg outside the boundary is the next sector's, not this one's to truncate.** AROTA is 150.25 NM out — a quarter mile outside the ring — and it is a *waypoint* rather than a gate, which `validateScenario` rejects outright. Moving the ring five miles to keep one fix would have cost every other entry, and inventing a position for AROTA was never on the table. So the entry starts at AROTA and runs one straight leg to KETOR, and the cost is honest: the field loses the only entry that turned on its way in. SUGID stays in `fixes.ts` because it is still where that traffic comes from |
+| Where a delivery fix goes | **On the inner arc, as a crossing rather than an inset** (2026-09-12). VABBS stated it as ten miles down each runway transition, which agrees with its boundary at KETOR (60.0 NM out against a 50 NM arc) and not at MOLGO (63.2), so RCMG sat 3.2 NM outside the sector and its route was drawn stopping short of the boundary KETOR's reached. The note defending it said that left the stream "a little run after the fix"; it does not, because `tryDelivery` removes the aircraft at the fix, so those 3.2 miles were flown by nothing. A fixed inset only agrees with a boundary where the fixes happen to share an arc, and Mumbai's five do not. `meetsRange` is the third member of the `clipToRange`/`extendToRange` family — neither of those helps, since `clipToRange` returns its destination untouched the moment the destination is inside the range, which every runway transition's is. Both center fields now put the handoff line and the airspace edge in the same place, and the inset falls out at 10.0 to 13.2 NM |
+| Whether a full ring's agreements are derived the same way | **Yes, and the sum is the point.** The five are VABB's ~30/h cut by VABB's own gate weights, exactly as VABBS's two are — 10, 7, 6, 4, 4. What changes is that they now total 31, which is Mumbai's whole arrival capacity, because this position is the whole of what feeds the field rather than 47 % of it. That is also what makes a center session a complete VABB arrival stream, which §15.0f is about. *The sum turned out to be the point twice over: from 2026-09-14 it is also the interval the sector is graded against* |
+
+| Question | Decision (2026-09-15, the sector windows) — *supersedes the pairwise half of the sector ledger, 2026-09-14* |
+| --- | --- |
+| Whether the sector's agreement is a gap or a rate | **A rate, counted over two windows.** The pairwise check was wrong in the same way the per-gate one had been, one level up: two arrivals reaching an east gate and a west gate in the same second are sixty miles apart on two routes at two published levels, cost Approach nothing at the moment it happens, and meet only at the merge — which is Approach's own job. What the field below cannot absorb is a sustained rate above its runway capacity, and a rate is a count over a window rather than a gap between two aircraft that never see each other. The cross-gate pairwise check is deleted outright |
+| Why two windows rather than one | **Because one cannot do both jobs.** A short cap alone holds no long-run rate — five in six minutes, forever, is thirty an hour — and a long cap alone refuses a burst the field genuinely takes. So six minutes is the lenient rule and twelve is the one that actually bounds the hour |
+| Where the caps come from | **`floor(agreed/h × window / 3600) + slack`, derived per field** from `Scenario.agreedRatePerHour`; the windows and the slacks are rules of the job and live in `constants.ts`. The slack is a whole aircraft because a cap is a count and the only forgiveness a count has is discrete — it is what turns "3.1 an window" into a rule that can be stated to a controller. Two of them on the short window, which is what makes it the lenient rule by construction rather than by having a shorter window. VABBA's 31/h is 5 and 7; VABBS's 14/h is 3 and 3 |
+| What happened to the tolerance | **Gone with the gap, and nothing replaces it: a count cap has no near-miss.** The instant the cap-th most recent delivery falls out of the window is both when the gate opens and when a delivery stops being early, so the clock and the fault line are the same instant and the one-way implication §8.3 used to pin becomes an equivalence the tests assert in both directions. `DELIVERY_GAP_TOLERANCE_FRACTION` and `acceptableGapS` are deleted rather than retuned |
+| Whether the in-trail floor changes | **No, and it is now load-bearing rather than a backstop.** It is the only pairwise rule and the only per-gate one left, and it has to be: a rate over a window says nothing whatever about *where* a delivery went, while two aircraft handed to one fix are on one route at one level. `createScriptedArrival` applies no conflict veto by design (2026-09-12), so the floor is the whole of what stands between a lopsided sector and a replayed session that spawns a pair on top of each other |
+| Where the sector's own series lives | **`Stats.sectorDeliveryTimesS`, trimmed by time to the longest window, and not folded out of `deliveryTimesS`.** Those keep only the last four at each gate, so a gate taking five inside ten minutes would silently drop one still inside the twelve-minute window — the long cap would then under-count on exactly the busiest gate, which is the case it exists for. `deliveryBound` is not even passed the time, because "fewer than cap inside the window" and "the cap-th most recent is more than a window ago" are the same statement: trimming is a memory concern and never a correctness one |
+| Whether a field's flow is retuned | **VABBS from 15 to 14, and the invariant is now a test.** Its strict window caps it at 3 in twelve minutes — 15 an hour, exactly the flow it was offered. At parity the mean is met and nothing more, so a clump can never be paid back; ninety flown minutes do not show it (faults 8–20 and peaks of 6–10 either way, measured), but it is a fail state rather than a puzzle. The flow is set against the *ceiling* now rather than against the agreement: VABBA offers 33 against 35, VABBS 14 against 15. `tests/center.test.ts` asserts that over every center field, which is what caught this |
+
+| Question | Decision (2026-09-14, the sector ledger) — *superseded in part by the sector windows, 2026-09-15* |
+| --- | --- |
+| Whether the agreement binds per gate or per sector | **Per sector, and the gates' rates are its derivation rather than five separate clocks.** What Approach can accept is a runway rate, and each gate's figure is that rate cut by that gate's share — so enforcing the figures independently assumed every *other* gate was simultaneously saturated, which Poisson arrivals never are. A line down one STAR with the others empty was held fifteen minutes an aircraft at RCEK while the sector handed on a third of what the field below had agreed to take: the model was demanding delay from a sector that was under-delivering. Measured on the same three seeded VABBA sessions, an untouched autopilot busts 20–39 deliveries either way, so nothing about the exercise got easier — what changed is that flying it well is now possible |
+| What is left of the per-gate figure | **Three things, none of them a fault line.** The share the traffic is offered in (`arrivalStreams`, §4.4), the scoreboard row reading achieved against that share (§8.3), and the sum that *is* the agreement. The scoreboard rows lose their amber with the rule: a gate above its share while the sector total holds is the case this change exists to allow |
+| Whether anything survives per gate | **Spacing, not rate: `DELIVERY_TRAIL_FLOOR_S`, 180 s.** Two aircraft delivered to one fix are on one route at one level, and the sector total does not express that — at VABBA it is 116 s, well under. Flat seconds rather than miles because the grader has timestamps and the validator already forces one crossing speed per gate; no tolerance and no ledger, because a minimum is not a rate. It caps a fix at 20/h against the ~11/h the busiest is offered, so it bites on a clump and never on the mean |
+| Whether the spacing ledger survives | **No, and its removal is the simplification the change is worth.** The bank existed because the agreement was per gate: a gate left quiet for an hour had to earn credit back, since its own clock was the only clock it had. A quiet sector's clock is already at zero. `nextBankS`, `DELIVERY_BANK_CAP_FRACTION`, `Stats.deliveryBankS`, the balance rolled down the `deliveryPlan` chain and the recorder and playback that carried it are all gone — 47 references across seven files, for no loss of behaviour. What survives is the tolerance, a tenth under, which is also the only bound on the peak rate: 34/h against 31 agreed. *The tolerance went too, on 2026-09-15: a count cap has no near-miss* |
+| Where the total is derived | **On the `Scenario`, in `compileScenario`** — `agreedRatePerHour`, for `arrivalStreams`' reason. A field may not claim an agreement it does not fly, and four call sites summing the same array is four places to drift. Its achieved counterpart keeps the old name `deliveryRatePerHour(world, fixName)`, which is per gate and measured |
+| Whether the arrival flow is retuned | **No — measured first, and it did not need it.** VABBA offers 33/h against 31 agreed and VABBS 15 against 14, and at those margins an untouched session still busts more than half its deliveries. Raising the flow to compensate for a rule that is no longer there would have restored the difficulty by a route §3.2a rejects: the work is Poisson clumping at roughly the agreed rate, not a surplus nothing can absorb |
+
+| Question | Decision (2026-09-12, flying the ledger as Approach) |
+| --- | --- |
+| Where the handover is measured, and where it is committed | **Measured at the fix both fields name, committed when the last fix is crossed.** They are different events and conflating either way is wrong. Measuring at the delivery fix ten miles further in would hide the error the grading is about — an aircraft that reaches MOLGO a thousand feet high and is levelled off by RCMG reads as clean — while committing at the shared fix would hand the field below arrivals that never arrived: an aircraft can pass MOLGO and be vectored back out through 150 NM. So the row is parked on the aircraft at the fix and pushed at the delivery, and `Aircraft.pendingHandoff` is both halves plus the one-shot guard. A hold is excluded outright: the pattern can carry an aircraft across the line, but nobody has been handed anything |
+| Why `isPastFix` and not the route index | **Because sequencing is early by design and the profile is still descending.** `stepStar` moves to the next fix up to 6 NM out so the turn flies as a fly-by; into the shared fix the gradient is ~160 ft/NM, so the index fires where the aircraft is still 80–900 ft above the crossing. Measured at 79.8 ft on a gentle turn, and every clean delivery would then take the "arrived high" branch at the field below and fly a raised run-in nobody was ever given. `isPastFix` exists for exactly this — "a crossing restriction is made good at the fix, so it is released at the fix" — and it was only ever SID-shaped by where it was first needed, so it now takes its route structurally |
+| Whether a scripted release is vetoed or metered | **Neither, and that is the feature.** `trySpawn` has a conflict veto and a gate cooldown because a generated sector must never hand the player a problem it invented. A schedule is not invented — it is a record of what the player did one position earlier — so two handovers twenty seconds apart appear twenty seconds apart, two miles in trail at the same level. Smoothing them would delete the only consequence poor sequencing has ever had, and the whole point of the second session is that the cost is paid downstream by the person who caused it |
+| What an unsequenced arrival inherits | **No route, and a parked one.** An aircraft abandoned across the inner boundary is still handed on, because it physically entered the airspace below and the sector was already charged an `unsequenced` fault for it. It arrives with `star: null` at the position and heading it was left on — but with a `RejoinNav` parked, because `leaveStar` parks one for every other off-route aircraft in the sim and a scripted one arriving with nothing would be the first that `R` could only ever refuse |
+| Why the flow control is disabled rather than hidden | **Because it is off for a reason worth reading.** The replay controls are hidden on the argument that nothing there acts on a recording, so they go rather than sit refusing to work. This is the other case: the control still belongs to the position, and a session where it has simply vanished looks broken. It reads `scripted` and is dimmed, and `SessionSnapshot` carries the flag for `departureQueue`'s reason — displayed, not derivable from a rebuilt frame |
 
 ## 15. Still open
 
@@ -2520,7 +2617,14 @@ None of these blocks play; each is a small, contained change.
    boundary, and it is the boundary that moved. What made it cheap was that **a center field is an
    ordinary `Scenario` whose routes end at a delivery fix instead of at a final-approach platform**,
    so `flyProfile`, the holds, `rejoinTarget` and the merge groups all work unchanged at 160 NM.
-   Still open: the northern sector — EMRAK's, IGBAN's and POKON's transitions.
+   **The northern sector followed on 2026-09-12, and by going round rather than up:**
+   `?airport=VABBA` is the whole ring, 50 to 150 NM at every bearing, flying all twelve transitions
+   into all five gates. Nothing about a route, a hold or a merge changed to do it — what changed is
+   the shape (§15.0c) and the fact that a sector feeding every gate is graded against the receiving
+   field's *whole* capacity, so its five agreements sum to 31 an hour against VABB's ~30. The four
+   northern transitions are the only positions on any field stated as a published track and distance
+   rather than read from a coordinate table, because the chart that carries them publishes no table;
+   `fields/vabbArea/fixes.ts` says so and says what to replace if the table is ever read.
 0a. **A runway in use that can change.** Both fields hard-wire one: RWY 18 and RWY 27. VABB's 09 is
    the other ILS end and would be a second `ScenarioSpec` (`?airport=VABB09`) long before it is worth
    an `activeRunwayId` — a *selection*, and the wind that would justify it, is a further step again.
@@ -2533,6 +2637,36 @@ None of these blocks play; each is a small, contained change.
    origins and converge, so each entry names its own gate *and its own entry crossing*. That second
    half is load-bearing — a 145 NM feed and a 97 NM feed onto one trunk cannot be handed over at the
    same level.
+0f. **~~Flying a finished center session again as Approach.~~** Resolved 2026-09-12. A session at
+   `?airport=VABBA` produces the whole of VABB's arrival flow, so the aircraft it handed on are
+   exactly the aircraft VABB would spawn — at the same five fixes, at the levels and speeds they were
+   actually given rather than the ones the chart asks for. The replay bar offers it in **both** modes:
+   `startReplay()` leaves the live `World` and its ledger untouched, so watching the session back
+   does not forfeit the offer to fly it again. `Scenario.deliversTo` is the whole declaration, an id
+   and not a `Scenario`, and only VABBA sets it — a sector covering two gates of five would script a
+   session missing half its traffic, so VABBS leaves it unset and that *is* the rule.
+   Two of the seams this entry predicted turned out not to be there.
+   **There is no persistence and no reload.** `newSession` already rebuilt the world and the
+   recording together, and the map cache is keyed by `scenario.id`, so all three things A14 binds to
+   a field were being torn down anyway; moving the field with them is a few lines, the ledger never
+   leaves memory, and the airline and type stay the object references they are.
+   **And the capture cannot be triggered off the route index.** `stepStar` sequences up to 6 NM early
+   so the turn flies as a fly-by, and the profile is still descending at ~160 ft/NM into the shared
+   fix — measured, an index-triggered capture recorded 15,080 ft for an aircraft making its 15,000
+   crossing exactly, so *every* clean delivery would have arrived at VABB above VABB's own chart, and
+   an aircraft still in the hold at MOLGO could be captured on the pattern's outbound leg.
+   `isPastFix` is the predicate that exists for this distinction and it is what is used.
+   The capture is in two stages, which is what makes the three rules fall out together: the state is
+   taken at the shared fix and *parked on the aircraft*, and committed only when the last fix is
+   crossed. So a hold is never handed on, and neither is an aircraft that passed the fix and was then
+   vectored back out through the outer boundary. One that crosses the *inner* boundary off its route
+   is handed on deliberately — it physically entered the airspace below — without a route, at the
+   heading and level it was abandoned on, with a `RejoinNav` parked so `R` still has something to
+   offer. `createScriptedArrival` is the sibling of `createArrival` that is handed all this instead of
+   drawing it from the rng, and it applies no conflict veto and no gate cooldown.
+   The ledger is on `World` and not in the recording, for the reason this entry always gave: the
+   recorder keeps a rolling 90 minutes, and a long session has already forgotten its early
+   deliveries — which are the ones an approach session opens on.
 0b. **A per-approach glideslope angle.** 3° is a constant (A17). It is a published per-runway figure,
    along with the antenna offset and threshold crossing height, and would move onto `Runway` the day
    a field needs it.
@@ -2541,7 +2675,12 @@ None of these blocks play; each is a small, contained change.
    contained change it was predicted to be: one branch each in `boundaryMarginNm`,
    `isInsideAirspace`, `boundaryRangeAtBearing`, `clipToAirspace`, `drawBoundary` and `isOnScope`.
    What it cost that was *not* predicted is that the scope could no longer assume the airport is in
-   the middle of its own airspace — hence `Airspace.view`. A general polygon is now a third member.
+   the middle of its own airspace — hence `Airspace.view`. **`annulus` is the third member
+   (2026-09-12) and cost exactly what this entry predicted**: the same six branches, plus
+   `checkSectorExit`, which the wedge got for free because it was the only shape with an inner arc.
+   Every one of the seven is the *simpler* case — a ring has no radials — and the `Airspace.view`
+   lesson paid off immediately in the other direction, since a ring is centred on its own field
+   again. A general polygon is now a fourth.
 0d. **Serialised recordings.** A `Recording` carries its `Scenario`, so it is self-describing, but
    nothing is persisted. If it ever is: a recording whose field is not registered must be *refused*,
    with the reason shown. Never draw a recording against a different chart — the aircraft would be
@@ -2697,6 +2836,13 @@ Selection is held by the *transport*, not written onto the world: a replay frame
 redraw and anything written onto it is thrown away. It is also kept as an intent rather than a
 fact — an aircraft exists for only part of the recording, so scrubbing outside its life leaves the
 sidebar and the path quiet and brings them back rather than deselecting for good.
+
+A center session with a ledger and a `deliversTo` is offered a second way out beside the replay:
+**work the field below**, flying what it handed on (§15.0f). The offer is shown in *both* modes and
+not only the live one, because stopping a session to watch it does not touch the live `World` — so
+the two exits do not forfeit each other, and the natural order, watch it back and then fly it again,
+is available. It is withheld where there is nothing to offer: a field that hands to nobody, an empty
+ledger, and a session that is itself flying a schedule.
 
 ### 17.3 What the replay deliberately does not show
 

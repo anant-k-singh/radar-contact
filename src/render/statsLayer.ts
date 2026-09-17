@@ -7,6 +7,7 @@
  * the projection reserved for them.
  */
 import { DEPARTURE_QUEUE_ALERT, DEPARTURE_QUEUE_WARN } from '../sim/constants.js';
+import { deliveryWindows } from '../sim/delivery.js';
 import type { World } from '../sim/world.js';
 import {
   arrivalRatePerHour,
@@ -75,11 +76,33 @@ function commonRows(world: World): Row[] {
  * An en-route sector's scoreboard: what it handed on, and whether the receiving
  * controller got what was agreed (§8.3).
  *
- * One row per delivery gate, each reading achieved against asked-for, because
- * the agreement is per gate and a pooled figure would let a sector hide a starved
- * stream behind a flooded one. Amber once a stream is running fast — that is the
- * direction that costs somebody something.
+ * `SECTOR /h` is the agreement, because the agreement is the sector's — and it is
+ * free, since at a center field the sink rate *is* the delivery rate, nothing
+ * having landed. It carries the amber: a rate over the total is the one direction
+ * that costs the field below something, and the long window's cap is what "over"
+ * actually means now that no tolerance is left to borrow from.
+ *
+ * The per-gate rows stay underneath it, reading achieved against the share each
+ * was derived from, because a pooled figure alone would let a sector hide a
+ * starved stream behind a flooded one. They carry no tone: a gate running above
+ * its share while the sector total holds is the case this model exists to allow,
+ * and amber there would contradict it on screen.
  */
+function sectorRow(world: World): Row {
+  const agreed = world.scenario.agreedRatePerHour;
+  const achieved = sinkRatePerHour(world);
+  // The strict window's own ceiling — 7 in twelve minutes is 35 an hour against
+  // VABBA's 31 — rather than a fraction over the mean. It is the rate the grader
+  // will actually refuse, so the amber and the faults agree.
+  const strictest = deliveryWindows(agreed).at(-1)!;
+  const ceilingPerHour = (strictest.cap * 3600) / strictest.windowS;
+  return {
+    label: 'SECTOR /h',
+    value: `${achieved === null ? '—' : Math.round(achieved)}/${agreed}`,
+    tone: achieved !== null && achieved > ceilingPerHour ? 'warn' : undefined,
+  };
+}
+
 function centerRows(world: World, msaFt: number | null): Row[] {
   const stats = world.stats;
   const fault = (kind: string): number => stats.deliveryFaults.get(kind) ?? 0;
@@ -87,6 +110,7 @@ function centerRows(world: World, msaFt: number | null): Row[] {
   return [
     { label: 'MSA @ pointer', value: msaFt === null ? '—' : String(msaFt) },
     { label: 'DELIVERED', value: String(stats.deliveries) },
+    sectorRow(world),
     ...world.scenario.delivery.map((gate): Row => {
       const achieved = deliveryRatePerHour(world, gate.fixName);
       return {
@@ -95,10 +119,6 @@ function centerRows(world: World, msaFt: number | null): Row[] {
         // is a comparison, and `13/15/h` reads as a third number.
         label: `${gate.fixName} /h`,
         value: `${achieved === null ? '—' : Math.round(achieved)}/${gate.targetRatePerHour}`,
-        // A tenth over the agreement is inside the noise of a four-minute
-        // interval measured off three gaps; past that the stream is genuinely
-        // running fast.
-        tone: achieved !== null && achieved > gate.targetRatePerHour * 1.1 ? 'warn' : undefined,
       };
     }),
     { label: 'TOO CLOSE', value: String(fault('early')), tone: fault('early') > 0 ? 'bad' : undefined },

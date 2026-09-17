@@ -7,6 +7,7 @@
 import { compileScenario } from './compile.js';
 import { LSGG } from './fields/lsgg/index.js';
 import { VABB } from './fields/vabb/index.js';
+import { VABB_AREA } from './fields/vabbArea/index.js';
 import { VABB_SOUTH } from './fields/vabbSouth/index.js';
 import { ZZZZ } from './fields/zzzz/index.js';
 import type { Scenario } from './types.js';
@@ -16,6 +17,7 @@ export const SCENARIOS: readonly Scenario[] = [
   compileScenario(VABB),
   compileScenario(LSGG),
   compileScenario(VABB_SOUTH),
+  compileScenario(VABB_AREA),
 ];
 
 export const DEFAULT_SCENARIO: Scenario = SCENARIOS[0]!;

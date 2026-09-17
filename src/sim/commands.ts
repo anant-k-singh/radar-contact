@@ -196,10 +196,12 @@ export function toggleHold(world: World, ac: Aircraft): void {
 }
 
 /**
- * Resume the arrival (§4.5a). Three meanings by state, as `H` has: on the route
- * it hands the published profile back, off it and unarmed it arms an intercept
- * of the first leg of any STAR the assigned heading crosses, and off it and
- * armed it cancels.
+ * Resume the arrival (§4.5a). Two meanings by state: on the route it hands the
+ * published profile back, off it it arms an intercept of the first leg of any
+ * STAR the assigned heading crosses. Not a toggle — like the ILS clearance, a
+ * second press is redundant rather than a cancel, and re-arming off the current
+ * assigned heading is what it restates. Only a heading that reaches nothing
+ * disarms one (§6.1c).
  */
 export function resumeArrival(world: World, ac: Aircraft): void {
   if (!guard(world, ac)) return;
@@ -225,19 +227,13 @@ export function resumeArrival(world: World, ac: Aircraft): void {
       return;
     }
     log(world, `${ac.callsign}, resume the ${ac.star.route.name} arrival.`, 'system', [ac.id]);
-    issue(world, ac, { kind: 'rejoin', resume: true });
+    issue(world, ac, { kind: 'rejoin' });
     return;
   }
 
   const rejoin = ac.rejoin;
   if (!rejoin) {
     log(world, `${ac.callsign} unable — no arrival to resume.`, 'alert', [ac.id]);
-    return;
-  }
-
-  if (rejoin.leg !== null) {
-    log(world, `${ac.callsign}, cancel the rejoin, maintain heading.`, 'system', [ac.id]);
-    issue(world, ac, { kind: 'rejoin', resume: false });
     return;
   }
 
@@ -285,7 +281,7 @@ export function resumeArrival(world: World, ac: Aircraft): void {
     'system',
     [ac.id],
   );
-  issue(world, ac, { kind: 'rejoin', resume: true });
+  issue(world, ac, { kind: 'rejoin' });
 }
 
 export function clearForIls(world: World, ac: Aircraft): void {

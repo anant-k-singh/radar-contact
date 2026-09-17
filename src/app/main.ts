@@ -37,6 +37,7 @@ import {
 import { clamp } from '../sim/units.js';
 import { DEFAULT_SCENARIO, SCENARIOS, scenarioById } from '../scenario/registry.js';
 import { validateScenario } from '../scenario/validate.js';
+import { scriptFrom, type Handoff } from '../sim/traffic.js';
 import { createWorld, log, step, type World } from '../sim/world.js';
 
 const params = new URLSearchParams(window.location.search);
@@ -72,22 +73,40 @@ function initialSeed(): number {
   return Number.isFinite(parsed) ? parsed : Math.floor(Math.random() * 2 ** 31);
 }
 
-function start(seed: number, flowPerHour?: number, departureFlowPerHour?: number): World {
-  const created = createWorld(SCENARIO, seed, flowPerHour, departureFlowPerHour);
+/**
+ * The field being flown. Fixed for a `World` and reassigned only where a whole
+ * session is — which is the whole of what A14 ever required: the map cache is
+ * keyed by `scenario.id`, the recording is rebuilt beside the world, and every
+ * route object belongs to the aircraft in the world being discarded. Choosing a
+ * field from the dropdown still reloads, because that is choosing to start over.
+ */
+let field = SCENARIO;
+
+function start(
+  seed: number,
+  flowPerHour?: number,
+  departureFlowPerHour?: number,
+  script?: readonly Handoff[],
+): World {
+  const created = createWorld(field, seed, flowPerHour, departureFlowPerHour, script);
   log(
     created,
-    `${SCENARIO.icao} — session seed ${seed}. Arrivals inbound — good luck.`,
+    `${field.icao} — session seed ${seed}. Arrivals inbound — good luck.`,
     'system',
   );
-  if (unknownAirport) {
-    log(created, `No airport "${requestedAirport}" — flying ${SCENARIO.icao}.`, 'alert');
+  if (unknownAirport && field === SCENARIO) {
+    log(created, `No airport "${requestedAirport}" — flying ${field.icao}.`, 'alert');
   }
   return created;
 }
 
+function randomSeed(): number {
+  return Math.floor(Math.random() * 2 ** 31);
+}
+
 let world = start(initialSeed());
 /** The rolling recording of the live session — memory only, lost on refresh. */
-let recording = createRecording(SCENARIO);
+let recording = createRecording(field);
 /** Non-null once the session has been stopped and its recording is playing. */
 let playback: Playback | null = null;
 /** Whatever was last drawn, which is what a click is hit-tested against. */
@@ -106,9 +125,56 @@ const REPLAY_RENDER: RenderOptions = {
 
 function newSession(): void {
   playback = null;
-  recording = createRecording(SCENARIO);
-  world = start(Math.floor(Math.random() * 2 ** 31), world.flowPerHour, world.departureFlowPerHour);
+  recording = createRecording(field);
+  world = start(randomSeed(), world.flowPerHour, world.departureFlowPerHour);
   viewWorld = world;
+}
+
+/**
+ * Fly what this session handed on, as the field below (§15.0f).
+ *
+ * A field change without a reload, and the only one: the world, the recording
+ * and the map cache all turn over together here, which is exactly the teardown a
+ * reload was standing in for. The flow rates are deliberately *not* carried
+ * across — an arrivals figure means nothing beside a fixed schedule, and a
+ * sector with departures switched off would otherwise open Approach with its
+ * runway idle.
+ */
+function workApproach(): void {
+  const target = world.scenario.deliversTo === null ? null : scenarioById(world.scenario.deliversTo);
+  if (!target || world.handedOn.length === 0) return;
+  const script = scriptFrom(world.handedOn);
+  const from = world.scenario;
+
+  playback = null;
+  field = target;
+  recording = createRecording(field);
+  world = start(randomSeed(), undefined, undefined, script);
+  viewWorld = world;
+  // A pan taken against a 150 NM ring lands nowhere useful on a 60 NM scope.
+  scope.resetZoom();
+
+  // So a reload gives a session at the field on screen rather than the one it
+  // came from. Replaced rather than pushed: this is not somewhere to go back to.
+  const url = new URL(window.location.href);
+  url.searchParams.set('airport', field.id);
+  url.searchParams.delete('seed');
+  window.history.replaceState(null, '', url);
+
+  log(
+    world,
+    `${script.length} arrivals inbound from ${from.name} — the ones you handed on.`,
+    'system',
+  );
+}
+
+/** The offer to work the field below, or null when there is nothing to offer. */
+function approachOffer(): { label: string; count: number } | null {
+  const id = world.scenario.deliversTo;
+  // A session already flying a schedule has no ledger of its own to hand on.
+  if (id === null || world.script !== null || world.handedOn.length === 0) return null;
+  const target = scenarioById(id);
+  return target ? { label: target.icao, count: world.handedOn.length } : null;
 }
 
 const sidebar = createSidebar(sidebarRoot, {
@@ -151,6 +217,7 @@ const replayBar = createReplayBar(replayRoot, {
     playback.selectedId = world.selectedId;
   },
   newSession,
+  workApproach,
 });
 
 const liveController: SessionController = {
@@ -243,7 +310,7 @@ function frame(nowMs: number): void {
       scope.render(world, LIVE_RENDER);
       sidebar.update(world, 'live');
     }
-    replayBar.update(recording, playback);
+    replayBar.update(recording, playback, approachOffer());
     lastRenderMs = nowMs;
   }
 

@@ -495,6 +495,11 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     };
   });
 
+  // Derived here for `arrivalStreams`' reason: a field cannot claim an agreement
+  // it does not fly, and four call sites summing the same array is four places to
+  // drift.
+  const agreedRatePerHour = delivery.reduce((sum, gate) => sum + gate.targetRatePerHour, 0);
+
   const mergeGroups = findMergeGroups(stars);
   const defaultTopFt = Math.max(DEPARTURE_TOP_FT, airspace.ceilingFt + 1000);
   const sids = spec.sids.flatMap((sidSpec) => compileSid(sidSpec, ctx, defaultTopFt));
@@ -505,6 +510,7 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     icao: spec.icao,
     elevationFt: spec.elevationFt,
     role: spec.role ?? 'approach',
+    deliversTo: spec.deliversTo ?? null,
     arp,
     runway,
     inactiveRunways: (spec.inactiveRunways ?? []).map(
@@ -520,6 +526,7 @@ export function compileScenario(spec: ScenarioSpec): Scenario {
     airspace,
     gates,
     delivery,
+    agreedRatePerHour,
     stars,
     sids,
     mergeGroups,

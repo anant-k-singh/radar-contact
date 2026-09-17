@@ -7,7 +7,7 @@
 import { speedFloorKts } from '../sim/commands.js';
 import type { Aircraft } from '../sim/aircraft.js';
 import { isDeparture } from '../sim/aircraft.js';
-import { destinationOf, requiredGapS } from '../sim/delivery.js';
+import { deliveryWindows, destinationOf } from '../sim/delivery.js';
 import { activeSidFix } from '../sim/departure.js';
 import {
   DEPARTURE_FLOW_STEP_PER_HOUR,
@@ -17,6 +17,7 @@ import {
   VS_DISPLAY_STEP_FPM,
   DELIVERY_SHOW_GAIN_S,
   DELIVERY_SHOW_LOSE_S,
+  DELIVERY_TRAIL_FLOOR_S,
 } from '../sim/constants.js';
 import {
   evaluateClearance,
@@ -101,7 +102,7 @@ const template = (scenarios: readonly Scenario[]): string => `
     </dl>
     <dl class="detail center-only">
       <dt>Deliver to</dt><dd data-field="dgate"></dd>
-      <dt>Wanted every</dt><dd data-field="dgap"></dd>
+      <dt>Sector may pass</dt><dd data-field="dgap"></dd>
       <dt>Arrives in</dt><dd data-field="deta"></dd>
       <dt>Sequence</dt><dd data-field="ddeficit"></dd>
     </dl>
@@ -126,9 +127,9 @@ const template = (scenarios: readonly Scenario[]): string => `
     )}
   </div>
   <div class="buttons live-only">
-    <button data-action="flow-down">Arr −</button>
+    <button data-action="flow-down" data-field="flowdown">Arr −</button>
     <span class="flow" data-field="flow"></span>
-    <button data-action="flow-up">Arr +</button>
+    <button data-action="flow-up" data-field="flowup">Arr +</button>
   </div>
   <div class="buttons live-only">
     <button data-action="dep-flow-down">Dep −</button>
@@ -178,7 +179,7 @@ export function createSidebar(
   /**
    * The four rows an area controller actually works from (§8.3).
    *
-   * `Wanted every` is the agreement itself, spelled out per aircraft rather than
+   * `Sector may pass` is the agreement itself, spelled out per aircraft rather than
    * left to be inferred from a rate in the gutter — it is the number the whole
    * job is measured against, and a player who has to divide 3600 by it before
    * every decision is being asked to do arithmetic instead of control.
@@ -191,7 +192,15 @@ export function createSidebar(
     const slot = world.deliverySlots.get(ac.id);
     const gate = world.scenario.delivery.find((entry) => entry.fixName === destinationOf(ac));
     set('dgate', gate ? gate.fixName : '—');
-    set('dgap', gate ? `${minutesText(requiredGapS(gate))}  (${gate.targetRatePerHour}/h)` : '—');
+    const windows = deliveryWindows(world.scenario.agreedRatePerHour)
+      .map((w) => `${w.cap} in ${w.windowS / 60} min`)
+      .join(' · ');
+    set(
+      'dgap',
+      gate
+        ? `${windows}  (${world.scenario.agreedRatePerHour}/h, ${minutesText(DELIVERY_TRAIL_FLOOR_S)} in trail)`
+        : '—',
+    );
     set('deta', slot ? minutesText(slot.etaS - world.timeS) : '—');
     if (!slot) {
       set('ddeficit', '—');
@@ -269,7 +278,16 @@ export function createSidebar(
         if (brand.firstChild?.textContent !== title) brand.firstChild!.textContent = title;
       }
       set('clock', clockText(world.timeS));
-      set('flow', `${world.flowPerHour}/h`);
+      // A scripted session flies a record of what was handed to it, so there is
+      // no rate to ask for (§15.0f). Disabled and still shown, rather than hidden
+      // the way the replay controls are: the control is absent for a reason, and
+      // the reason is worth reading.
+      const scripted = world.script !== null;
+      set('flow', scripted ? 'scripted' : `${world.flowPerHour}/h`);
+      for (const name of ['flowdown', 'flowup']) {
+        const button = fields.get(name) as HTMLButtonElement | undefined;
+        if (button && button.disabled !== scripted) button.disabled = scripted;
+      }
       set('depflow', world.departureFlowPerHour === 0 ? 'off' : `${world.departureFlowPerHour}/h`);
 
       const ac = selectedAircraft(world);
